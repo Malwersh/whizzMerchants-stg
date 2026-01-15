@@ -1,0 +1,15 @@
+{
+    "name": "discount-management-handler",
+    "version": "1.0.0",
+    "description": "Lambda handler for discount management operations",
+    "main": "discount_management_handler.js",
+    "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.0.0",
+        "@aws-sdk/lib-dynamodb": "^3.0.0",
+        "@aws-sdk/client-cognito-identity-provider": "^3.0.0",
+        "uuid": "^10.0.0"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

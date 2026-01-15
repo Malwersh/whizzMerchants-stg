@@ -1,0 +1,539 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../orders_page.dart';
+import '../products_management_screen.dart';
+import '../analytics_page.dart';
+import '../discount_management_page.dart';
+import '../profile_settings_page.dart';
+import '../../models/business.dart';
+import '../../models/order.dart';
+import '../../services/order_service.dart';
+import '../../services/app_state.dart';
+import '../../services/api_service.dart';
+import '../../providers/session_provider.dart';
+import '../../providers/business_provider.dart';
+import '../../widgets/modern_navigation_rail.dart';
+import '../../widgets/top_app_bar.dart';
+import '../../widgets/modern_sidebar.dart';
+import '../../utils/responsive_helper.dart';
+import 'package:whizz_merchants/l10n/app_localizations.dart';
+import '../../core/design_system/design_system.dart';
+import '../../core/adaptive/adaptive_widgets.dart';
+import '../../core/exceptions/auth_exceptions.dart';
+import '../../services/token_refresh_service.dart';
+
+class BusinessDashboard extends ConsumerStatefulWidget {
+  final Business? initialBusiness;
+
+  const BusinessDashboard({
+    super.key,
+    this.initialBusiness,
+  });
+
+  @override
+  ConsumerState<BusinessDashboard> createState() => _BusinessDashboardState();
+}
+
+class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
+    with TickerProviderStateMixin {
+  int _selectedIndex = 0;
+  bool _isOnline = true;
+  List<Order> _orders = [];
+  bool _loadingOrders = false;
+
+  final OrderService _orderService = OrderService();
+  final AppState _appState = AppState();
+
+  @override
+  void initState() {
+    super.initState();
+    _appState.addListener(_onAppStateChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _appState.removeListener(_onAppStateChanged);
+    super.dispose();
+  }
+
+  void _onAppStateChanged() {
+    if (mounted) {
+      setState(() {
+        // Sync local _isOnline with AppState.isOnline to ensure sidebar shows correct status
+        _isOnline = _appState.isOnline;
+      });
+    }
+  }
+
+  Future<void> _initializeData() async {
+    final session = ref.read(sessionProvider);
+    if (session.isAuthenticated && session.businessId != null) {
+      // Initialize online status from database to get the real current value
+      await _appState.initializeOnlineStatusFromDatabase(session.businessId!);
+      await _loadOrders();
+    }
+  }
+
+  Future<void> _loadOrders() async {
+    if (_loadingOrders) return;
+
+    final session = ref.read(sessionProvider);
+    if (!session.isAuthenticated || session.businessId == null) return;
+
+    setState(() {
+      _loadingOrders = true;
+    });
+
+    try {
+      final orders = await _orderService.getMerchantOrders(session.businessId!);
+      if (mounted) {
+        setState(() {
+          _orders = orders;
+        });
+      }
+    } on AuthTokenExpiredException catch (e) {
+      await _handleAuthFailure('Loading orders (token expired)', e);
+    } on UnauthorizedException catch (e) {
+      await _handleAuthFailure('Loading orders (unauthorized)', e);
+    } catch (e) {
+      // Handle other errors (network, server, etc.)
+      debugPrint('❌ Failed to load orders: $e');
+      if (mounted) {
+        showAdaptiveSnackBar(
+          context: context,
+          message: AppLocalizations.of(context)!.failedToLoadOrdersPullToRetry,
+          type: AdaptiveSnackBarType.error,
+          duration: const Duration(seconds: 4),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingOrders = false;
+        });
+      }
+    }
+  }
+
+  void _onNavigate(int index) async {
+    // 🔧 التحقق من صلاحية الجلسة عند تغيير التبويب
+    debugPrint('🔄 Tab changed to index: $index - validating session...');
+    final sessionNotifier = ref.read(sessionProvider.notifier);
+    await sessionNotifier.onAppResumed();
+    
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  /// Toggle online/offline status and update backend
+  Future<void> _toggleOnlineStatus(bool isOnline) async {
+    try {
+      // Get current session data
+      final session = ref.read(sessionProvider);
+      if (!session.isAuthenticated || session.businessId == null) {
+        _showSessionExpiredSnack();
+        return;
+      }
+
+      // Create API service instance
+      final apiService = ApiService();
+      
+      // Get current user info
+      final user = await apiService.getMerchantDetails();
+      
+      // Call API to update online status
+      await apiService.updateBusinessOnlineStatus(
+        session.businessId!,
+        user.id,
+        isOnline,
+      );
+
+      // Update local state
+      setState(() {
+        _isOnline = isOnline;
+      });
+      
+      // Update AppState
+      _appState.updateOnlineStatus(isOnline);
+
+      // Show success message
+      if (!mounted) return;
+      showAdaptiveSnackBar(
+        context: context,
+        message: isOnline
+            ? AppLocalizations.of(context)!.businessNowOnline
+            : AppLocalizations.of(context)!.businessNowOffline,
+        type: isOnline
+            ? AdaptiveSnackBarType.success
+            : AdaptiveSnackBarType.warning,
+        duration: const Duration(seconds: 2),
+      );
+
+    } on AuthTokenExpiredException catch (e) {
+      await _handleAuthFailure('Toggling online status (token expired)', e);
+    } on UnauthorizedException catch (e) {
+      await _handleAuthFailure('Toggling online status (unauthorized)', e);
+    } catch (error) {
+      debugPrint('❌ Toggle status error: $error');
+      
+      // Show error message
+      if (!mounted) return;
+      showAdaptiveSnackBar(
+        context: context,
+        message: AppLocalizations.of(context)!
+            .failedToUpdateRestaurantStatus(error.toString()),
+        type: AdaptiveSnackBarType.error,
+        duration: const Duration(seconds: 3),
+      );
+    }
+  }
+
+  /// Show return order feature message
+  void _showReturnOrderFeature(BuildContext context) {
+    showAdaptiveSnackBar(
+      context: context,
+      message: AppLocalizations.of(context)!.returnOrdersFeatureComingSoon,
+      type: AdaptiveSnackBarType.info,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  void _onOrderUpdated(String orderId, OrderStatus newStatus) {
+    setState(() {
+      final orderIndex = _orders.indexWhere((o) => o.id == orderId);
+      if (orderIndex != -1) {
+        _orders[orderIndex] = _orders[orderIndex].copyWith(status: newStatus);
+      }
+    });
+  }
+
+  Future<void> _handleAuthFailure(String action, Object e) async {
+    debugPrint('❌ $action auth failure: $e');
+    debugPrint('❌ Error type: ${e.runtimeType}');
+
+    // Only treat explicit auth exceptions as auth failures
+    final msg = e.toString();
+    final isAuth = e is UnauthorizedException ||
+        e is AuthTokenExpiredException ||
+        msg.contains('401') ||
+        msg.contains('Unauthorized');
+    if (!isAuth) {
+      debugPrint('ℹ️ Non-auth error, NOT clearing session');
+      showAdaptiveSnackBar(
+        context: context,
+        message: 'Temporary error: ${msg.split('\n').first}',
+        type: AdaptiveSnackBarType.warning,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    try {
+      debugPrint('🔄 Attempting token refresh before clearing session...');
+      final refreshResult = await TokenRefreshService.refreshTokens();
+      if (refreshResult != null &&
+          (refreshResult['idToken']?.isNotEmpty == true)) {
+        debugPrint('✅ Token refresh successful, keeping session active');
+        showAdaptiveSnackBar(
+          context: context,
+          message: 'Session refreshed',
+          type: AdaptiveSnackBarType.info,
+          duration: const Duration(seconds: 2),
+        );
+        return;
+      }
+    } catch (refreshError) {
+      debugPrint('❌ Token refresh failed: $refreshError');
+    }
+
+    debugPrint('🧹 Clearing session after auth failure');
+    ref.read(sessionProvider.notifier).clearSession();
+    _showSessionExpiredSnack();
+  }
+
+  void _showSessionExpiredSnack() {
+    if (!mounted) return;
+    showAdaptiveSnackBar(
+      context: context,
+      message: AppLocalizations.of(context)!.sessionExpiredPleaseLoginAgain,
+      type: AdaptiveSnackBarType.error,
+      duration: const Duration(seconds: 4),
+    );
+  }
+
+  Widget _buildDashboardBody(Business business) {
+    switch (_selectedIndex) {
+            case 0:
+        return OrdersPage(businessId: business.id);
+      case 1:
+        return ProductsManagementScreen(business: business);
+      case 2:
+        return AnalyticsPage(
+          business: business,
+          orders: _orders,
+          onNavigateToOrders: () => _onNavigate(0),
+          onOrderUpdated: _onOrderUpdated,
+        );
+      case 3:
+        return DiscountManagementPage(
+          business: business,
+          orders: _orders,
+          onNavigateToOrders: () => _onNavigate(0),
+          onOrderUpdated: _onOrderUpdated,
+        );
+      case 4:
+        return ProfileSettingsPage(
+          business: business,
+          orders: _orders,
+        );
+      default:
+        return OrdersPage(businessId: business.id);
+    }
+  }
+
+  Widget _buildMobileLayout(Business business) {
+    return Scaffold(
+      appBar: TopAppBar(
+        title: business.name,
+        isOnline: _isOnline,
+        onToggleStatus: (value) async => await _toggleOnlineStatus(value),
+        onReturnOrder: () => _showReturnOrderFeature(context),
+        onNavigate: (index) => _onNavigate(index),
+        isLoading: _loadingOrders,
+      ),
+      body: _buildDashboardBody(business),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: WhizzColors.white,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context)
+                  .colorScheme
+                  .secondary
+                  .withOpacity(0.1),
+              width: 2,
+            ),
+          ),
+        ),
+        child: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: _selectedIndex,
+          onTap: _onNavigate,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          selectedItemColor: WhizzColors.secondary,
+          unselectedItemColor: WhizzColors.grey600,
+          showSelectedLabels: false,
+          showUnselectedLabels: false,
+          items: [
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.shopping_bag_outlined,
+                color: _selectedIndex == 0
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              activeIcon: Icon(
+                Icons.shopping_bag_outlined,
+                color: _selectedIndex == 0
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              label: '',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.inventory_2_outlined,
+                color: _selectedIndex == 1
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              activeIcon: Icon(
+                Icons.inventory_2_outlined,
+                color: _selectedIndex == 1
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              label: '',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.analytics_outlined,
+                color: _selectedIndex == 2
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              activeIcon: Icon(
+                Icons.analytics_outlined,
+                color: _selectedIndex == 2
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              label: '',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.local_offer_outlined,
+                color: _selectedIndex == 3
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              activeIcon: Icon(
+                Icons.local_offer_outlined,
+                color: _selectedIndex == 3
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              label: '',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.settings_outlined,
+                color: _selectedIndex == 4
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              activeIcon: Icon(
+                Icons.settings_outlined,
+                color: _selectedIndex == 4
+                    ? WhizzColors.primary
+                    : WhizzColors.secondary,
+              ),
+              label: '',
+            ),
+          ],
+        ),
+      ),
+      // Removed endDrawer as we now have toggle in AppBar
+    );
+  }
+
+  Widget _buildTabletLayout(Business business) {
+    return Scaffold(
+      body: Row(
+        children: [
+          ModernNavigationRail(
+            selectedIndex: _selectedIndex,
+            onNavigate: _onNavigate,
+            isOnline: _isOnline,
+            // Removed onToggleStatus - no toggle functionality
+          ),
+          Expanded(
+            child: _buildDashboardBody(business),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(Business business) {
+    return Scaffold(
+      body: Row(
+        children: [
+          ModernSidebar(
+            isOnline: _isOnline,
+            // Removed onToggleStatus - no toggle functionality
+            onReturnOrder: () {},
+            onNavigate: _onNavigate,
+            onClose: () {},
+          ),
+          Expanded(
+            child: _buildDashboardBody(business),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final businessAsync = ref.watch(businessProvider);
+
+    return businessAsync.when(
+      data: (business) {
+        if (business == null) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.business,
+                    size: AppDimensions.iconSizeXL,
+                    color: WhizzColors.onSurfaceVariant,
+                  ),
+                  SizedBox(height: AppSpacing.md),
+                  Text(
+                    AppLocalizations.of(context)!.noBusinessFound,
+                    style: AppTypography.headlineSmall.copyWith(
+                      color: WhizzColors.onSurfaceVariant,
+                        ),
+                  ),
+                  SizedBox(height: AppSpacing.sm),
+                  Text(
+                    AppLocalizations.of(context)!.contactSupport,
+                    style: AppTypography.bodyMedium.copyWith(
+                      color: WhizzColors.textSecondary,
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return ResponsiveHelper.isMobile(context)
+            ? _buildMobileLayout(business)
+            : ResponsiveHelper.isTablet(context)
+                ? _buildTabletLayout(business)
+                : _buildDesktopLayout(business);
+      },
+      loading: () => const Scaffold(
+        body: Center(
+          child: AdaptiveLoadingIndicator(),
+        ),
+      ),
+      error: (error, stack) => Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: AppDimensions.iconSizeXL,
+                color: WhizzColors.error,
+              ),
+              SizedBox(height: AppSpacing.md),
+              Text(
+                AppLocalizations.of(context)!.error,
+                style: AppTypography.headlineSmall.copyWith(
+                  color: WhizzColors.error,
+                    ),
+              ),
+              SizedBox(height: AppSpacing.sm),
+              Text(
+                error.toString(),
+                style: AppTypography.bodyMedium.copyWith(
+                  color: WhizzColors.onSurfaceVariant,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: AppSpacing.md),
+              ElevatedButton(
+                onPressed: () => ref.invalidate(businessProvider),
+                child: Text(AppLocalizations.of(context)!.retry),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

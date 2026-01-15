@@ -1,0 +1,15 @@
+{
+  "name": "business-handlers",
+  "version": "1.0.0",
+  "description": "Business management handlers for Order Receiver API",
+  "main": "location_settings_handler.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.0.0",
+    "jsonwebtoken": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

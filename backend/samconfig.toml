@@ -1,0 +1,27 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "Wizz-Merchants-staging"
+resolve_s3 = true
+s3_prefix = "Wizz-Merchants-staging"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+profile = "Wizz_stg_UserApp"
+# NOTE: Do not hardcode dev Cognito/WebSocket values in staging.
+# Provide real staging values at deploy-time or add a [staging.deploy.parameters] block.
+parameter_overrides = "Stage=\"staging\""
+image_repositories = []
+
+[staging.deploy.parameters]
+stack_name = "Wizz-Merchants-staging"
+resolve_s3 = true
+s3_prefix = "Wizz-Merchants-staging"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+profile = "Wizz_stg_UserApp"
+parameter_overrides = "Stage=\"staging\""
+image_repositories = []

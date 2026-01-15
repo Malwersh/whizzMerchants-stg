@@ -1,0 +1,12 @@
+{
+  "name": "whizz-merchants-orders",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.x",
+    "@aws-sdk/client-cloudwatch": "^3.x",
+    "@aws-sdk/client-dynamodb": "^3.x",
+    "@aws-sdk/client-sns": "^3.x",
+    "@aws-sdk/lib-dynamodb": "^3.x"
+  }
+}

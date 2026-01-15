@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hadhir Business</string>
+    
+    <!-- Firebase Cloud Messaging -->
+    <string name="default_notification_channel_id">hadhir_business_notifications</string>
+    <string name="default_notification_channel_name">Business Notifications</string>
+    <string name="default_notification_channel_description">Notifications for orders, promotions, and alerts</string>
+</resources>

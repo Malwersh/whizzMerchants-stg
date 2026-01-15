@@ -1,0 +1,52 @@
+# Flutter/Dart
+frontend/.dart_tool/
+frontend/.packages
+frontend/build/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/pubspec.lock
+
+# iOS
+frontend/ios/Pods/
+frontend/ios/.symlinks/
+frontend/ios/Flutter/Flutter.framework
+frontend/ios/Flutter/Flutter.podspec
+frontend/ios/.generated/
+frontend/ios/Runner.xcworkspace/xcuserdata/
+frontend/ios/Runner.xcodeproj/xcuserdata/
+
+# Android
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/local.properties
+frontend/android/.idea/
+
+# Backend
+backend/node_modules/
+backend/.aws-sam/
+backend/.serverless/
+backend/package-lock.json
+backend/.env
+backend/.tmp/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+**/secrets/
+**/credentials/
+**/*-key.json
+firebase-admin-key.json

@@ -1,0 +1,60 @@
+# General
+.DS_Store
+*.log
+*.swo
+*.swp
+.idea/
+*.iml
+
+# Environment variables (DO NOT COMMIT)
+.env
+.env.*
+config/.env.*
+
+# Firebase Service Account (DO NOT COMMIT)
+service-account-key.json
+**/service-account-key.json
+
+# Python
+backend/venv/
+backend/__pycache__/
+*.pyc
+
+# Flutter
+/frontend/build/
+/frontend/.dart_tool/
+/frontend/.flutter-plugins
+/frontend/.flutter-plugin-dependencies
+/frontend/.pub-cache/
+/frontend/build/
+/frontend/ios/Pods/
+/frontend/ios/Flutter/ephemeral/
+/frontend/ios/Flutter/app.framework
+/frontend/ios/Flutter/engine.framework
+/frontend/ios/Flutter/flutter_assets/
+/frontend/ios/.symlinks/
+/frontend/ios/Runner/GeneratedPluginRegistrant.h
+/frontend/ios/Runner/GeneratedPluginRegistrant.m
+/frontend/ios/Runner/GeneratedPluginRegistrant-Debug.h
+/frontend/ios/Runner/GeneratedPluginRegistrant-Debug.m
+/frontend/ios/Runner/GeneratedPluginRegistrant-Profile.h
+/frontend/ios/Runner/GeneratedPluginRegistrant-Profile.m
+/frontend/ios/Runner/GeneratedPluginRegistrant-Release.h
+/frontend/ios/Runner/GeneratedPluginRegistrant-Release.m
+/frontend/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+/frontend/android/.gradle/
+/frontend/android/app/build/
+/frontend/android/build/
+/frontend/android/key.properties
+/frontend/build/
+/frontend/.pub/
+/frontend/.idea/
+/frontend/pubspec.lock
+
+# App Store preparation files
+analysis_output.txt
+outdated_packages.txt
+test_output.txt
+build_output.txt
+CLEANUP_SUMMARY.txt
+

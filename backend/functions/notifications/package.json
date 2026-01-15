@@ -1,0 +1,10 @@
+{
+  "name": "whizz-merchants-notifications",
+  "version": "1.0.0",
+  "description": "Push notification management for Whizz Merchants",
+  "main": "register-device-token.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0"
+  }
+}

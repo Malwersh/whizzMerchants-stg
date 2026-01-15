@@ -1,0 +1,10 @@
+{
+  "ORDERS_TABLE": "WhizzOrders",
+  "MERCHANT_ENDPOINTS_TABLE": "order-receiver-merchant-endpoints-dev",
+  "DEVICE_TOKENS_TABLE": "WhizzMerchants_DeviceTokens",
+  "WEBSOCKET_CONNECTIONS_TABLE": "WebSocketConnections",
+  "TIMEOUT_LOGS_TABLE": "TimeoutLogs",
+  "CENTRAL_PLATFORM_WEBHOOK_URL": "https://your-central-platform-api.example.com/webhooks/merchant-status",
+  "METRICS_NAMESPACE": "WhizzMerchants",
+  "AWS_REGION": "us-east-1"
+}

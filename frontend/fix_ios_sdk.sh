@@ -1,0 +1,46 @@
+#!/bin/bash
+
+echo "🔧 iOS SDK Missing - Quick Fix Guide"
+echo "======================================"
+echo ""
+echo "Your iPhone is running iOS 18.1, but Xcode doesn't have that SDK."
+echo ""
+echo "OPTION 1: Install iOS 18.1 SDK in Xcode (Recommended)"
+echo "------------------------------------------------------"
+echo "1. Open Xcode"
+echo "2. Go to: Xcode > Settings (or Preferences)"
+echo "3. Click: Platforms (or Components)"
+echo "4. Find and install: iOS 18.1"
+echo "5. Wait for download to complete (may take 10-30 minutes)"
+echo ""
+echo "OPTION 2: Use iOS Simulator (Quick Test)"
+echo "-----------------------------------------"
+echo "Run on a simulator instead:"
+echo "  flutter run -d 'iPhone 15 Pro'"
+echo ""
+echo "OPTION 3: Lower iOS Deployment Target (Workaround)"
+echo "---------------------------------------------------"
+echo "Modify ios/Podfile to target an older iOS version:"
+echo ""
+echo "Current check shows your Xcode likely supports iOS 15.0-17.x"
+echo ""
+echo "Let's check what iOS SDKs you have installed..."
+echo ""
+
+# Check installed iOS SDKs
+if command -v xcodebuild &> /dev/null; then
+    echo "📱 Available iOS SDKs:"
+    xcodebuild -showsdks | grep "iOS" || echo "No iOS SDKs found"
+    echo ""
+    
+    echo "📲 Available Simulators:"
+    xcrun simctl list devices available | grep "iPhone" | head -5 || echo "No simulators found"
+    echo ""
+fi
+
+echo "🎯 QUICK ACTION:"
+echo ""
+echo "To proceed immediately, run on simulator:"
+echo "  flutter run"
+echo ""
+echo "Or install iOS 18.1 SDK via Xcode Settings > Platforms"

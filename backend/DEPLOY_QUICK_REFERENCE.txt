@@ -1,0 +1,93 @@
+╔════════════════════════════════════════════════════════════════╗
+║       DELETE ACCOUNT - SEPARATE STACK QUICK DEPLOY             ║
+╚════════════════════════════════════════════════════════════════╝
+
+┌─ QUICK START ──────────────────────────────────────────────────┐
+│                                                                 │
+│  cd backend                                                     │
+│  ./deploy-delete-account.sh                                    │
+│                                                                 │
+│  That's it! ✅                                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ WHAT THIS CREATES ────────────────────────────────────────────┐
+│                                                                 │
+│  Stack Name:  whizz-merchants-delete-account-<stage>          │
+│  Region:      us-east-1                                        │
+│  Resources:                                                     │
+│    • API Gateway (regional)                                    │
+│    • Lambda Function                                           │
+│    • IAM Roles                                                 │
+│                                                                 │
+│  ✅ NO CONFLICTS with main stack                               │
+│  ✅ NO IMPACT on teammate's work                               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ AFTER DEPLOYMENT ─────────────────────────────────────────────┐
+│                                                                 │
+│  1. Get API URL from CloudFormation outputs                    │
+│  2. Update Flutter app base URL (if needed)                    │
+│  3. Test with a test account (do not commit credentials)       │
+│                                                                 │
+│  API Endpoint:                                                  │
+│  DELETE /businesses/{businessId}                               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ MONITORING ───────────────────────────────────────────────────┐
+│                                                                 │
+│  View Logs:                                                     │
+│  aws logs tail /aws/lambda/whizz-merchants-delete-account-<stage> \│
+│    --follow                                                     │
+│                                                                 │
+│  Check Stack:                                                   │
+│  aws cloudformation describe-stacks \                          │
+│    --stack-name whizz-merchants-delete-account-<stage> \       │
+│    --region us-east-1                                          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ ROLLBACK (IF NEEDED) ─────────────────────────────────────────┐
+│                                                                 │
+│  aws cloudformation delete-stack \                             │
+│    --stack-name whizz-merchants-delete-account-<stage> \       │
+│    --region us-east-1                                          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ FILES CREATED ────────────────────────────────────────────────┐
+│                                                                 │
+│  backend/                                                       │
+│    ├── template-delete-account.yaml    (SAM template)         │
+│    ├── deploy-delete-account.sh        (deploy script)        │
+│    ├── DELETE_ACCOUNT_DEPLOYMENT.md    (full guide)           │
+│    └── DEPLOY_QUICK_REFERENCE.txt      (this file)            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ WHY SEPARATE STACK? ──────────────────────────────────────────┐
+│                                                                 │
+│  • No conflicts with main template.yaml                        │
+│  • Teammate can work without interference                      │
+│  • Independent deployment schedule                             │
+│  • Easy to test and rollback                                   │
+│  • Clean separation of concerns                                │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ FEATURES INCLUDED ────────────────────────────────────────────┐
+│                                                                 │
+│  ✅ Password verification with Cognito                         │
+│  ✅ Deletes user from Cognito                                  │
+│  ✅ Deletes business data                                      │
+│  ✅ Deletes products                                           │
+│  ✅ Deletes discounts                                          │
+│  ✅ Deletes business settings                                  │
+│  ✅ Deletes working hours                                      │
+│  ✅ PRESERVES categories (shared resource)                     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+Need help? Check DELETE_ACCOUNT_DEPLOYMENT.md for full guide.

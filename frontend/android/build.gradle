@@ -1,0 +1,5 @@
+// Removed allprojects block - repositories are now in settings.gradle
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

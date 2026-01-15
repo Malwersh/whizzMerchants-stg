@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: WhizzMerchants Delete Account Feature - Separate Stack (No Conflicts)
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Deployment stage
+  CognitoUserPoolId:
+    Type: String
+    Default: us-east-1_PHPkG78b5
+    Description: Cognito User Pool ID
+  CognitoClientId:
+    Type: String
+    Default: 1tl9g7nk2k2chtj5fg960fgdth
+    Description: Cognito App Client ID
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    MemorySize: 512
+    Timeout: 60
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Stage
+        USERS_TABLE: WhizzMerchants_Users
+        BUSINESSES_TABLE: WhizzMerchants_Businesses
+        PRODUCTS_TABLE: WhizzMerchants_Products
+        CATEGORIES_TABLE: WhizzMerchants_Categories
+        DISCOUNTS_TABLE: WhizzMerchants_Discounts
+        BUSINESS_SETTINGS_TABLE: WhizzMerchants_BusinessSettings
+        BUSINESS_WORKING_HOURS_TABLE: WhizzMerchants_BusinessWorkingHours
+        COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+        COGNITO_CLIENT_ID: !Ref CognitoClientId
+        COGNITO_REGION: !Ref AWS::Region
+        DYNAMODB_REGION: !Ref AWS::Region
+    Tracing: Active
+
+Resources:
+  # API Gateway for Delete Account
+  DeleteAccountApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "whizz-merchants-delete-account-${Stage}"
+      StageName: !Ref Stage
+      EndpointConfiguration:
+        Type: REGIONAL
+      TracingEnabled: true
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'DELETE,OPTIONS'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+
+  # Delete Business Lambda Function
+  DeleteBusinessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'whizz-merchants-delete-account-${Stage}'
+      CodeUri: functions/business/
+      Handler: delete_business_handler.handler
+      Timeout: 60
+      Events:
+        DeleteBusinessApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref DeleteAccountApi
+            Path: /businesses/{businessId}
+            Method: DELETE
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            # DynamoDB Permissions
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource: 
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Users"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Users/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Products"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Products/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Categories"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Categories/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Discounts"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Discounts/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_BusinessSettings"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_BusinessSettings/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_BusinessWorkingHours"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_BusinessWorkingHours/index/*"
+            # Cognito Permissions (for password verification and user deletion)
+            - Effect: Allow
+              Action:
+                - cognito-idp:GetUser
+                - cognito-idp:AdminDeleteUser
+                - cognito-idp:AdminInitiateAuth
+                - cognito-idp:InitiateAuth
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+
+Outputs:
+  DeleteAccountApiUrl:
+    Description: API Gateway endpoint URL for Delete Account feature
+    Value: !Sub "https://${DeleteAccountApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiUrl"
+  
+  DeleteBusinessFunctionArn:
+    Description: ARN of the Delete Business Lambda Function
+    Value: !GetAtt DeleteBusinessFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionArn"
+  
+  ApiId:
+    Description: API Gateway ID
+    Value: !Ref DeleteAccountApi
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiId"

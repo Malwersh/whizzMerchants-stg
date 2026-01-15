@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: WhizzMerchants Push Notifications Stack - Device Token Registration
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Deployment stage
+
+Resources:
+  # Device Tokens Table
+  DeviceTokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: WhizzMerchants_DeviceTokens
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: tokenId
+          AttributeType: S
+        - AttributeName: merchantId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: tokenId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: MerchantDeviceIndex
+          KeySchema:
+            - AttributeName: merchantId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Service
+          Value: WhizzMerchants
+        - Key: Purpose
+          Value: push-notifications
+
+  # Register Device Token Function
+  RegisterDeviceTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'whizz-merchants-${Stage}-register-device-token'
+      CodeUri: ../functions/notifications/
+      Handler: register-device-token.handler
+      Runtime: nodejs20.x
+      MemorySize: 512
+      Timeout: 29
+      Environment:
+        Variables:
+          DEVICE_TOKENS_TABLE: !Ref DeviceTokensTable
+          ENVIRONMENT: !Ref Stage
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt DeviceTokensTable.Arn
+                - !Sub "${DeviceTokensTable.Arn}/index/*"
+
+  # Lambda Permission for API Gateway Invoke
+  RegisterDeviceTokenFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RegisterDeviceTokenFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/*"
+
+Outputs:
+  DeviceTokensTableName:
+    Description: "Device Tokens DynamoDB Table Name"
+    Value: !Ref DeviceTokensTable
+    Export:
+      Name: !Sub "${AWS::StackName}-DeviceTokensTable"
+  
+  RegisterDeviceTokenFunctionArn:
+    Description: "Register Device Token Lambda Function ARN"
+    Value: !GetAtt RegisterDeviceTokenFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RegisterDeviceTokenFunctionArn"
+  
+  RegisterDeviceTokenFunctionName:
+    Description: "Register Device Token Lambda Function Name"
+    Value: !Ref RegisterDeviceTokenFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-RegisterDeviceTokenFunctionName"

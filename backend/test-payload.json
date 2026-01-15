@@ -1,0 +1,6 @@
+{
+  "body": "{\"merchantId\":\"MERCHANT_TEST_001\",\"deviceToken\":\"d_GLrywGwUIWkZdKLWrJeV:APA91bFs-ne4AVaIReDw3Zxv5m0k0Fg_q1-ppsDESdAm4plHGT8zTOndM-v-31yC6N9torBVCxFsuUII2PNEoBqT0greC326MfWWCHdjYU2c_7HafwzdrrM\",\"platform\":\"ios\",\"deviceId\":\"00008110-001C79140284801E\",\"appVersion\":\"1.0.0\",\"isActive\":true}",
+  "pathParameters": {
+    "merchantId": "MERCHANT_TEST_001"
+  }
+}
