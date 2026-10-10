@@ -133,6 +133,25 @@ class ProductService {
     }
   }
 
+  /// Search the shared global catalog (products other merchants already added).
+  /// Picking a result reuses its name/image so the merchant only sets a price.
+  static Future<List<Map<String, dynamic>>> searchGlobalCatalog(
+      String query) async {
+    final q = query.trim();
+    if (q.length < 2) return [];
+    try {
+      final uri = Uri.parse('$baseUrl/products/global-search')
+          .replace(queryParameters: {'q': q});
+      final response = await _resilientGet(uri);
+      if (response.statusCode != 200) return [];
+      final data = _safeDecode(response.body);
+      return List<Map<String, dynamic>>.from(data['products'] ?? []);
+    } catch (e) {
+      AppLogger.error('[ProductService] Global catalog search failed: $e');
+      return [];
+    }
+  }
+
   /// Create a new product (resilient auth)
   static Future<Map<String, dynamic>> createProduct({
     required String name,

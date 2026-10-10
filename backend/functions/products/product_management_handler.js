@@ -14,6 +14,9 @@ const { v4: uuidv4 } = require('uuid');
 const PRODUCTS_TABLE = process.env.PRODUCTS_TABLE;
 const CATEGORIES_TABLE = process.env.CATEGORIES_TABLE;
 const BUSINESSES_TABLE = process.env.BUSINESSES_TABLE;
+// Shared master catalog: one record per real-world product (name/image/barcode),
+// reused by all merchants. Merchant rows in PRODUCTS_TABLE keep only price/availability.
+const GLOBAL_PRODUCTS_TABLE = process.env.GLOBAL_PRODUCTS_TABLE || 'WhizzMerchants_GlobalProducts';
 const DYNAMODB_REGION = process.env.DYNAMODB_REGION || 'us-east-1';
 const COGNITO_REGION = process.env.COGNITO_REGION || 'us-east-1';
 
@@ -56,13 +59,24 @@ async function getBusinessId(event) {
         const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
         console.log('Decoded token payload:', JSON.stringify(payload, null, 2));
         
-        // ID tokens have 'email', Access tokens have 'username' (which is the Cognito user sub/email)
-        // Also check 'cognito:username' for other token types
-        const email = payload.email || payload.username || payload['cognito:username'];
+        // Phone-only users: ID tokens may have no 'email'. Prefer email-index when present,
+        // otherwise look up by Cognito user id (sub == cognitoUserId/ownerId on the business).
+        const email = payload.email;
+        const userSub = payload.sub;
+
+        if (!email && !userSub) {
+            console.log("Neither email nor sub found in token payload. Available fields:", Object.keys(payload));
+            return null;
+        }
 
         if (!email) {
-            console.log("Email/username not found in token payload. Available fields:", Object.keys(payload));
-            return null;
+            const scanResult = await docClient.send(new ScanCommand({
+                TableName: BUSINESSES_TABLE,
+                FilterExpression: 'cognitoUserId = :sub OR ownerId = :sub',
+                ExpressionAttributeValues: { ':sub': userSub },
+            }));
+            const item = scanResult.Items && scanResult.Items[0];
+            return item ? (item.businessId || item.id) : null;
         }
 
         console.log(`Getting business for user: ${email}`);
@@ -158,41 +172,170 @@ async function handleCreateProduct(event) {
     }
 
     try {
-        const { name, description, price, categoryId, imageUrl, isAvailable } = JSON.parse(event.body);
+        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode } = JSON.parse(event.body);
 
-        // Validate required fields
-        if (!name || !description || price == null || !categoryId) {
+        if (price == null) {
+            return createResponse(400, { success: false, message: 'price is required' });
+        }
+
+        // 1) Picked from the shared catalog: reuse its name/image/description.
+        let globalItem = null;
+        if (globalProductId) {
+            const g = await docClient.send(new GetCommand({
+                TableName: GLOBAL_PRODUCTS_TABLE, Key: { globalProductId },
+            }));
+            globalItem = g.Item || null;
+            if (!globalItem) {
+                return createResponse(404, { success: false, message: 'Global product not found' });
+            }
+        }
+
+        const finalName = name || globalItem?.canonicalName;
+        const finalCategoryId = categoryId || globalItem?.categoryId;
+        if (!finalName || !finalCategoryId) {
             return createResponse(400, {
                 success: false,
-                message: 'Name, description, price, and categoryId are required'
+                message: 'name and categoryId are required (or pick a global product)'
             });
         }
 
-        const productId = uuidv4();
-        const searchableName = name.toLowerCase();
+        // 2) New product: dedupe by barcode, else add it to the catalog for others to reuse.
+        if (!globalItem) {
+            globalItem = await findOrCreateGlobalProduct({
+                name: finalName,
+                description: description || '',
+                categoryId: finalCategoryId,
+                imageUrl: imageUrl || null,
+                barcode: barcode || null,
+                createdBy: businessId,
+            });
+        } else {
+            await incrementGlobalUsage(globalItem.globalProductId);
+        }
 
+        const productId = uuidv4();
+        const now = new Date().toISOString();
         const newItem = {
-            productId: productId, // Use 'productId' as primary key to match existing table structure
+            productId,
             businessId,
-            name,
-            description,
+            globalProductId: globalItem?.globalProductId || null,
+            name: finalName,
+            description: description || globalItem?.description || '',
             price: parseFloat(price),
-            categoryId,
-            imageUrl: imageUrl || null,
+            categoryId: finalCategoryId,
+            imageUrl: imageUrl || globalItem?.imageUrl || null,
+            barcode: barcode || globalItem?.barcode || null,
             isAvailable: isAvailable !== false,
-            searchableName,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            searchableName: finalName.toLowerCase(),
+            createdAt: now,
+            updatedAt: now,
         };
 
         await docClient.send(new PutCommand({ TableName: PRODUCTS_TABLE, Item: newItem }));
 
-        // Return with 'id' field for frontend compatibility
         const responseProduct = { ...newItem, id: newItem.productId };
         return createResponse(201, { success: true, product: responseProduct });
     } catch (error) {
         console.error('Error creating product:', error);
         return createResponse(500, { success: false, message: 'Failed to create product', error: error.message });
+    }
+}
+
+// --- Global catalog helpers ---
+
+async function incrementGlobalUsage(globalProductId) {
+    try {
+        await docClient.send(new UpdateCommand({
+            TableName: GLOBAL_PRODUCTS_TABLE,
+            Key: { globalProductId },
+            UpdateExpression: 'ADD usageCount :one SET updatedAt = :now',
+            ExpressionAttributeValues: { ':one': 1, ':now': new Date().toISOString() },
+        }));
+    } catch (e) {
+        console.warn('incrementGlobalUsage failed (non-fatal):', e.message);
+    }
+}
+
+async function findOrCreateGlobalProduct({ name, description, categoryId, imageUrl, barcode, createdBy }) {
+    try {
+        if (barcode) {
+            const { Items } = await docClient.send(new QueryCommand({
+                TableName: GLOBAL_PRODUCTS_TABLE,
+                IndexName: 'BarcodeIndex',
+                KeyConditionExpression: 'barcode = :b',
+                ExpressionAttributeValues: { ':b': barcode },
+                Limit: 1,
+            }));
+            if (Items && Items[0]) {
+                await incrementGlobalUsage(Items[0].globalProductId);
+                return Items[0];
+            }
+        }
+        // Only share products that have an image (the expensive part to duplicate).
+        if (!imageUrl) return null;
+
+        const now = new Date().toISOString();
+        const item = {
+            globalProductId: uuidv4(),
+            canonicalName: name,
+            searchableName: name.toLowerCase().trim(),
+            description,
+            categoryId,
+            imageUrl,
+            usageCount: 1,
+            createdBy,
+            createdAt: now,
+            updatedAt: now,
+        };
+        if (barcode) item.barcode = barcode;
+        await docClient.send(new PutCommand({ TableName: GLOBAL_PRODUCTS_TABLE, Item: item }));
+        return item;
+    } catch (e) {
+        console.warn('findOrCreateGlobalProduct failed (non-fatal):', e.message);
+        return null;
+    }
+}
+
+// GET /products/global-search?q=...  or  ?barcode=...
+async function handleGlobalSearch(event) {
+    const businessId = await getBusinessId(event);
+    if (!businessId) return createResponse(401, { message: 'Unauthorized' });
+
+    const q = (event.queryStringParameters?.q || '').toLowerCase().trim();
+    const barcode = (event.queryStringParameters?.barcode || '').trim();
+    try {
+        let items = [];
+        if (barcode) {
+            const r = await docClient.send(new QueryCommand({
+                TableName: GLOBAL_PRODUCTS_TABLE,
+                IndexName: 'BarcodeIndex',
+                KeyConditionExpression: 'barcode = :b',
+                ExpressionAttributeValues: { ':b': barcode },
+            }));
+            items = r.Items || [];
+        } else if (q.length >= 2) {
+            // Paginated scan with contains(); fine for current size. Move to
+            // OpenSearch when the catalog grows to hundreds of thousands of items.
+            let lastKey;
+            do {
+                const r = await docClient.send(new ScanCommand({
+                    TableName: GLOBAL_PRODUCTS_TABLE,
+                    FilterExpression: 'contains(searchableName, :q)',
+                    ExpressionAttributeValues: { ':q': q },
+                    ExclusiveStartKey: lastKey,
+                }));
+                items.push(...(r.Items || []));
+                lastKey = r.LastEvaluatedKey;
+            } while (lastKey && items.length < 50);
+        }
+        items = items
+            .filter((i) => i.imageUrl && !String(i.imageUrl).includes('example.com'))
+            .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0))
+            .slice(0, 20);
+        return createResponse(200, { success: true, products: items });
+    } catch (error) {
+        console.error('Error searching global catalog:', error);
+        return createResponse(500, { success: false, message: 'Failed to search catalog', error: error.message });
     }
 }
 
@@ -307,13 +450,27 @@ async function handleGetCategories(event) {
 async function handleGetCategoriesByBusinessType(event) {
     const { businessType } = event.pathParameters;
     try {
-        const params = {
-            TableName: CATEGORIES_TABLE,
-            IndexName: 'BusinessTypeIndex',
-            KeyConditionExpression: 'businessType = :businessType',
-            ExpressionAttributeValues: { ':businessType': businessType },
-        };
-        const { Items } = await docClient.send(new QueryCommand(params));
+        let Items = [];
+        try {
+            const params = {
+                TableName: CATEGORIES_TABLE,
+                IndexName: 'BusinessTypeIndex',
+                KeyConditionExpression: 'businessType = :businessType',
+                ExpressionAttributeValues: { ':businessType': businessType },
+            };
+            ({ Items } = await docClient.send(new QueryCommand(params)));
+        } catch (indexError) {
+            console.warn('BusinessTypeIndex query failed, will fall back to scan:', indexError.message);
+            Items = [];
+        }
+
+        // Legacy categories have no businessType attribute. If the type-specific
+        // query returns nothing, fall back to all active categories (shared set).
+        if (!Items || Items.length === 0) {
+            const { Items: allItems } = await docClient.send(new ScanCommand({ TableName: CATEGORIES_TABLE }));
+            Items = (allItems || []).filter((c) => c.isActive !== false);
+        }
+
         return createResponse(200, { success: true, categories: Items || [] });
     } catch (error) {
         console.error('Error getting categories by business type:', error);
@@ -331,6 +488,9 @@ module.exports.handler = async (event) => {
 
     try {
     // Route products endpoints
+        if (path.startsWith('/products/global-search')) {
+            return handleGlobalSearch(event);
+        }
         if (path.startsWith('/products/search')) {
             return handleSearchProducts(event);
         }

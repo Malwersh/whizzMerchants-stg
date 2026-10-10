@@ -74,7 +74,7 @@ exports.handler = async (event) => {
 
         // Get business info for user
         console.log('Getting business info for user...');
-        const businessInfo = await getBusinessInfoForUser(dynamodb, userInfo.email);
+        const businessInfo = await getBusinessInfoForUser(dynamodb, userInfo);
         console.log('Business info:', JSON.stringify(businessInfo, null, 2));
         if (!businessInfo) {
             return createResponse(404, { success: false, message: 'Business not found for user' });
@@ -127,13 +127,14 @@ async function getUserInfoFromToken(cognito, token) {
         } catch (cognitoError) {
             console.log('⚠️ Access token validation failed, trying ID token decode:', cognitoError.message);
 
-            // If access token fails, try to decode as ID token
+            // If access token fails, try to decode as ID token (phone-only users have no email)
             const decoded = decodeJWT(token);
-            if (decoded && decoded.email && decoded.sub) {
+            if (decoded && decoded.sub) {
                 console.log('✅ Successfully decoded ID token');
                 return {
                     userId: decoded.sub,
-                    email: decoded.email,
+                    email: decoded.email || null,
+                    phoneNumber: decoded.phone_number || null,
                     cognitoUserId: decoded.sub
                 };
             }
@@ -148,20 +149,41 @@ async function getUserInfoFromToken(cognito, token) {
 }
 
 // Helper function to get business info for user
-async function getBusinessInfoForUser(dynamodb, email) {
-    const params = {
-        TableName: BUSINESSES_TABLE,
-        IndexName: 'email-index',
-        KeyConditionExpression: 'email = :email',
-        ExpressionAttributeValues: {
-            ':email': email.toLowerCase().trim()
-        }
-    };
+async function getBusinessInfoForUser(dynamodb, userInfo) {
+    const email = userInfo?.email;
+    const userId = userInfo?.userId || userInfo?.cognitoUserId;
+    const phoneNumber = userInfo?.phoneNumber;
 
     try {
-        const result = await dynamodb.send(new QueryCommand(params));
-        if (result.Items && result.Items.length > 0) {
-            return result.Items[0];
+        // 1) Preferred: lookup by email via GSI (legacy / email users)
+        if (email) {
+            const result = await dynamodb.send(new QueryCommand({
+                TableName: BUSINESSES_TABLE,
+                IndexName: 'email-index',
+                KeyConditionExpression: 'email = :email',
+                ExpressionAttributeValues: { ':email': email.toLowerCase().trim() }
+            }));
+            if (result.Items && result.Items.length > 0) {
+                return result.Items[0];
+            }
+        }
+
+        // 2) Fallback: scan by cognitoUserId / ownerId / phone (phone-only users)
+        const names = {};
+        const values = { ':userId': userId };
+        let filter = 'cognitoUserId = :userId OR ownerId = :userId';
+        if (phoneNumber) {
+            values[':phone'] = phoneNumber;
+            filter += ' OR phoneNumber = :phone OR phone = :phone';
+        }
+        const scanResult = await dynamodb.send(new ScanCommand({
+            TableName: BUSINESSES_TABLE,
+            FilterExpression: filter,
+            ExpressionAttributeValues: values,
+            ...(Object.keys(names).length ? { ExpressionAttributeNames: names } : {})
+        }));
+        if (scanResult.Items && scanResult.Items.length > 0) {
+            return scanResult.Items[0];
         }
         return null;
     } catch (error) {

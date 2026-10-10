@@ -4,10 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../models/order.dart';
 import '../services/order_service.dart';
+import '../services/kitchen_dispatch_service.dart';
 import '../services/realtime_order_service.dart';
 import '../services/order_cache_service.dart';
 import '../services/push_notifications_service.dart';
-import '../screens/login_page.dart';
+import '../screens/auth/auth_screen.dart';
 import '../widgets/order_card.dart';
 import '../widgets/cancel_reason_bottom_sheet.dart';
 import '../utils/responsive_helper.dart';
@@ -607,6 +608,21 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     }
   }
 
+  void _dispatchToKitchen(Order order) {
+    KitchenDispatchService.dispatchAcceptedOrder(order).then((result) {
+      if (result == null || !mounted) return;
+      if (!result.allOk) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'تعذّر الإرسال للمطبخ: ${result.failures.join('، ')} — تحقق من إعدادات POS'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    });
+  }
+
   Future<void> _handleOrderUpdate(String orderId, OrderStatus newStatus) async {
     try {
       // If it's a cancellation, show bottom sheet to get reason first
@@ -637,6 +653,10 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       if (newStatus == OrderStatus.confirmed) {
         // Accept order
         await _orderService.acceptMerchantOrder(orderId);
+        // Send to kitchen printers / kitchen display (non-blocking).
+        if (orderIndex != -1) {
+          _dispatchToKitchen(_orders[orderIndex]);
+        }
       } else {
         // Convert OrderStatus enum to string for backend for other status updates
         String statusString = _convertOrderStatusToString(newStatus);
@@ -1078,7 +1098,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   void _navigateToLogin() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) => const LoginPage(),
+        builder: (context) => const AuthScreen(),
       ),
       (route) => false,
     );

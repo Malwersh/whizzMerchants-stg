@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../core/utils/app_logger.dart';
 import '../utils/token_validator.dart';
+import 'app_auth_service.dart';
 import 'secure_token_storage.dart';
 
 /// Handles refreshing access/ID tokens using the stored refresh token.
@@ -12,12 +13,16 @@ class TokenRefreshService {
   static Future<String?> getValidIdToken() async {
     // Prefer ID token first (API Gateway authorizer requirement)
     final idToken = await SecureTokenStorage.getIdToken();
-    if (idToken != null && idToken.isNotEmpty && !TokenValidator.isTokenExpired(idToken)) {
+    if (idToken != null &&
+        idToken.isNotEmpty &&
+        !TokenValidator.isTokenExpired(idToken)) {
       return idToken;
     }
     // Try access token only if ID token missing/expired (legacy endpoints if any)
     final accessToken = await SecureTokenStorage.getAccessToken();
-    if (accessToken != null && accessToken.isNotEmpty && !TokenValidator.isTokenExpired(accessToken)) {
+    if (accessToken != null &&
+        accessToken.isNotEmpty &&
+        !TokenValidator.isTokenExpired(accessToken)) {
       return idToken ?? accessToken; // return access if id absent
     }
     // Refresh
@@ -49,17 +54,19 @@ class TokenRefreshService {
         return completer.future;
       }
 
-      // ⚠️ DISABLED: Backend /auth/refresh endpoint not implemented (returns 501)
-      // Following wizzuser approach: no TokenRefreshService, JWT validation only
-      AppLogger.warning('[TokenRefreshService] Token refresh disabled - backend endpoint not implemented');
-      AppLogger.warning('[TokenRefreshService] User will need to re-login when token expires');
-      
-      // Return null without calling backend
-      completer.complete(null);
+      // Refresh silently via Amplify/Cognito using the 365-day refresh token.
+      // Returns null only if the refresh token is revoked/expired -> real sign-out.
+      final refreshed = await AppAuthService.refreshViaAmplify();
+      if (refreshed == null) {
+        AppLogger.warning('[TokenRefreshService] Silent refresh failed');
+      } else {
+        AppLogger.info('[TokenRefreshService] Tokens refreshed');
+      }
+      completer.complete(refreshed);
       _refreshCompleter = null;
       return completer.future;
-      
-      /* ORIGINAL CODE BELOW - COMMENTED OUT UNTIL BACKEND IMPLEMENTS /auth/refresh
+
+      /* LEGACY CODE BELOW - backend /auth/refresh was never implemented
       
       AppLogger.info('[TokenRefreshService] Refreshing tokens...');
       final response = await http
