@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
+import '../widgets/kitchen_output_section.dart';
 
 class PosSettingsPage extends ConsumerStatefulWidget {
   final Business business;
@@ -224,6 +225,10 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Kitchen printers / display: works without POS integration
+                    const KitchenOutputSection(),
+                    SizedBox(height: AppSpacing.md),
+
                     // Enable POS Integration
                     Card(
                       color: WhizzColors.white,

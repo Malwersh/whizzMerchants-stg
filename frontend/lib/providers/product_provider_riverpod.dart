@@ -190,7 +190,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
     }
   }
 
-  Future<bool> addProduct(Product product) async {
+  Future<bool> addProduct(Product product, {String? globalProductId}) async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
@@ -201,6 +201,9 @@ class ProductNotifier extends StateNotifier<ProductState> {
         categoryId: product.categoryId,
         imageUrl: product.imageUrls.isNotEmpty ? product.imageUrls.first : null,
         isAvailable: product.isAvailable,
+        additionalData: globalProductId != null
+            ? {'globalProductId': globalProductId}
+            : null,
       );
 
       if (result['success'] == true && result['product'] != null) {

@@ -3836,4 +3836,41 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get sessionExpiredPleaseLoginAgain =>
       'Session expired. Please login again.';
+
+  @override
+  String get phoneRequired => 'رقم الهاتف مطلوب';
+
+  @override
+  String get invalidIraqiPhone => 'أدخل رقم هاتف عراقي صحيح (07XX XXX XXXX)';
+
+  @override
+  String otpSentTo(String phone) {
+    return 'أرسلنا رمزًا من 6 أرقام إلى $phone';
+  }
+
+  @override
+  String get enterSixDigitCode => 'أدخل الرمز المكوّن من 6 أرقام';
+
+  @override
+  String get changeNumber => 'تغيير الرقم';
+
+  @override
+  String get verifyAndSignIn => 'تحقق وسجّل الدخول';
+
+  @override
+  String get sendCode => 'إرسال الرمز';
+
+  @override
+  String get otpSendFailed => 'تعذّر إرسال الرمز. حاول مرة أخرى.';
+
+  @override
+  String get phoneNotRegistered =>
+      'لا يوجد حساب تاجر بهذا الرقم. يرجى التسجيل أولًا.';
+
+  @override
+  String get invalidOtp => 'الرمز غير صحيح. حاول مرة أخرى.';
+
+  @override
+  String get otpExpired =>
+      'انتهت صلاحية الرمز أو تجاوزت عدد المحاولات. اطلب رمزًا جديدًا.';
 }

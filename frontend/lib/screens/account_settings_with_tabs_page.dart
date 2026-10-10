@@ -7,7 +7,7 @@ import '../services/app_auth_service.dart';
 import '../providers/business_provider.dart';
 import '../providers/session_provider.dart';
 import '../core/utils/app_logger.dart';
-import 'login_page.dart';
+import 'auth/auth_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../utils/responsive_helper.dart';
@@ -130,7 +130,7 @@ class _AccountSettingsWithTabsPageState
   void _navigateToLogin() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) => const LoginPage(),
+        builder: (context) => const AuthScreen(),
       ),
       (route) => false,
     );
@@ -972,7 +972,7 @@ class _AccountSettingsWithTabsPageState
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (context) => ProviderScope(
-              child: const LoginPage(),
+              child: const AuthScreen(),
             ),
           ),
           (route) => false,

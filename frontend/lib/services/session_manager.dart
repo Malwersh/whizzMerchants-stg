@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
+
 import 'app_auth_service.dart';
 import 'secure_token_storage.dart';
+import 'token_refresh_service.dart';
 
 /// Professional session management service for handling user authentication state
 /// and preventing sign-in conflicts when users are already authenticated
@@ -21,9 +24,6 @@ class SessionManager extends ChangeNotifier {
 
   // Session validation interval (5 minutes)
   static const Duration _sessionCheckInterval = Duration(minutes: 5);
-
-  // Session timeout (30 minutes of inactivity)
-  static const Duration _sessionTimeout = Duration(minutes: 30);
 
   // Getters
   bool get isAuthenticated => _isAuthenticated;
@@ -54,17 +54,11 @@ class SessionManager extends ChangeNotifier {
         // For now, we'll validate through the auth service
       }
 
+      // No inactivity timeout: merchants stay signed in until they sign out or
+      // the 365-day Cognito refresh token expires/is revoked.
       final lastActivityString = prefs.getString('last_activity');
       if (lastActivityString != null) {
-        final lastActivity = DateTime.parse(lastActivityString);
-        final now = DateTime.now();
-
-        // Check if session has expired due to inactivity
-        if (now.difference(lastActivity) > _sessionTimeout) {
-          debugPrint('Session expired due to inactivity');
-          await _clearSession();
-          return;
-        }
+        debugPrint('Last activity: $lastActivityString');
       }
     } catch (e) {
       debugPrint('Error loading stored session: $e');
@@ -91,14 +85,19 @@ class SessionManager extends ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        // Session is invalid
-        await _clearSession();
-        return false;
+        // Don't sign out on a missing profile/network issue. Only sign out
+        // when Cognito refuses to refresh (refresh token revoked or expired).
+        final refreshed = await TokenRefreshService.refreshTokens();
+        if (refreshed == null) {
+          await _clearSession();
+          return false;
+        }
+        return true;
       }
     } catch (e) {
-      debugPrint('Session validation error: $e');
-      await _clearSession();
-      return false;
+      // Offline / timeout: keep the merchant signed in.
+      debugPrint('Session validation error (kept signed in): $e');
+      return _isAuthenticated;
     }
   }
 
@@ -135,7 +134,9 @@ class SessionManager extends ChangeNotifier {
       await SecureTokenStorage.setAccessToken(accessToken);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          'user_data', user.toString()); // In real app, use JSON
+        'user_data',
+        user.toString(),
+      ); // In real app, use JSON
       await _updateLastActivity();
 
       notifyListeners();
@@ -147,7 +148,8 @@ class SessionManager extends ChangeNotifier {
   /// Create a new session directly from a Cognito AuthenticationResult map.
   /// This is useful for handling login after registration confirmation.
   Future<void> createSessionFromCognitoAuthResult(
-      Map<String, dynamic> authResult) async {
+    Map<String, dynamic> authResult,
+  ) async {
     try {
       _accessToken = authResult['AccessToken'];
       final idToken = authResult['IdToken'];
@@ -220,7 +222,7 @@ class SessionManager extends ChangeNotifier {
       _currentUser = null;
       _accessToken = null;
       _lastSessionCheck = null;
-      
+
       // Cancel session validation timer
       _sessionValidationTimer?.cancel();
 
@@ -249,10 +251,12 @@ class SessionManager extends ChangeNotifier {
         return {
           'canSignIn': false,
           'reason': 'already_signed_in',
-          'message':
-              'You are already signed in. Please sign out first if you want to sign in with a different account.',
+          'message': 'You are already signed in. Please sign out first if you want to sign in with a different account.',
           'currentUser': _currentUser,
-          'suggestedActions': ['continue_current_session', 'sign_out_and_retry']
+          'suggestedActions': [
+            'continue_current_session',
+            'sign_out_and_retry',
+          ],
         };
       }
 
@@ -281,7 +285,7 @@ class SessionManager extends ChangeNotifier {
             'message': signInCheck['message'],
             'currentUser': signInCheck['currentUser'],
             'suggestedActions': signInCheck['suggestedActions'],
-            'canForceSignIn': true
+            'canForceSignIn': true,
           };
         }
       }

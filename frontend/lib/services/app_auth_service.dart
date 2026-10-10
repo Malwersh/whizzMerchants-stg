@@ -1,4 +1,8 @@
 import 'dart:convert';
+
+import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
+import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
+import 'package:amplify_api/amplify_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,7 +19,7 @@ class AppAuthService {
   static bool _isInitialized = false;
   static ProviderContainer? _container;
   static CognitoAuthService? _cognitoService;
-  
+
   // Cache user data to prevent repeated API calls
   static Map<String, dynamic>? _cachedUserData;
   static DateTime? _cacheTimestamp;
@@ -98,10 +102,63 @@ class AppAuthService {
 
     if (AppConfig.isCognitoConfigured) {
       _cognitoService = CognitoAuthService();
-      // Note: Amplify should be configured in main.dart
+      await _configureAmplify();
     }
 
     _isInitialized = true;
+  }
+
+  /// Configures Amplify (Auth + API) exactly once. Uses CUSTOM_AUTH flow so the
+  /// phone-based passwordless (OTP) sign-in returns the custom challenge step.
+  static Future<void> _configureAmplify() async {
+    if (amplify.Amplify.isConfigured) return;
+    try {
+      await amplify.Amplify.addPlugins([AmplifyAuthCognito(), AmplifyAPI()]);
+
+      final amplifyconfig =
+          '''{
+        "UserAgent": "aws-amplify-cli/2.0",
+        "Version": "1.0",
+        "auth": {
+          "plugins": {
+            "awsCognitoAuthPlugin": {
+              "UserAgent": "aws-amplify-cli/0.1.0",
+              "Version": "0.1.0",
+              "CognitoUserPool": {
+                "Default": {
+                  "PoolId": "${AppConfig.cognitoUserPoolId}",
+                  "AppClientId": "${AppConfig.appClientId}",
+                  "Region": "${AppConfig.cognitoRegion}"
+                }
+              },
+              "Auth": {
+                "Default": {
+                  "authenticationFlowType": "CUSTOM_AUTH"
+                }
+              }
+            }
+          }
+        },
+        "api": {
+          "plugins": {
+            "awsAPIPlugin": {
+              "haddir-api": {
+                "endpointType": "REST",
+                "endpoint": "${AppConfig.baseUrl}",
+                "region": "${AppConfig.cognitoRegion}",
+                "authorizationType": "AMAZON_COGNITO_USER_POOLS"
+              }
+            }
+          }
+        }
+      }''';
+
+      await amplify.Amplify.configure(amplifyconfig);
+      AppLogger.success('✅ Amplify configured (CUSTOM_AUTH)');
+    } catch (e) {
+      // "already configured" is safe to ignore; anything else is logged.
+      AppLogger.error('Amplify configuration failed: $e');
+    }
   }
 
   static Future<RegisterResult> registerSimple({
@@ -209,15 +266,18 @@ class AppAuthService {
         );
       }
       final authData = apiResponse['data'];
-      final accessToken = authData?['AccessToken'] ??
+      final accessToken =
+          authData?['AccessToken'] ??
           authData?['access_token'] ??
           apiResponse['AccessToken'] ??
           apiResponse['access_token'];
-      final idToken = authData?['IdToken'] ??
+      final idToken =
+          authData?['IdToken'] ??
           authData?['id_token'] ??
           apiResponse['IdToken'] ??
           apiResponse['id_token'];
-      final refreshToken = authData?['RefreshToken'] ??
+      final refreshToken =
+          authData?['RefreshToken'] ??
           authData?['refresh_token'] ??
           apiResponse['RefreshToken'] ??
           apiResponse['refresh_token'];
@@ -260,8 +320,150 @@ class AppAuthService {
     }
   }
 
+  // ===================== Phone OTP (passwordless) =====================
+
+  /// Normalizes Iraqi mobile input (07XXXXXXXXX, 7XXXXXXXXX, 9647..., +9647...,
+  /// Arabic-Indic digits) to E.164 (+9647XXXXXXXXX). Returns null if invalid.
+  static String? normalizeIraqiPhone(String input) {
+    var p = input.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
+    for (var i = 0; i < arabic.length; i++) {
+      p = p.replaceAll(arabic[i], '$i');
+    }
+    if (p.startsWith('+964')) {
+      p = p.substring(4);
+    } else if (p.startsWith('00964')) {
+      p = p.substring(5);
+    } else if (p.startsWith('964')) {
+      p = p.substring(3);
+    }
+    if (p.startsWith('0')) p = p.substring(1);
+    if (!RegExp(r'^7\d{9}$').hasMatch(p)) return null;
+    return '+964$p';
+  }
+
+  /// Step 1: start sign-in. Cognito's CreateAuthChallenge trigger sends the code via OTPIQ.
+  static String? lastSignInStep;
+  static Future<bool> startPhoneSignIn(String phoneE164) async {
+    await initialize();
+    try {
+      try {
+        await amplify.Amplify.Auth.signOut();
+      } catch (_) {}
+      final result = await amplify.Amplify.Auth.signIn(
+        username: phoneE164,
+        options: const amplify.SignInOptions(
+          pluginOptions: CognitoSignInPluginOptions(
+            authFlowType: amplify.AuthenticationFlowType.customAuthWithoutSrp,
+          ),
+        ),
+      );
+      lastSignInStep = result.nextStep.signInStep.name;
+      return result.nextStep.signInStep ==
+          amplify.AuthSignInStep.confirmSignInWithCustomChallenge;
+    } on amplify.AuthException catch (e) {
+      AppLogger.error('startPhoneSignIn failed: ${e.message}');
+      final msg = e.message.toLowerCase();
+      // PreventUserExistenceErrors makes unknown users surface as a generic failure.
+      if (msg.contains('incorrect username') ||
+          msg.contains('user does not exist')) {
+        throw PhoneAuthException(PhoneAuthError.notRegistered);
+      }
+      throw PhoneAuthException(PhoneAuthError.sendFailed, e.message);
+    }
+  }
+
+  /// Step 2: submit the code. On success stores tokens and loads the merchant's business.
+  static Future<SignInResult> confirmPhoneCode(String code) async {
+    await initialize();
+    try {
+      final result = await amplify.Amplify.Auth.confirmSignIn(
+        confirmationValue: code,
+      );
+      if (!result.isSignedIn) {
+        // Wrong code; Cognito re-issues the same challenge (no new SMS).
+        return SignInResult(
+          success: false,
+          message: 'INVALID_CODE',
+          businesses: [],
+        );
+      }
+      await _syncTokensFromAmplify();
+
+      final businesses = await ApiService().getUserBusinesses();
+      if (businesses.isNotEmpty) {
+        final business = businesses.first;
+        final businessId = business['businessId'];
+        if (businessId != null && _container != null) {
+          _container!
+              .read(sessionProvider.notifier)
+              .setSessionWithBusinessData(businessId, business);
+        }
+        if (business['status']?.toString() == 'pending') {
+          return SignInResult(
+            success: false,
+            message: 'pending',
+            businesses: businesses,
+            accountStatus: 'pending',
+          );
+        }
+      }
+      return SignInResult(
+        success: true,
+        message: 'Sign in successful',
+        businesses: businesses,
+      );
+    } on amplify.AuthException catch (e) {
+      AppLogger.error('confirmPhoneCode failed: ${e.message}');
+      // After 3 wrong attempts or 3 minutes Cognito ends the session.
+      return SignInResult(
+        success: false,
+        message: 'CODE_EXPIRED_OR_TOO_MANY_ATTEMPTS',
+        businesses: [],
+      );
+    }
+  }
+
+  /// Copies Amplify (Cognito) tokens into the app's secure storage used by API calls.
+  static Future<bool> _syncTokensFromAmplify({
+    bool forceRefresh = false,
+  }) async {
+    try {
+      final session = await amplify.Amplify.Auth.fetchAuthSession(
+        options: amplify.FetchAuthSessionOptions(forceRefresh: forceRefresh),
+      ) as CognitoAuthSession;
+      final tokens = session.userPoolTokensResult.valueOrNull;
+      if (tokens == null) return false;
+      await _storeAuthTokens({
+        'accessToken': tokens.accessToken.raw,
+        'idToken': tokens.idToken.raw,
+        'refreshToken': tokens.refreshToken,
+      });
+      return true;
+    } catch (e) {
+      AppLogger.warning('Token sync from Amplify failed: $e');
+      return false;
+    }
+  }
+
+  /// Used by TokenRefreshService: silent refresh with the 365-day refresh token.
+  static Future<Map<String, String?>?> refreshViaAmplify() async {
+    final ok = await _syncTokensFromAmplify(forceRefresh: true);
+    if (!ok) return null;
+    return {
+      'accessToken': await SecureTokenStorage.getAccessToken(),
+      'idToken': await SecureTokenStorage.getIdToken(),
+      'refreshToken': await SecureTokenStorage.getRefreshToken(),
+    };
+  }
+
   static Future<void> signOut() async {
     try {
+      // Revoke the Cognito refresh token (EnableTokenRevocation) and clear Amplify's store.
+      try {
+        await amplify.Amplify.Auth.signOut();
+      } catch (_) {}
+
       // Step 1: Clear the singleton SessionManager instance.
       // This is crucial because it holds the primary copy of the tokens in memory
       // and is used by ApiService. Failure to clear this will result in the old
@@ -284,7 +486,9 @@ class AppAuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
 
-      AppLogger.success('✅ Sign out complete - all tokens and session data cleared');
+      AppLogger.success(
+        '✅ Sign out complete - all tokens and session data cleared',
+      );
     } catch (e) {
       AppLogger.error('❌ Error during sign out: $e');
       // Even if there's an error, try to clear ALL local state
@@ -305,8 +509,8 @@ class AppAuthService {
 
     // Check cache first to avoid repeated API calls
     final now = DateTime.now();
-    if (_cachedUserData != null && 
-        _cacheTimestamp != null && 
+    if (_cachedUserData != null &&
+        _cacheTimestamp != null &&
         now.difference(_cacheTimestamp!).compareTo(_cacheTimeout) < 0) {
       AppLogger.info('Using cached user data');
 
@@ -324,32 +528,31 @@ class AppAuthService {
         if (userString != null && userString.isNotEmpty) {
           try {
             final userData = jsonDecode(userString);
-            
+
             // Validate stored user data has essential fields
             if (userData['email'] != null && userData['userId'] != null) {
               final result = {
                 'success': true,
                 'email': userData['email'],
                 'userId': userData['userId'] ?? userData['sub'],
-                'sub': userData['sub'] ?? userData['userId'], 
+                'sub': userData['sub'] ?? userData['userId'],
                 'email_verified': true,
               };
-              
+
               // Cache the result
               _cachedUserData = result;
               _cacheTimestamp = now;
-              
+
               return result;
             }
           } catch (e) {
             AppLogger.warning('Error parsing stored user data: $e');
-
           }
         }
 
         // Only make API call as last resort - with caching to prevent repeated calls
         final apiService = ApiService();
-        
+
         try {
           AppLogger.info('Making API call to getUserBusinesses (cached)');
 
@@ -370,7 +573,7 @@ class AppAuthService {
               'userId': business['ownerId'] ?? business['cognitoUserId'],
               'sub': business['cognitoUserId'],
             };
-            
+
             await prefs.setString('user', jsonEncode(userDataToCache));
 
             final result = {
@@ -380,7 +583,7 @@ class AppAuthService {
               'sub': business['cognitoUserId'],
               'email_verified': true,
             };
-            
+
             // Cache the result
             _cachedUserData = result;
             _cacheTimestamp = now;
@@ -390,7 +593,7 @@ class AppAuthService {
         } catch (apiError) {
           AppLogger.warning('API error in getCurrentUser: $apiError');
 
-          if (apiError.toString().contains('401') || 
+          if (apiError.toString().contains('401') ||
               apiError.toString().contains('Invalid or expired access token')) {
             AppLogger.info('🧹 Clearing expired tokens');
 
@@ -405,7 +608,6 @@ class AppAuthService {
       }
     } catch (e) {
       AppLogger.warning('Error getting user from backend: $e');
-
     }
 
     // Fallback to Cognito
@@ -419,16 +621,15 @@ class AppAuthService {
             'sub': result.userId,
             'email_verified': true,
           };
-          
+
           // Cache the result
           _cachedUserData = userData;
           _cacheTimestamp = now;
-          
+
           return userData;
         }
       } catch (e) {
         AppLogger.warning('Cognito getCurrentUser error: $e');
-
       }
     }
 
@@ -446,7 +647,6 @@ class AppAuthService {
 
     AppLogger.info('🏢 Business data keys: ${businessData.keys.toList()}');
 
-    
     await initialize();
 
     try {
@@ -498,12 +698,14 @@ class AppAuthService {
       final validToken = await TokenRefreshService.getValidAccessToken();
       if (validToken != null && validToken.isNotEmpty) {
         AppLogger.debug(
-            'Returning valid token (ID preferred). len=${validToken.length}');
+          'Returning valid token (ID preferred). len=${validToken.length}',
+        );
         return validToken;
       }
     } catch (e) {
       AppLogger.warning(
-          'getAccessToken: refresh path failed, falling back to stored tokens. e=$e');
+        'getAccessToken: refresh path failed, falling back to stored tokens. e=$e',
+      );
     }
 
     // Fallback: read from secure storage directly (ID token first)
@@ -511,14 +713,16 @@ class AppAuthService {
       final idToken = await SecureTokenStorage.getIdToken();
       if (idToken != null && idToken.isNotEmpty) {
         AppLogger.debug(
-            'Fallback returning stored ID token. len=${idToken.length}');
+          'Fallback returning stored ID token. len=${idToken.length}',
+        );
         return idToken;
       }
 
       final accessToken = await SecureTokenStorage.getAccessToken();
       if (accessToken != null && accessToken.isNotEmpty) {
         AppLogger.debug(
-            'Fallback returning stored access token. len=${accessToken.length}');
+          'Fallback returning stored access token. len=${accessToken.length}',
+        );
         return accessToken;
       }
 
@@ -532,52 +736,63 @@ class AppAuthService {
 
   static Future<bool> isSignedIn() async {
     await initialize();
-    
+
     AppLogger.info('🔍 Checking if user is signed in...');
-    
+
     try {
       // STEP 1: Check if we have a valid access token (or ID token)
       // Use TokenRefreshService which will auto-refresh if needed
       final validToken = await TokenRefreshService.getValidAccessToken();
-      
-      AppLogger.debug('🔍 Step 1: Valid token check - ${validToken != null && validToken.isNotEmpty ? "FOUND" : "NOT FOUND"}');
-      
+
+      AppLogger.debug(
+        '🔍 Step 1: Valid token check - ${validToken != null && validToken.isNotEmpty ? "FOUND" : "NOT FOUND"}',
+      );
+
       if (validToken == null || validToken.isEmpty) {
         AppLogger.info('❌ No valid token found, user is not signed in');
         return false;
       }
-      
+
       // STEP 2: Check if session has businessId persisted
       // This avoids unnecessary API calls on cold start
       if (_container != null) {
         final session = _container!.read(sessionProvider);
-        AppLogger.debug('🔍 Step 2: Session check - isAuthenticated: ${session.isAuthenticated}, businessId: ${session.businessId}');
-        
-        if (session.isAuthenticated && session.businessId != null && session.businessId!.isNotEmpty) {
+        AppLogger.debug(
+          '🔍 Step 2: Session check - isAuthenticated: ${session.isAuthenticated}, businessId: ${session.businessId}',
+        );
+
+        if (session.isAuthenticated &&
+            session.businessId != null &&
+            session.businessId!.isNotEmpty) {
           AppLogger.info('✅ Valid token + session found, user is signed in');
           return true;
         }
       }
-      
+
       // STEP 3: Fallback - Try to restore session from storage
       // SessionProvider should have already done this, but double-check
       final prefs = await SharedPreferences.getInstance();
       final storedBusinessId = prefs.getString('business_id');
-      
-      AppLogger.debug('🔍 Step 3: Storage check - storedBusinessId: $storedBusinessId');
-      
+
+      AppLogger.debug(
+        '🔍 Step 3: Storage check - storedBusinessId: $storedBusinessId',
+      );
+
       if (storedBusinessId != null && storedBusinessId.isNotEmpty) {
-        AppLogger.info('✅ Valid token + stored businessId found, user is signed in');
+        AppLogger.info(
+          '✅ Valid token + stored businessId found, user is signed in',
+        );
         return true;
       }
-      
+
       // STEP 4: ⚠️ DISABLED - Following wizzuser approach
       // wizzuser DOES NOT call API to validate session - only local JWT check
       // This was causing unwanted logout on tab switches when API returns 401
       AppLogger.debug('🔍 Step 4: API validation SKIPPED (wizzuser pattern)');
-      AppLogger.info('✅ Token found - treating as signed in (wizzuser approach)');
+      AppLogger.info(
+        '✅ Token found - treating as signed in (wizzuser approach)',
+      );
       return true;
-      
     } catch (outer) {
       AppLogger.warning('❌ Unexpected error in isSignedIn: $outer');
       return false;
@@ -612,8 +827,9 @@ class AppAuthService {
     }
   }
 
-  static Future<EmailCheckResult> checkEmailExists(
-      {required String email}) async {
+  static Future<EmailCheckResult> checkEmailExists({
+    required String email,
+  }) async {
     await initialize();
 
     try {
@@ -697,8 +913,7 @@ class AppAuthService {
             exists: true,
             isConfirmed: false,
             status: 'unconfirmed',
-            message:
-                'Your account exists but is not confirmed. Please verify your email first.',
+            message: 'Your account exists but is not confirmed. Please verify your email first.',
           );
         } else if (userStatus == 'confirmed' || userStatus == 'active') {
           return UserStatusResult(
@@ -727,7 +942,6 @@ class AppAuthService {
     } catch (e) {
       AppLogger.error('Error checking user status: $e');
 
-
       // Return error status instead of falling back to email-sending methods
       return UserStatusResult(
         exists: false,
@@ -746,8 +960,9 @@ class AppAuthService {
 
     try {
       if (_cognitoService != null) {
-        final response =
-            await CognitoAuthService.forgotPassword(username: email);
+        final response = await CognitoAuthService.forgotPassword(
+          username: email,
+        );
         return ForgotPasswordResult(
           success: response['success'] ?? false,
           message: response['message'] ?? '',
@@ -860,10 +1075,7 @@ class EmailCheckResult {
   final bool exists;
   final String message;
 
-  EmailCheckResult({
-    required this.exists,
-    required this.message,
-  });
+  EmailCheckResult({required this.exists, required this.message});
 }
 
 class ForgotPasswordResult {
@@ -882,10 +1094,7 @@ class ConfirmForgotPasswordResult {
   final bool success;
   final String message;
 
-  ConfirmForgotPasswordResult({
-    required this.success,
-    required this.message,
-  });
+  ConfirmForgotPasswordResult({required this.success, required this.message});
 }
 
 class UserStatusResult {
@@ -900,4 +1109,16 @@ class UserStatusResult {
     required this.status,
     required this.message,
   });
+}
+
+enum PhoneAuthError { notRegistered, sendFailed }
+
+class PhoneAuthException implements Exception {
+  final PhoneAuthError error;
+  final String? detail;
+  PhoneAuthException(this.error, [this.detail]);
+
+  @override
+  String toString() =>
+      'PhoneAuthException($error${detail != null ? ': $detail' : ''})';
 }

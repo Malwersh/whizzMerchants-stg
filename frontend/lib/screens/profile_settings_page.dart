@@ -151,15 +151,14 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                         title,
                         style: AppTypography.bodyLarge.copyWith(
                           fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurface,
+                          color: const Color(0xFF1A1A1A),
                         ),
                       ),
                       SizedBox(height: GoldenRatio.xs),
                       Text(
                         subtitle,
                         style: AppTypography.bodyMedium.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.6),
+                          color: const Color(0xFF1A1A1A).withValues(alpha: 0.6),
                         ),
                       ),
                     ],

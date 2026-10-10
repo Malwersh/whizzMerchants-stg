@@ -3865,4 +3865,42 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get sessionExpiredPleaseLoginAgain =>
       'Session expired. Please login again.';
+
+  @override
+  String get phoneRequired => 'Phone number is required';
+
+  @override
+  String get invalidIraqiPhone =>
+      'Enter a valid Iraqi mobile number (07XX XXX XXXX)';
+
+  @override
+  String otpSentTo(String phone) {
+    return 'We sent a 6-digit code to $phone';
+  }
+
+  @override
+  String get enterSixDigitCode => 'Enter the 6-digit code';
+
+  @override
+  String get changeNumber => 'Change number';
+
+  @override
+  String get verifyAndSignIn => 'Verify & Sign In';
+
+  @override
+  String get sendCode => 'Send Code';
+
+  @override
+  String get otpSendFailed => 'Couldn\'t send the code. Please try again.';
+
+  @override
+  String get phoneNotRegistered =>
+      'No merchant account uses this number. Please register first.';
+
+  @override
+  String get invalidOtp => 'Incorrect code. Please try again.';
+
+  @override
+  String get otpExpired =>
+      'The code expired or too many attempts. Request a new code.';
 }
