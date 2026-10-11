@@ -10,6 +10,7 @@ import 'providers/session_provider.dart';
 import 'providers/language_provider_riverpod.dart';
 import 'screens/auth/auth_screen.dart';
 import 'screens/dashboards/business_dashboard.dart';
+import 'screens/splash_screen.dart'; // ✅ إضافة SplashScreen
 import 'services/app_auth_service.dart';
 import 'services/push_notifications_service.dart';
 import 'config/app_config.dart';
@@ -93,7 +94,10 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp> with Widget
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('ar'), Locale('en')],
-      home: const AuthGate(),
+      home: const SplashScreen(
+        nextScreen: AuthGate(),
+        duration: Duration(seconds: 2), // ✅ مدة Splash 2 ثانية
+      ),
     );
   }
 }

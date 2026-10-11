@@ -38,7 +38,7 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     
     <application
-        android:label="Whizz Merchant"
+        android:label="WizBusiness"
         android:name=".HadhirBusinessApplication"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
