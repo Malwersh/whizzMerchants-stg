@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:whizz_merchants/l10n/app_localizations.dart';
@@ -6,6 +7,7 @@ import '../models/product.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../services/image_upload_service.dart';
+import '../services/product_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/product_provider_riverpod.dart';
 
@@ -28,15 +30,63 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   String? _selectedCategoryId;
   File? _selectedImage;
 
+  // Shared global catalog: when a merchant picks an existing product we reuse
+  // its name/image (no re-upload) and they only set price/availability.
+  Map<String, dynamic>? _globalPick;
+  List<Map<String, dynamic>> _suggestions = [];
+  Timer? _searchDebounce;
+  bool _suppressSearch = false;
+
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
+    _nameController.addListener(_onNameChanged);
     // Load categories when the screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(productProviderRiverpod.notifier).loadCategories('restaurant');
     });
+  }
+
+  void _onNameChanged() {
+    if (_suppressSearch) return;
+    // After a pick, the merchant may rename it for their customers (custom
+    // display name). It stays linked to the same catalog product; only the
+    // "remove" button unlinks it.
+    if (_globalPick != null) return;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () async {
+      final results =
+          await ProductService.searchGlobalCatalog(_nameController.text);
+      if (mounted && _globalPick == null) {
+        setState(() => _suggestions = results);
+      }
+    });
+  }
+
+  void _pickGlobal(Map<String, dynamic> item) {
+    _suppressSearch = true;
+    _nameController.text = item['canonicalName']?.toString() ?? '';
+    if (_descriptionController.text.trim().isEmpty) {
+      _descriptionController.text = item['description']?.toString() ?? '';
+    }
+    _suppressSearch = false;
+    final categories = ref.read(productProviderRiverpod).categories;
+    final catId = item['categoryId']?.toString();
+    setState(() {
+      _globalPick = item;
+      _suggestions = [];
+      _selectedImage = null;
+      if (catId != null && categories.any((c) => c.id == catId)) {
+        _selectedCategoryId = catId;
+      }
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  void _clearGlobalPick() {
+    setState(() => _globalPick = null);
   }
 
   Future<void> _pickImage() async {
@@ -72,6 +122,8 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _nameController.removeListener(_onNameChanged);
     _nameController.dispose();
     _descriptionController.dispose();
     _priceController.dispose();
@@ -137,7 +189,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
     
-    if (_selectedImage == null) {
+    if (_selectedImage == null && _globalPick == null) {
       showAdaptiveSnackBar(
         context: context,
         message: l10n.pleaseAddProductImage,
@@ -149,14 +201,18 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     ref.read(addProductLoadingProvider.notifier).state = true;
 
     try {
-      // First upload the image
-      final uploadResult = await ImageUploadService.uploadProductImage(_selectedImage!);
-      
-      if (!uploadResult['success']) {
-        throw Exception(uploadResult['message'] ?? l10n.imageUploadFailed);
+      String imageUrl;
+      if (_globalPick != null) {
+        // Reuse the shared catalog image — no upload, no duplicate storage.
+        imageUrl = _globalPick!['imageUrl'].toString();
+      } else {
+        final uploadResult =
+            await ImageUploadService.uploadProductImage(_selectedImage!);
+        if (!uploadResult['success']) {
+          throw Exception(uploadResult['message'] ?? l10n.imageUploadFailed);
+        }
+        imageUrl = uploadResult['imageUrl'] as String;
       }
-      
-      final imageUrl = uploadResult['imageUrl'] as String;
 
       final product = Product(
         id: '', // Will be set by backend
@@ -171,8 +227,10 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
         updatedAt: DateTime.now(),
       );
 
-      final success =
-          await ref.read(productProviderRiverpod.notifier).addProduct(product);
+      final success = await ref
+          .read(productProviderRiverpod.notifier)
+          .addProduct(product,
+              globalProductId: _globalPick?['globalProductId']?.toString());
 
       if (success && mounted) {
         Navigator.of(context).pop();
@@ -357,7 +415,46 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
             ],
           ),
           SizedBox(height: AppSpacing.md),
-          if (_selectedImage != null) ...[
+          if (_globalPick != null) ...[
+            Container(
+              height: 200,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(AppDimensions.borderRadiusMD),
+                border: Border.all(color: WhizzColors.border, width: 1),
+              ),
+              child: ClipRRect(
+                borderRadius:
+                    BorderRadius.circular(AppDimensions.borderRadiusMD),
+                child: Image.network(
+                  _globalPick!['imageUrl'].toString(),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) =>
+                      const Center(child: Icon(Icons.broken_image_rounded)),
+                ),
+              ),
+            ),
+            SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                const Icon(Icons.verified_rounded,
+                    color: Colors.green, size: 18),
+                SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    'من الكتالوج المشترك — لا حاجة لرفع صورة',
+                    style: AppTypography.bodySmall
+                        .copyWith(color: WhizzColors.textSecondary),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _clearGlobalPick,
+                  child: Text(l10n.remove),
+                ),
+              ],
+            ),
+          ] else if (_selectedImage != null) ...[
             Container(
               height: 200,
               width: double.infinity,
@@ -524,6 +621,16 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
               return null;
             },
           ),
+          _buildCatalogSuggestions(),
+          if (_globalPick != null)
+            Padding(
+              padding: EdgeInsets.only(top: AppSpacing.xs),
+              child: Text(
+                'مرتبط بـ "${_globalPick!['canonicalName'] ?? ''}" في الكتالوج — يمكنك تغيير الاسم ليظهر لزبائنك كما تحب',
+                style: AppTypography.bodySmall
+                    .copyWith(color: const Color(0xFF2E7D32)),
+              ),
+            ),
           SizedBox(height: AppSpacing.lg),
 
           // Description
@@ -565,6 +672,59 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
               return null;
             },
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCatalogSuggestions() {
+    if (_suggestions.isEmpty || _globalPick != null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: EdgeInsets.only(top: AppSpacing.xs),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
+        border: Border.all(color: WhizzColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                AppSpacing.sm, AppSpacing.sm, AppSpacing.sm, 0),
+            child: Text(
+              'موجود في الكتالوج — اختره واكتب سعرك فقط',
+              style: AppTypography.bodySmall.copyWith(
+                color: const Color(0xFF555555),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ..._suggestions.take(6).map((item) => ListTile(
+                dense: true,
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.network(
+                    item['imageUrl'].toString(),
+                    width: 40,
+                    height: 40,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.image_not_supported_rounded),
+                  ),
+                ),
+                title: Text(
+                  item['canonicalName']?.toString() ?? '',
+                  style: const TextStyle(color: Color(0xFF1A1A1A)),
+                ),
+                subtitle: Text(
+                  'يستخدمه ${item['usageCount'] ?? 1} متجر',
+                  style: const TextStyle(color: Color(0xFF777777)),
+                ),
+                onTap: () => _pickGlobal(item),
+              )),
         ],
       ),
     );
@@ -649,8 +809,9 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
         SizedBox(height: AppSpacing.xxs),
         DropdownButtonFormField<String>(
           value: _selectedCategoryId,
+          dropdownColor: Colors.white,
           style: AppTypography.bodyLarge.copyWith(
-            color: WhizzColors.textPrimary,
+            color: const Color(0xFF1A1A1A),
           ),
           decoration: InputDecoration(
             hintText: l10n.selectCategory,
@@ -692,7 +853,10 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
             return uniqueCategories.values.map((category) {
               return DropdownMenuItem<String>(
                 value: category.id,
-                child: Text(category.name),
+                child: Text(
+                  category.name,
+                  style: const TextStyle(color: Color(0xFF1A1A1A)),
+                ),
               );
             }).toList();
           }(),

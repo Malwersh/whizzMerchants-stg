@@ -8,7 +8,7 @@ import '../services/app_state.dart';
 import '../services/api_service.dart';
 import '../services/app_auth_service.dart';
 import '../services/product_service.dart';
-import '../screens/login_page.dart';
+import '../screens/auth/auth_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../core/utils/app_logger.dart';
@@ -534,7 +534,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
-        builder: (context) => const LoginPage(),
+        builder: (context) => const AuthScreen(),
       ),
       (route) => false, // Remove all previous routes
     );

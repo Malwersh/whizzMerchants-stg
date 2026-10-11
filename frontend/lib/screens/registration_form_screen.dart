@@ -1,9 +1,11 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:whizz_merchants/l10n/app_localizations.dart';
+
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/wizz_business_button.dart';
@@ -38,7 +40,7 @@ class _RegistrationFormScreenState
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
-  
+
   // Business Information Controllers
   final _businessNameController = TextEditingController();
   final _businessStreetController = TextEditingController();
@@ -46,15 +48,15 @@ class _RegistrationFormScreenState
   final _businessAddressNotesController =
       TextEditingController(); // Additional notes field
   final _businessCountryController = TextEditingController();
-  
+
   // Region Selection (replaces city/district text fields)
   Region? _selectedDistrict;
   Region? _selectedNeighborhood;
   String? _selectedRegionId;
-  
+
   // Mapbox Address Autofill
   AddressComponents? _selectedAddress;
-  
+
   // Verification
   final _verificationController = TextEditingController();
 
@@ -99,8 +101,6 @@ class _RegistrationFormScreenState
     _pageController.dispose();
     super.dispose();
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -151,8 +151,9 @@ class _RegistrationFormScreenState
         color: WhizzColors.white, // 60% white
         border: Border(
           bottom: BorderSide(
-            color:
-                WhizzColors.secondary.withOpacity(0.1), // 30% secondary (blue)
+            color: WhizzColors.secondary.withOpacity(
+              0.1,
+            ), // 30% secondary (blue)
             width: 1,
           ),
         ),
@@ -168,8 +169,10 @@ class _RegistrationFormScreenState
         children: [
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
-            icon: Icon(Icons.arrow_back_ios,
-                color: WhizzColors.secondary), // 30% secondary
+            icon: Icon(
+              Icons.arrow_back_ios,
+              color: WhizzColors.secondary,
+            ), // 30% secondary
             padding: EdgeInsets.zero,
           ),
           SizedBox(width: GoldenRatio.spacing8),
@@ -197,8 +200,9 @@ class _RegistrationFormScreenState
           Container(
             padding: EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: WhizzColors.primary
-                  .withOpacity(0.1), // 10% primary (yellow) accent
+              color: WhizzColors.primary.withOpacity(
+                0.1,
+              ), // 10% primary (yellow) accent
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -247,7 +251,8 @@ class _RegistrationFormScreenState
                       height: 4.0,
                       decoration: BoxDecoration(
                         color: isActive
-                            ? WhizzColors.primary // 10% primary (yellow)
+                            ? WhizzColors
+                                  .primary // 10% primary (yellow)
                             : WhizzColors.grey200,
                         borderRadius: BorderRadius.circular(2.0),
                       ),
@@ -259,10 +264,12 @@ class _RegistrationFormScreenState
                       width: 24,
                       height: 24,
                       margin: EdgeInsets.symmetric(
-                          horizontal: GoldenRatio.spacing4),
+                        horizontal: GoldenRatio.spacing4,
+                      ),
                       decoration: BoxDecoration(
                         color: isCompleted || isActive
-                            ? WhizzColors.primary // 10% primary (yellow)
+                            ? WhizzColors
+                                  .primary // 10% primary (yellow)
                             : WhizzColors.grey200,
                         shape: BoxShape.circle,
                         boxShadow: isActive
@@ -276,15 +283,18 @@ class _RegistrationFormScreenState
                             : null,
                       ),
                       child: isCompleted
-                          ? Icon(Icons.check,
+                          ? Icon(
+                              Icons.check,
                               size: AppDimensions.iconSizeSM,
-                              color: WhizzColors.secondary) // 30% secondary
+                              color: WhizzColors.secondary,
+                            ) // 30% secondary
                           : Center(
                               child: Text(
                                 '${index + 1}',
                                 style: AppTypography.bodySmall.copyWith(
                                   color: isActive
-                                      ? WhizzColors.secondary // 30% secondary
+                                      ? WhizzColors
+                                            .secondary // 30% secondary
                                       : WhizzColors.textSecondary,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -342,26 +352,7 @@ class _RegistrationFormScreenState
             ),
             SizedBox(height: AppSpacing.md),
 
-            // Email
-            _buildModernTextField(
-              controller: _emailController,
-              labelText: loc.enterYourEmail,
-              prefixIcon: Icons.email_outlined,
-              keyboardType: TextInputType.emailAddress,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return loc.pleaseEnterYourEmail;
-                }
-                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                    .hasMatch(value.trim())) {
-                  return loc.pleaseEnterValidEmail;
-                }
-                return null;
-              },
-            ),
-            SizedBox(height: AppSpacing.md),
-
-            // Phone Number
+            // Phone Number (used for sign-in; a code is sent via SMS)
             _buildModernTextField(
               controller: _phoneController,
               labelText: loc.phoneNumber,
@@ -371,65 +362,27 @@ class _RegistrationFormScreenState
                 if (value == null || value.trim().isEmpty) {
                   return loc.pleaseEnterPhoneNumber;
                 }
-                return null;
-              },
-            ),
-            SizedBox(height: AppSpacing.lg),
-
-            // Password
-            _buildModernTextField(
-              controller: _passwordController,
-              labelText: loc.createAStrongPassword,
-              prefixIcon: Icons.lock_outlined,
-              obscureText: !_isPasswordVisible,
-              suffixIcon: IconButton(
-                icon: Icon(_isPasswordVisible
-                    ? Icons.visibility_off
-                    : Icons.visibility),
-                onPressed: () {
-                  setState(() {
-                    _isPasswordVisible = !_isPasswordVisible;
-                  });
-                },
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return loc.pleaseEnterPassword;
-                }
-                if (value.length < 8) {
-                  return loc.passwordMinLength;
-                }
-                if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)')
-                    .hasMatch(value)) {
-                  return loc.passwordComplexity;
+                if (AppAuthService.normalizeIraqiPhone(value) == null) {
+                  return loc.invalidIraqiPhone;
                 }
                 return null;
               },
             ),
             SizedBox(height: AppSpacing.md),
 
-            // Confirm Password
+            // Email (optional contact)
             _buildModernTextField(
-              controller: _confirmPasswordController,
-              labelText: loc.confirmYourPassword,
-              prefixIcon: Icons.lock_outlined,
-              obscureText: !_isConfirmPasswordVisible,
-              suffixIcon: IconButton(
-                icon: Icon(_isConfirmPasswordVisible
-                    ? Icons.visibility_off
-                    : Icons.visibility),
-                onPressed: () {
-                  setState(() {
-                    _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
-                  });
-                },
-              ),
+              controller: _emailController,
+              labelText: loc.enterYourEmail,
+              prefixIcon: Icons.email_outlined,
+              keyboardType: TextInputType.emailAddress,
               validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return loc.pleaseConfirmPassword;
+                if (value == null || value.trim().isEmpty) {
+                  return null; // optional for phone-based accounts
                 }
-                if (value != _passwordController.text) {
-                  return loc.passwordsDoNotMatch;
+                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                    .hasMatch(value.trim())) {
+                  return loc.pleaseEnterValidEmail;
                 }
                 return null;
               },
@@ -471,9 +424,9 @@ class _RegistrationFormScreenState
           Text(
             loc.businessInformation,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: WhizzColors.secondary, // 30% secondary (blue)
-                ),
+              fontWeight: FontWeight.bold,
+              color: WhizzColors.secondary, // 30% secondary (blue)
+            ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.xl),
@@ -516,13 +469,16 @@ class _RegistrationFormScreenState
                 SnackBar(
                   content: Row(
                     children: [
-                      Icon(Icons.check_circle,
-                          color: WhizzColors.secondary), // 30% secondary
+                      Icon(
+                        Icons.check_circle,
+                        color: WhizzColors.secondary,
+                      ), // 30% secondary
                       SizedBox(width: 8),
                       Text(
                         'تم تحديد العنوان بنجاح',
                         style: TextStyle(
-                            color: WhizzColors.secondary), // 30% secondary
+                          color: WhizzColors.secondary,
+                        ), // 30% secondary
                       ),
                     ],
                   ),
@@ -547,15 +503,17 @@ class _RegistrationFormScreenState
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    WhizzColors.primary
-                        .withOpacity(0.12), // 10% primary (yellow) gradient
+                    WhizzColors.primary.withOpacity(
+                      0.12,
+                    ), // 10% primary (yellow) gradient
                     WhizzColors.white, // 60% white
                   ],
                 ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: WhizzColors.primary
-                      .withOpacity(0.3), // 10% primary border
+                  color: WhizzColors.primary.withOpacity(
+                    0.3,
+                  ), // 10% primary border
                   width: 1.5,
                 ),
               ),
@@ -713,17 +671,16 @@ class _RegistrationFormScreenState
           Text(
             loc.businessDocuments,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: WhizzColors.secondary, // 30% secondary (blue)
-                ),
+              fontWeight: FontWeight.bold,
+              color: WhizzColors.secondary, // 30% secondary (blue)
+            ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.sm),
           Text(
             loc.uploadOptionalDocumentsToVerifyBusiness,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: WhizzColors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: WhizzColors.textSecondary),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.xl),
@@ -810,18 +767,17 @@ class _RegistrationFormScreenState
           Text(
             loc.checkYourEmail,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: WhizzColors.secondary, // 30% secondary (blue)
-                ),
+              fontWeight: FontWeight.bold,
+              color: WhizzColors.secondary, // 30% secondary (blue)
+            ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.md),
 
           Text(
             loc.verificationCodeSentToEmail,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: WhizzColors.textSecondary,
-                ),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: WhizzColors.textSecondary),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.xl),
@@ -932,19 +888,19 @@ class _RegistrationFormScreenState
       {
         'value': 'restaurant',
         'label': loc.restaurant,
-        'icon': Icons.restaurant
+        'icon': Icons.restaurant,
       },
       {'value': 'cafe', 'label': loc.cafe, 'icon': Icons.local_cafe},
       {'value': 'bakery', 'label': loc.bakery, 'icon': Icons.cake},
       {
         'value': 'grocery',
         'label': loc.grocery,
-        'icon': Icons.local_grocery_store
+        'icon': Icons.local_grocery_store,
       },
       {
         'value': 'pharmacy',
         'label': loc.pharmacy,
-        'icon': Icons.local_pharmacy
+        'icon': Icons.local_pharmacy,
       },
       {'value': 'store', 'label': loc.store, 'icon': Icons.store},
     ];
@@ -955,9 +911,9 @@ class _RegistrationFormScreenState
         Text(
           loc.selectYourBusinessType,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: WhizzColors.secondary, // 30% secondary (blue)
-              ),
+            fontWeight: FontWeight.w600,
+            color: WhizzColors.secondary, // 30% secondary (blue)
+          ),
         ),
         SizedBox(height: AppSpacing.sm),
         Wrap(
@@ -972,9 +928,10 @@ class _RegistrationFormScreenState
                 });
               },
               child: Container(
-                padding:
-                    EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
                 decoration: BoxDecoration(
                   gradient: isSelected
                       ? LinearGradient(
@@ -987,7 +944,8 @@ class _RegistrationFormScreenState
                   color: isSelected ? null : WhizzColors.white, // 60% white
                   border: Border.all(
                     color: isSelected
-                        ? WhizzColors.primary // 10% primary
+                        ? WhizzColors
+                              .primary // 10% primary
                         : WhizzColors.grey200,
                     width: isSelected ? 2 : 1,
                   ),
@@ -1009,7 +967,7 @@ class _RegistrationFormScreenState
                       type['icon'] as IconData,
                       color: isSelected
                           ? WhizzColors
-                              .secondary // 30% secondary (blue) for contrast
+                                .secondary // 30% secondary (blue) for contrast
                           : WhizzColors.primary, // 10% primary
                       size: AppDimensions.iconSizeMD,
                     ),
@@ -1018,10 +976,12 @@ class _RegistrationFormScreenState
                       type['label'] as String,
                       style: TextStyle(
                         color: isSelected
-                            ? WhizzColors.secondary // 30% secondary
+                            ? WhizzColors
+                                  .secondary // 30% secondary
                             : WhizzColors.textPrimary,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.w500,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
                       ),
                     ),
                   ],
@@ -1043,7 +1003,8 @@ class _RegistrationFormScreenState
           color: WhizzColors.white, // 60% white
           border: Border.all(
             color: _businessPhotoFile != null
-                ? WhizzColors.primary // 10% primary (yellow)
+                ? WhizzColors
+                      .primary // 10% primary (yellow)
                 : WhizzColors.grey200,
             width: _businessPhotoFile != null ? 2 : 1,
             style: BorderStyle.solid,
@@ -1129,16 +1090,15 @@ class _RegistrationFormScreenState
                   Text(
                     loc.tapToUploadBusinessPhoto,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: WhizzColors.primary, // 10% primary
-                          fontWeight: FontWeight.w500,
-                        ),
+                      color: WhizzColors.primary, // 10% primary
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   SizedBox(height: AppSpacing.xs),
                   Text(
                     loc.requiredField,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.red,
-                        ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: Colors.red),
                   ),
                 ],
               ),
@@ -1161,7 +1121,8 @@ class _RegistrationFormScreenState
           color: WhizzColors.white, // 60% white
           border: Border.all(
             color: file != null
-                ? WhizzColors.primary // 10% primary (yellow) when uploaded
+                ? WhizzColors
+                      .primary // 10% primary (yellow) when uploaded
                 : WhizzColors.grey200,
             width: file != null ? 2 : 1,
           ),
@@ -1189,7 +1150,8 @@ class _RegistrationFormScreenState
               child: Icon(
                 icon,
                 color: file != null
-                    ? WhizzColors.primary // 10% primary
+                    ? WhizzColors
+                          .primary // 10% primary
                     : WhizzColors.grey400,
                 size: AppDimensions.iconSizeLG,
               ),
@@ -1202,18 +1164,18 @@ class _RegistrationFormScreenState
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: file != null
-                              ? WhizzColors.secondary // 30% secondary
-                              : WhizzColors.textPrimary,
-                        ),
+                      fontWeight: FontWeight.w600,
+                      color: file != null
+                          ? WhizzColors
+                                .secondary // 30% secondary
+                          : WhizzColors.textPrimary,
+                    ),
                   ),
                   SizedBox(height: AppSpacing.xs),
                   Text(
                     subtitle,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: WhizzColors.textSecondary,
-                        ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: WhizzColors.textSecondary),
                   ),
                 ],
               ),
@@ -1323,14 +1285,15 @@ class _RegistrationFormScreenState
 
       // Try to match governorate (المحافظة)
       if (address.governorate != null) {
-        final governorates =
-            activeRegions.where((r) => r.regionType == 'PROVINCE').toList();
+        final governorates = activeRegions
+            .where((r) => r.regionType == 'PROVINCE')
+            .toList();
         final matchedGovernorate = governorates.firstWhere(
           (region) =>
               region.nameAr.contains(address.governorate!) ||
-              region.nameEn
-                  .toLowerCase()
-                  .contains(address.governorate!.toLowerCase()) ||
+              region.nameEn.toLowerCase().contains(
+                address.governorate!.toLowerCase(),
+              ) ||
               _normalizeArabicText(region.nameAr) ==
                   _normalizeArabicText(address.governorate!),
           orElse: () => governorates.first, // Fallback to first governorate
@@ -1338,9 +1301,11 @@ class _RegistrationFormScreenState
 
         // Load districts for this governorate
         final districts = activeRegions
-            .where((r) =>
-                r.regionType == 'DISTRICT' &&
-                r.parentId == matchedGovernorate.regionId)
+            .where(
+              (r) =>
+                  r.regionType == 'DISTRICT' &&
+                  r.parentId == matchedGovernorate.regionId,
+            )
             .toList();
 
         // Try to match district (المنطقة/القضاء)
@@ -1348,9 +1313,9 @@ class _RegistrationFormScreenState
           final matchedDistrict = districts.firstWhere(
             (region) =>
                 region.nameAr.contains(address.district!) ||
-                region.nameEn
-                    .toLowerCase()
-                    .contains(address.district!.toLowerCase()) ||
+                region.nameEn.toLowerCase().contains(
+                  address.district!.toLowerCase(),
+                ) ||
                 _normalizeArabicText(region.nameAr) ==
                     _normalizeArabicText(address.district!),
             orElse: () => districts.first, // Fallback to first district
@@ -1362,9 +1327,11 @@ class _RegistrationFormScreenState
 
           // Load neighborhoods for this district
           final neighborhoods = activeRegions
-              .where((r) =>
-                  r.regionType == 'NEIGHBORHOOD' &&
-                  r.parentId == matchedDistrict.regionId)
+              .where(
+                (r) =>
+                    r.regionType == 'NEIGHBORHOOD' &&
+                    r.parentId == matchedDistrict.regionId,
+              )
               .toList();
 
           // Try to match neighborhood (الحي)
@@ -1372,9 +1339,9 @@ class _RegistrationFormScreenState
             final matchedNeighborhood = neighborhoods.firstWhere(
               (region) =>
                   region.nameAr.contains(address.neighborhood!) ||
-                  region.nameEn
-                      .toLowerCase()
-                      .contains(address.neighborhood!.toLowerCase()) ||
+                  region.nameEn.toLowerCase().contains(
+                    address.neighborhood!.toLowerCase(),
+                  ) ||
                   _normalizeArabicText(region.nameAr) ==
                       _normalizeArabicText(address.neighborhood!),
               orElse: () =>
@@ -1399,7 +1366,8 @@ class _RegistrationFormScreenState
         }
 
         debugPrint(
-            '✅ Auto-populated region: ${matchedGovernorate.nameAr} → ${_selectedDistrict?.nameAr} → ${_selectedNeighborhood?.nameAr}');
+          '✅ Auto-populated region: ${matchedGovernorate.nameAr} → ${_selectedDistrict?.nameAr} → ${_selectedNeighborhood?.nameAr}',
+        );
 
         // Show info to user about auto-population
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1433,30 +1401,31 @@ class _RegistrationFormScreenState
   // ==================================================================
   // VALIDATION METHODS
   // ==================================================================
-  
+
   Future<bool> _validateBusinessInfo() async {
     final loc = AppLocalizations.of(context)!;
-    
+
     if (_businessNameController.text.trim().isEmpty) {
       _showErrorSnackBar(loc.pleaseEnterBusinessName);
       return false;
     }
-    
+
     // Check if address is filled via Mapbox autofill OR manual entry
     if (_businessStreetController.text.trim().isEmpty) {
       _showErrorSnackBar(loc.pleaseEnterStreetAddress);
       return false;
     }
-    
+
     // Validate region selection (can be from Mapbox autofill or manual selection)
     // If Mapbox address is selected, we have the address. If not, require manual region selection
     if (_selectedAddress == null &&
         (_selectedRegionId == null || _selectedNeighborhood == null)) {
       _showErrorSnackBar(
-          '${loc.pleaseSelectNeighborhood} أو استخدم البحث التلقائي للعنوان');
+        '${loc.pleaseSelectNeighborhood} أو استخدم البحث التلقائي للعنوان',
+      );
       return false;
     }
-    
+
     // Validate region is active using RegionService (only if manual selection was used)
     if (_selectedRegionId != null) {
       final isActive = await RegionService().isRegionActive(_selectedRegionId!);
@@ -1465,7 +1434,7 @@ class _RegistrationFormScreenState
         return false;
       }
     }
-    
+
     if (_businessPhotoFile == null) {
       _showErrorSnackBar(loc.pleaseUploadBusinessPhoto);
       return false;
@@ -1475,7 +1444,7 @@ class _RegistrationFormScreenState
 
   Future<void> _pickBusinessPhoto() async {
     final loc = AppLocalizations.of(context)!;
-    
+
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
@@ -1483,7 +1452,7 @@ class _RegistrationFormScreenState
         maxHeight: 1024,
         imageQuality: 85,
       );
-      
+
       if (image != null) {
         setState(() {
           _businessPhotoFile = File(image.path);
@@ -1496,7 +1465,7 @@ class _RegistrationFormScreenState
 
   Future<void> _pickDocument(String type) async {
     final loc = AppLocalizations.of(context)!;
-    
+
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
@@ -1504,7 +1473,7 @@ class _RegistrationFormScreenState
         maxHeight: 1024,
         imageQuality: 85,
       );
-      
+
       if (image != null) {
         setState(() {
           switch (type) {
@@ -1530,7 +1499,7 @@ class _RegistrationFormScreenState
 
   Future<void> _register() async {
     final loc = AppLocalizations.of(context)!;
-    
+
     // Check if user agreed to terms
     if (!_agreedToTerms) {
       _showErrorSnackBar(loc.youMustAgreeToTerms);
@@ -1584,20 +1553,21 @@ class _RegistrationFormScreenState
       String? identityUrl;
       String? healthCertificateUrl;
       String? ownerPhotoUrl;
-      
+
       // Additional safety check for required business photo
       if (_businessPhotoFile == null) {
         setState(() => _isLoading = false);
         _showErrorSnackBar(loc.businessPhotoIsRequired);
         return;
       }
-      
+
       try {
         // Upload business photo (required)
-        final businessPhotoUploadResult = await ImageUploadService.uploadBusinessPhoto(
-          _businessPhotoFile!, 
-          isRegistration: true
-        );
+        final businessPhotoUploadResult =
+            await ImageUploadService.uploadBusinessPhoto(
+              _businessPhotoFile!,
+              isRegistration: true,
+            );
         if (businessPhotoUploadResult['success'] == true) {
           businessPhotoUrl = businessPhotoUploadResult['imageUrl'];
         } else {
@@ -1606,7 +1576,8 @@ class _RegistrationFormScreenState
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                    'Failed to upload business photo: ${businessPhotoUploadResult['message'].toString()}'),
+                  'Failed to upload business photo: ${businessPhotoUploadResult['message'].toString()}',
+                ),
                 backgroundColor: Colors.red,
               ),
             );
@@ -1616,52 +1587,56 @@ class _RegistrationFormScreenState
 
         // Upload optional documents
         if (_licenseFile != null) {
-          final licenseUploadResult = await DocumentUploadService.uploadBusinessLicense(
-            _licenseFile!, 
-            isRegistration: true
-          );
+          final licenseUploadResult =
+              await DocumentUploadService.uploadBusinessLicense(
+                _licenseFile!,
+                isRegistration: true,
+              );
           if (licenseUploadResult['success'] == true) {
             licenseUrl = licenseUploadResult['imageUrl'];
           }
         }
 
         if (_identityFile != null) {
-          final identityUploadResult = await DocumentUploadService.uploadOwnerIdentity(
-            _identityFile!, 
-            isRegistration: true
-          );
+          final identityUploadResult =
+              await DocumentUploadService.uploadOwnerIdentity(
+                _identityFile!,
+                isRegistration: true,
+              );
           if (identityUploadResult['success'] == true) {
             identityUrl = identityUploadResult['imageUrl'];
           }
         }
 
         if (_healthCertificateFile != null) {
-          final healthUploadResult = await DocumentUploadService.uploadHealthCertificate(
-            _healthCertificateFile!, 
-            isRegistration: true
-          );
+          final healthUploadResult =
+              await DocumentUploadService.uploadHealthCertificate(
+                _healthCertificateFile!,
+                isRegistration: true,
+              );
           if (healthUploadResult['success'] == true) {
             healthCertificateUrl = healthUploadResult['imageUrl'];
           }
         }
 
         if (_ownerPhotoFile != null) {
-          final ownerPhotoUploadResult = await DocumentUploadService.uploadOwnerPhoto(
-            _ownerPhotoFile!, 
-            isRegistration: true
-          );
+          final ownerPhotoUploadResult =
+              await DocumentUploadService.uploadOwnerPhoto(
+                _ownerPhotoFile!,
+                isRegistration: true,
+              );
           if (ownerPhotoUploadResult['success'] == true) {
             ownerPhotoUrl = ownerPhotoUploadResult['imageUrl'];
           }
         }
-
       } catch (uploadError) {
         setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content:
-                  Text('Error uploading documents: ${uploadError.toString()}'),
+              content: Text(
+                'Error uploading documents: ${uploadError.toString()}',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -1669,13 +1644,17 @@ class _RegistrationFormScreenState
         return;
       }
 
+      final normalizedPhone =
+          AppAuthService.normalizeIraqiPhone(_phoneController.text) ??
+          _phoneController.text.trim();
+
       // Step 3: Register with business data including all document URLs and Google Places address
       final businessData = {
         'businessName': _businessNameController.text.trim(),
         'firstName': _firstNameController.text.trim(),
         'lastName': _lastNameController.text.trim(),
         'businessType': _selectedBusinessType,
-        'phoneNumber': _phoneController.text.trim(),
+        'phoneNumber': normalizedPhone,
         'address': {
           // Google Places API address components
           'city': _selectedAddress?.city,
@@ -1702,7 +1681,7 @@ class _RegistrationFormScreenState
 
       final registerResult = await AppAuthService.registerWithBusiness(
         email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        password: '', // unused: account is phone-based and passwordless
         businessData: businessData,
       );
 
@@ -1716,8 +1695,12 @@ class _RegistrationFormScreenState
               backgroundColor: Colors.green,
             ),
           );
+          // Account is auto-confirmed; the merchant signs in with an SMS code.
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const AuthScreen()),
+          );
         }
-        _nextPage(); // Move to verification page
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1743,7 +1726,7 @@ class _RegistrationFormScreenState
 
   Future<void> _verifyRegistration() async {
     final loc = AppLocalizations.of(context)!;
-    
+
     if (_verificationController.text.trim().length != 6) {
       _showErrorSnackBar(loc.verificationCodeMustBeSixDigits);
       return;
@@ -1763,8 +1746,9 @@ class _RegistrationFormScreenState
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(confirmResult.message ??
-                  loc.registrationCompletedSuccessfully),
+              content: Text(
+                confirmResult.message ?? loc.registrationCompletedSuccessfully,
+              ),
               backgroundColor: Colors.green,
             ),
           );
@@ -1773,11 +1757,13 @@ class _RegistrationFormScreenState
         // Check if we have user and business data for auto-navigation
         if (confirmResult.user != null && confirmResult.business != null) {
           // User verified successfully with business data - navigate to dashboard
-          final businessData =
-              Map<String, dynamic>.from(confirmResult.business as Map);
+          final businessData = Map<String, dynamic>.from(
+            confirmResult.business as Map,
+          );
 
           // Ensure email is included in business data
-          businessData['email'] = businessData['email'] ??
+          businessData['email'] =
+              businessData['email'] ??
               confirmResult.user!['email'] ??
               _emailController.text.trim();
 
@@ -1798,9 +1784,7 @@ class _RegistrationFormScreenState
             if (mounted) {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const AuthScreen(),
-                ),
+                MaterialPageRoute(builder: (context) => const AuthScreen()),
               );
             }
           }
@@ -1809,9 +1793,7 @@ class _RegistrationFormScreenState
           if (mounted) {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(
-                builder: (context) => const AuthScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const AuthScreen()),
             );
           }
         }
@@ -1840,12 +1822,12 @@ class _RegistrationFormScreenState
 
   Future<void> _resendVerificationCode() async {
     final loc = AppLocalizations.of(context)!;
-    
+
     try {
       await AppAuthService.resendRegistrationCode(
         email: _emailController.text.trim(),
       );
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1869,17 +1851,14 @@ class _RegistrationFormScreenState
   void _showErrorSnackBar(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     }
   }
 
   bool _validateUserInfo() {
     final loc = AppLocalizations.of(context)!;
-    
+
     if (_firstNameController.text.trim().isEmpty) {
       _showErrorSnackBar(loc.pleaseEnterYourFirstName);
       return false;
@@ -1888,24 +1867,19 @@ class _RegistrationFormScreenState
       _showErrorSnackBar(loc.pleaseEnterYourLastName);
       return false;
     }
-    if (_emailController.text.trim().isEmpty) {
-      _showErrorSnackBar(loc.pleaseEnterYourEmail);
+    // Phone-based account: phone is required, email optional, no password.
+    if (_phoneController.text.trim().isEmpty) {
+      _showErrorSnackBar(loc.pleaseEnterPhoneNumber);
       return false;
     }
-    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(_emailController.text.trim())) {
+    if (AppAuthService.normalizeIraqiPhone(_phoneController.text) == null) {
+      _showErrorSnackBar(loc.invalidIraqiPhone);
+      return false;
+    }
+    final email = _emailController.text.trim();
+    if (email.isNotEmpty &&
+        !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
       _showErrorSnackBar(loc.pleaseEnterValidEmailAddress);
-      return false;
-    }
-    if (_passwordController.text.trim().isEmpty) {
-      _showErrorSnackBar(loc.pleaseEnterAPassword);
-      return false;
-    }
-    if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)').hasMatch(_passwordController.text)) {
-      _showErrorSnackBar(loc.passwordMustContainUpperLowerNumber);
-      return false;
-    }
-    if (_passwordController.text != _confirmPasswordController.text) {
-      _showErrorSnackBar(loc.passwordsDoNotMatch);
       return false;
     }
     return true;
@@ -1982,18 +1956,16 @@ class _RegistrationFormScreenState
             ? []
             : [
                 BoxShadow(
-                  color: WhizzColors.primary
-                      .withOpacity(0.15), // 10% primary shadow
+                  color: WhizzColors.primary.withOpacity(
+                    0.15,
+                  ), // 10% primary shadow
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
               ],
       ),
       child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
             Container(

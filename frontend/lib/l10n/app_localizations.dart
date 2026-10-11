@@ -7240,6 +7240,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Session expired. Please login again.'**
   String get sessionExpiredPleaseLoginAgain;
+
+  /// No description provided for @phoneRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone number is required'**
+  String get phoneRequired;
+
+  /// No description provided for @invalidIraqiPhone.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid Iraqi mobile number (07XX XXX XXXX)'**
+  String get invalidIraqiPhone;
+
+  /// No description provided for @otpSentTo.
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a 6-digit code to {phone}'**
+  String otpSentTo(String phone);
+
+  /// No description provided for @enterSixDigitCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 6-digit code'**
+  String get enterSixDigitCode;
+
+  /// No description provided for @changeNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Change number'**
+  String get changeNumber;
+
+  /// No description provided for @verifyAndSignIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify & Sign In'**
+  String get verifyAndSignIn;
+
+  /// No description provided for @sendCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Send Code'**
+  String get sendCode;
+
+  /// No description provided for @otpSendFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t send the code. Please try again.'**
+  String get otpSendFailed;
+
+  /// No description provided for @phoneNotRegistered.
+  ///
+  /// In en, this message translates to:
+  /// **'No merchant account uses this number. Please register first.'**
+  String get phoneNotRegistered;
+
+  /// No description provided for @invalidOtp.
+  ///
+  /// In en, this message translates to:
+  /// **'Incorrect code. Please try again.'**
+  String get invalidOtp;
+
+  /// No description provided for @otpExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'The code expired or too many attempts. Request a new code.'**
+  String get otpExpired;
 }
 
 class _AppLocalizationsDelegate

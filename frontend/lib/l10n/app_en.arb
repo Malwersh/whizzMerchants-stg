@@ -478,7 +478,7 @@
   "welcomeDescription": "Manage your business orders efficiently with our powerful order management system.",
   "getStarted": "Get Started",
   "testRegistrationForm": "Test Registration Form",
-  "networkError": "Network Error",
+  "networkError": "Network error. Please check your connection.",
   "returnOrderTitle": "Return Order",
   "enterOrderNumber": "Enter Order Number",
   "orderNotFound": "Order Not Found",
@@ -877,7 +877,7 @@
   "pleaseEnterLastName": "Please enter your last name",
   "pleaseEnterValidEmail": "Please enter a valid email",
   "pleaseEnterPhoneNumber": "Please enter your phone number",
-  "pleaseEnterPassword": "Please enter a password",
+  "pleaseEnterPassword": "Please enter your password",
   "passwordMinLength": "Password must be at least 8 characters",
   "passwordComplexity": "Password must contain uppercase, lowercase and numbers",
   "pleaseConfirmPassword": "Please confirm your password",
@@ -1203,14 +1203,11 @@
   "deleteAccountCannotUndo": "This action cannot be undone.",
   "verifyPassword": "Verify Password",
   "verifyPasswordMessage": "Enter your password to confirm account deletion",
-  "pleaseEnterPassword": "Please enter your password",
-  "confirm": "Confirm",
   "deletingAccount": "Deleting account...",
   "pleaseWait": "Please wait",
   "accountDeletedSuccessfully": "Account deleted successfully",
   "errorDeletingAccount": "Error deleting account",
   "incorrectPassword": "Incorrect password. Please try again.",
-  "networkError": "Network error. Please check your connection.",
   "failedToLoadOrdersPullToRetry": "Failed to load orders. Pull to retry.",
   "restaurantNowAvailableForOrders": "Restaurant now available for orders",
   "restaurantNowUnavailableForOrders": "Restaurant now unavailable for orders",
@@ -1223,5 +1220,23 @@
       }
     }
   },
-  "sessionExpiredPleaseLoginAgain": "Session expired. Please login again."
+  "sessionExpiredPleaseLoginAgain": "Session expired. Please login again.",
+  "phoneRequired": "Phone number is required",
+  "invalidIraqiPhone": "Enter a valid Iraqi mobile number (07XX XXX XXXX)",
+  "otpSentTo": "We sent a 6-digit code to {phone}",
+  "@otpSentTo": {
+    "placeholders": {
+      "phone": {
+        "type": "String"
+      }
+    }
+  },
+  "enterSixDigitCode": "Enter the 6-digit code",
+  "changeNumber": "Change number",
+  "verifyAndSignIn": "Verify & Sign In",
+  "sendCode": "Send Code",
+  "otpSendFailed": "Couldn't send the code. Please try again.",
+  "phoneNotRegistered": "No merchant account uses this number. Please register first.",
+  "invalidOtp": "Incorrect code. Please try again.",
+  "otpExpired": "The code expired or too many attempts. Request a new code."
 }

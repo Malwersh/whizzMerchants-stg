@@ -1,6 +1,6 @@
 const { CognitoIdentityProviderClient, AdminGetUserCommand, SignUpCommand, ConfirmSignUpCommand, InitiateAuthCommand, ResendConfirmationCodeCommand, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 
 // Import WebSocket service for login tracking
 const websocketService = require('./websocket_service');
@@ -123,7 +123,7 @@ module.exports.handler = async (event) => {
             try {
                 // Check if user exists in Cognito without sending emails
                 const params = {
-                    UserPoolId: process.env.COGNITO_USER_POOL_ID || 'us-east-1_PHPkG78b5',
+                    UserPoolId: process.env.COGNITO_USER_POOL_ID,
                     Username: email
                 };
 
@@ -183,10 +183,11 @@ module.exports.handler = async (event) => {
                 ownerPhotoUrl
             } = body;
 
-            if (!email || !password || !businessName || !firstName || !lastName) {
+            // Phone-only auth: phone is the Cognito username; email is optional contact info.
+            if (!phoneNumber || !businessName || !firstName || !lastName) {
                 return createResponse(400, {
                     success: false,
-                    message: 'Email, password, business name, first name, and last name are required'
+                    message: 'Phone number, business name, first name, and last name are required'
                 });
             }
 
@@ -217,19 +218,29 @@ module.exports.handler = async (event) => {
                 
                 console.log('Phone number formatting:', phoneNumber, '->', formattedPhoneNumber);
 
-                // Create user in Cognito
+                if (!/^\+9647\d{9}$/.test(formattedPhoneNumber)) {
+                    return createResponse(400, {
+                        success: false,
+                        message: 'Please enter a valid Iraqi mobile number (07XXXXXXXXX)'
+                    });
+                }
+
+                // Create user in Cognito. SignUp requires a password, but the pool only allows
+                // CUSTOM_AUTH (OTP), so a random unusable password is set and never stored.
+                const cleanEmail = email ? email.toLowerCase().trim() : null;
+                const userAttributes = [
+                    { Name: 'phone_number', Value: formattedPhoneNumber },
+                    { Name: 'given_name', Value: firstName },
+                    { Name: 'family_name', Value: lastName },
+                    { Name: 'name', Value: `${firstName} ${lastName}` },
+                ];
+                if (cleanEmail) userAttributes.push({ Name: 'email', Value: cleanEmail });
+
                 const signUpParams = {
-                    ClientId: process.env.COGNITO_CLIENT_ID || '1tl9g7nk2k2chtj5fg960fgdth',
-                    Username: email,
-                    Password: password,
-                    UserAttributes: [
-                        { Name: 'email', Value: email },
-                        { Name: 'given_name', Value: firstName },
-                        { Name: 'family_name', Value: lastName },
-                        { Name: 'name', Value: `${firstName} ${lastName}` }, // Add formatted name
-                        { Name: 'phone_number', Value: formattedPhoneNumber },
-                    ]
-                    // Removed MessageAction: 'SUPPRESS' to allow Cognito to send verification emails automatically
+                    ClientId: process.env.COGNITO_CLIENT_ID,
+                    Username: formattedPhoneNumber,
+                    Password: require('crypto').randomBytes(24).toString('base64') + 'aA1!',
+                    UserAttributes: userAttributes,
                 };
 
                 const signUpCommand = new SignUpCommand(signUpParams);
@@ -254,11 +265,13 @@ module.exports.handler = async (event) => {
                 }
 
                 // Create business entry in DynamoDB
+                // NOTE: email is omitted (not null) when absent — the email-index GSI
+                // rejects NULL-typed key attributes.
                 const businessData = {
                     businessId: businessId,
                     businessName: businessName,
                     businessType: businessType || 'restaurant',
-                    email: email.toLowerCase().trim(),
+                    ...(cleanEmail ? { email: cleanEmail } : {}),
                     ownerName: `${firstName} ${lastName}`,
                     phoneNumber: formattedPhoneNumber,
                     ownerId: ownerId,
@@ -292,7 +305,7 @@ module.exports.handler = async (event) => {
                 // Create user entry in DynamoDB (if using separate users table)
                 const userData = {
                     userId: signUpResponse.UserSub,
-                    email: email.toLowerCase().trim(),
+                    ...(cleanEmail ? { email: cleanEmail } : {}),
                     firstName: firstName,
                     lastName: lastName,
                     fullName: `${firstName} ${lastName}`,
@@ -321,7 +334,7 @@ module.exports.handler = async (event) => {
 
                 return createResponse(200, {
                     success: true,
-                    message: 'Registration initiated successfully. Please check your email for verification code.',
+                    message: 'Registration successful. Sign in with the code sent to your phone.',
                     user_sub: signUpResponse.UserSub,
                     business_id: businessId,
                     code_delivery_details: signUpResponse.CodeDeliveryDetails,
@@ -334,10 +347,10 @@ module.exports.handler = async (event) => {
 
             } catch (cognitoError) {
                 console.error('Cognito registration error:', cognitoError);
-                if (cognitoError.code === 'UsernameExistsException') {
+                if ((cognitoError.name === 'UsernameExistsException' || cognitoError.code === 'UsernameExistsException')) {
                     return createResponse(400, {
                         success: false,
-                        message: 'An account with this email already exists. Please try logging in instead.'
+                        message: 'An account with this phone number already exists. Please sign in instead.'
                     });
                 }
                 return createResponse(500, {
@@ -362,7 +375,7 @@ module.exports.handler = async (event) => {
 
             try {
                 const confirmParams = {
-                    ClientId: process.env.COGNITO_CLIENT_ID || '1tl9g7nk2k2chtj5fg960fgdth',
+                    ClientId: process.env.COGNITO_CLIENT_ID,
                     Username: email,
                     ConfirmationCode: verificationCode
                 };
@@ -414,7 +427,7 @@ module.exports.handler = async (event) => {
 
             try {
                 const resendParams = {
-                    ClientId: process.env.COGNITO_CLIENT_ID || '1tl9g7nk2k2chtj5fg960fgdth',
+                    ClientId: process.env.COGNITO_CLIENT_ID,
                     Username: email
                 };
 
@@ -458,7 +471,7 @@ module.exports.handler = async (event) => {
 
             try {
                 const authParams = {
-                    ClientId: process.env.COGNITO_CLIENT_ID || '1tl9g7nk2k2chtj5fg960fgdth',
+                    ClientId: process.env.COGNITO_CLIENT_ID,
                     AuthFlow: 'USER_PASSWORD_AUTH',
                     AuthParameters: {
                         USERNAME: email,
@@ -474,7 +487,7 @@ module.exports.handler = async (event) => {
 
                     // Get user info from Cognito
                     const getUserParams = {
-                        UserPoolId: process.env.COGNITO_USER_POOL_ID || 'us-east-1_PHPkG78b5',
+                        UserPoolId: process.env.COGNITO_USER_POOL_ID,
                         Username: email
                     };
 
@@ -741,19 +754,39 @@ module.exports.handler = async (event) => {
                 });
             }
 
-            const accessToken = authHeader.replace('Bearer ', '');
+            const bearerToken = authHeader.replace('Bearer ', '');
 
             try {
-                // Verify the access token and get user info
-                const getUserCommand = new GetUserCommand({ AccessToken: accessToken });
-                const userResponse = await cognitoClient.send(getUserCommand);
-                
-                const email = userResponse.UserAttributes.find(attr => attr.Name === 'email')?.Value;
-                const userId = userResponse.UserAttributes.find(attr => attr.Name === 'sub')?.Value || userResponse.Username;
-                const firstName = userResponse.UserAttributes.find(attr => attr.Name === 'given_name')?.Value;
-                const lastName = userResponse.UserAttributes.find(attr => attr.Name === 'family_name')?.Value;
+                // The API Gateway Cognito authorizer has already verified the token.
+                // Read user info from the verified claims when available; otherwise
+                // decode the JWT payload directly. This works for both ID tokens
+                // (sent by the app) and access tokens, avoiding Cognito GetUser
+                // which only accepts access tokens.
+                let claims = event.requestContext?.authorizer?.claims;
+                if (!claims) {
+                    try {
+                        const payload = bearerToken.split('.')[1];
+                        const decoded = Buffer.from(
+                            payload.replace(/-/g, '+').replace(/_/g, '/'),
+                            'base64'
+                        ).toString('utf8');
+                        claims = JSON.parse(decoded);
+                    } catch (decodeErr) {
+                        console.error('❌ Failed to decode token payload:', decodeErr);
+                        return createResponse(401, {
+                            success: false,
+                            message: 'Invalid or expired access token'
+                        });
+                    }
+                }
 
-                console.log(`🔐 Authenticated user: ${email} (${userId})`);
+                const email = claims.email;
+                const userId = claims.sub || claims['cognito:username'] || claims.username;
+                const firstName = claims.given_name;
+                const lastName = claims.family_name;
+                const phoneNumber = claims.phone_number;
+
+                console.log(`🔐 Authenticated user: ${email || phoneNumber} (${userId})`);
 
                 // Query businesses for this user - ENHANCED DEBUGGING
                 let businesses = [];
@@ -762,19 +795,20 @@ module.exports.handler = async (event) => {
                 console.log(`🔍 DEBUG: Table: ${process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses'}`);
                 
                 try {
-                    // First, try to query by email using the index
-                    const businessQueryParams = {
-                        TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
-                        IndexName: 'email-index',
-                        KeyConditionExpression: 'email = :email',
-                        ExpressionAttributeValues: {
-                            ':email': email.toLowerCase().trim()
-                        }
-                    };
-
-                    console.log(`🔍 DEBUG: Query params:`, JSON.stringify(businessQueryParams, null, 2));
-                    const businessResult = await dynamodb.send(new QueryCommand(businessQueryParams));
-                    console.log(`🔍 DEBUG: Query result: Found ${businessResult.Items?.length || 0} businesses`);
+                    // Phone-only users may have no email: only use email-index when an email exists.
+                    let businessResult = { Items: [] };
+                    if (email) {
+                        const businessQueryParams = {
+                            TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
+                            IndexName: 'email-index',
+                            KeyConditionExpression: 'email = :email',
+                            ExpressionAttributeValues: {
+                                ':email': email.toLowerCase().trim()
+                            }
+                        };
+                        businessResult = await dynamodb.send(new QueryCommand(businessQueryParams));
+                    }
+                    console.log(`🔍 DEBUG: Email query result: Found ${businessResult.Items?.length || 0} businesses`);
                     
                     if (businessResult.Items && businessResult.Items.length > 0) {
                         businesses = businessResult.Items.map(business => ({
@@ -800,10 +834,10 @@ module.exports.handler = async (event) => {
                         console.log(`🔄 Trying alternative query by cognitoUserId: ${userId}`);
                         const altParams = {
                             TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
-                            FilterExpression: 'cognitoUserId = :userId OR ownerId = :userId',
-                            ExpressionAttributeValues: {
-                                ':userId': userId
-                            }
+                            FilterExpression: 'cognitoUserId = :userId OR ownerId = :userId' + (phoneNumber ? ' OR phoneNumber = :phone OR phone = :phone' : ''),
+                            ExpressionAttributeValues: phoneNumber
+                                ? { ':userId': userId, ':phone': phoneNumber }
+                                : { ':userId': userId }
                         };
                         
                         const altResult = await dynamodb.send(new ScanCommand(altParams));

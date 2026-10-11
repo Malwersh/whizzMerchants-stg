@@ -93,7 +93,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
                     title,
                     style: AppTypography.bodyLarge.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color: const Color(0xFF1A1A1A),
                       fontSize: ResponsiveHelper.getResponsiveFontSize(
                         context,
                         16,
@@ -104,9 +104,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
                   Text(
                     content,
                     style: AppTypography.bodyMedium.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
+                      color: const Color(0xFF1A1A1A)
                           .withValues(alpha: 0.7),
                       fontSize: ResponsiveHelper.getResponsiveFontSize(
                         context,
@@ -217,7 +215,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
         title: Text(
           loc.aboutApp,
           style: AppTypography.headlineMedium.copyWith(
-            color: theme.colorScheme.onSurface,
+            color: const Color(0xFF1A1A1A),
             fontSize: ResponsiveHelper.getResponsiveFontSize(context, 20),
           ),
         ),
@@ -226,7 +224,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_ios_rounded,
-            color: theme.colorScheme.onSurface,
+            color: const Color(0xFF1A1A1A),
             size: ResponsiveHelper.getResponsiveIconSize(context),
           ),
           onPressed: () => Navigator.pop(context),
@@ -269,7 +267,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
                   Text(
                     'WIZZ Business Manager',
                     style: AppTypography.displayMedium.copyWith(
-                      color: theme.colorScheme.onSurface,
+                      color: const Color(0xFF1A1A1A),
                       fontWeight: FontWeight.bold,
                       fontSize: ResponsiveHelper.getResponsiveFontSize(
                         context,
@@ -284,7 +282,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
                   Text(
                     '${loc.version} $_version (Build $_buildNumber)',
                     style: AppTypography.bodyMedium.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      color: Color(0xFF1A1A1A).withValues(alpha: 0.6),
                       fontSize:
                           ResponsiveHelper.getResponsiveFontSize(context, 14),
                     ),
@@ -334,7 +332,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
                   Text(
                     '© 2025 Whizz Ecosystem',
                     style: AppTypography.bodySmall.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      color: Color(0xFF1A1A1A).withValues(alpha: 0.5),
                       fontSize:
                           ResponsiveHelper.getResponsiveFontSize(context, 12),
                     ),
@@ -344,7 +342,7 @@ class _AboutAppScreenState extends ConsumerState<AboutAppScreen> {
                   Text(
                     loc.allRightsReserved,
                     style: AppTypography.bodySmall.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      color: Color(0xFF1A1A1A).withValues(alpha: 0.5),
                       fontSize:
                           ResponsiveHelper.getResponsiveFontSize(context, 12),
                     ),

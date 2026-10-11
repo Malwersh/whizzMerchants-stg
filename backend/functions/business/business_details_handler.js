@@ -1,5 +1,4 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
 
@@ -97,10 +96,11 @@ async function getUserInfoFromToken(event) {
     const email = userResponse.UserAttributes.find(attr => attr.Name === 'email')?.Value;
     const cognitoUserId = userResponse.Username; // This is the cognitoUserId in our tables
     
-    if (email && cognitoUserId) {
-      console.log(`✅ Found user email: ${email}, cognitoUserId: ${cognitoUserId}`);
+    // Email is optional for phone-only merchants; cognitoUserId is the real link.
+    if (cognitoUserId) {
+      console.log(`✅ Found cognitoUserId: ${cognitoUserId}`);
       return {
-        email: email.toLowerCase().trim(),
+        email: email ? email.toLowerCase().trim() : null,
         cognitoUserId: cognitoUserId
       };
     }

@@ -59,6 +59,11 @@ final amplifyConfigurationProvider = FutureProvider<void>((ref) async {
                 "AppClientId": "${AppConfig.appClientId}",
                 "Region": "${AppConfig.cognitoRegion}"
               }
+            },
+            "Auth": {
+              "Default": {
+                "authenticationFlowType": "CUSTOM_AUTH"
+              }
             }
           }
         }

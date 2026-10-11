@@ -104,8 +104,8 @@ Globals:
         # Merchants app has its own Cognito UserPool per stage.
         # NOTE: Parameters CognitoUserPoolId/CognitoClientId are kept for backward
         # compatibility but are no longer the source of truth.
-        COGNITO_USER_POOL_ID: !Ref MerchantsUserPool
-        COGNITO_CLIENT_ID: !Ref MerchantsUserPoolClient
+        COGNITO_USER_POOL_ID: !Ref MerchantsPhonePool
+        COGNITO_CLIENT_ID: !Ref MerchantsPhonePoolClient
         COGNITO_REGION: !Ref AWS::Region
         DYNAMODB_REGION: !Ref AWS::Region
         SNS_FCM_ARN: !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:placeholder-fcm"
@@ -121,33 +121,156 @@ Conditions:
   CreateBusinessPhotosBucket: !Equals [!Ref BusinessPhotosBucketName, ""]
 
 Resources:
-  MerchantsUserPool:
+  # Phone-only, passwordless (OTP via OTPIQ). Changing UsernameAttributes replaces the pool;
+  # the new name avoids a name clash with the old email-based pool during replacement.
+  MerchantsPhonePool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "WhizzMerchants-users-${Stage}"
+      UserPoolName: !Sub "WhizzMerchants-phone-users-${Stage}"
       UsernameAttributes:
-        - email
-      AutoVerifiedAttributes:
-        - email
+        - phone_number
+      Schema:
+        - Name: phone_number
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_phone_number
+            Priority: 1
       Policies:
         PasswordPolicy:
           MinimumLength: 8
-          RequireLowercase: true
-          RequireUppercase: true
-          RequireNumbers: true
+          RequireLowercase: false
+          RequireUppercase: false
+          RequireNumbers: false
           RequireSymbols: false
+      LambdaConfig:
+        PreSignUp: !GetAtt OtpPreSignUpFunction.Arn
+        DefineAuthChallenge: !GetAtt OtpDefineAuthChallengeFunction.Arn
+        CreateAuthChallenge: !GetAtt OtpCreateAuthChallengeFunction.Arn
+        VerifyAuthChallengeResponse: !GetAtt OtpVerifyAuthChallengeFunction.Arn
 
-  MerchantsUserPoolClient:
+  MerchantsPhonePoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       ClientName: !Sub "WhizzMerchants-app-client-${Stage}"
-      UserPoolId: !Ref MerchantsUserPool
+      UserPoolId: !Ref MerchantsPhonePool
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      # Merchant re-enters an OTP about once a year; access/ID tokens refresh silently.
+      RefreshTokenValidity: 365
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      AuthSessionValidity: 3
+      TokenValidityUnits:
+        RefreshToken: days
+        AccessToken: hours
+        IdToken: hours
       ExplicitAuthFlows:
-        - ALLOW_USER_PASSWORD_AUTH
-        - ALLOW_USER_SRP_AUTH
+        - ALLOW_CUSTOM_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
+
+  # OTP triggers are plain AWS::Lambda::Function (not Serverless) so SAM Globals
+  # (which inject !Ref MerchantsPhonePool) don't create a circular dependency.
+  OtpTriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadOtpiqKey
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/whizz/${Stage}/otpiq-key"
+
+  OtpPreSignUpFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "WhizzMerchants-otp-presignup-${Stage}"
+      Runtime: nodejs20.x
+      Code: functions/auth-otp/
+      Handler: pre_sign_up.handler
+      Role: !GetAtt OtpTriggerRole.Arn
+      Timeout: 5
+
+  OtpDefineAuthChallengeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "WhizzMerchants-otp-define-${Stage}"
+      Runtime: nodejs20.x
+      Code: functions/auth-otp/
+      Handler: define_auth_challenge.handler
+      Role: !GetAtt OtpTriggerRole.Arn
+      Timeout: 5
+
+  OtpCreateAuthChallengeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "WhizzMerchants-otp-create-${Stage}"
+      Runtime: nodejs20.x
+      Code: functions/auth-otp/
+      Handler: create_auth_challenge.handler
+      Role: !GetAtt OtpTriggerRole.Arn
+      Timeout: 10
+      Environment:
+        Variables:
+          OTPIQ_KEY_PARAM: !Sub "/whizz/${Stage}/otpiq-key"
+          OTPIQ_PROVIDER: sms
+          OTPIQ_SENDER_ID: ""
+
+  OtpVerifyAuthChallengeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "WhizzMerchants-otp-verify-${Stage}"
+      Runtime: nodejs20.x
+      Code: functions/auth-otp/
+      Handler: verify_auth_challenge.handler
+      Role: !GetAtt OtpTriggerRole.Arn
+      Timeout: 5
+
+  OtpPreSignUpPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OtpPreSignUpFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt MerchantsPhonePool.Arn
+
+  OtpDefineAuthChallengePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OtpDefineAuthChallengeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt MerchantsPhonePool.Arn
+
+  OtpCreateAuthChallengePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OtpCreateAuthChallengeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt MerchantsPhonePool.Arn
+
+  OtpVerifyAuthChallengePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OtpVerifyAuthChallengeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt MerchantsPhonePool.Arn
 
   BusinessPhotosBucket:
     Type: AWS::S3::Bucket
@@ -186,7 +309,7 @@ Resources:
                 x-amazon-apigateway-authorizer:
                   type: cognito_user_pools
                   providerARNs:
-                    - !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+                    - !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
           paths:
               # Auth endpoints (public)
               /auth/signin:
@@ -1828,7 +1951,7 @@ Resources:
                 - cognito-idp:InitiateAuth
                 - cognito-idp:GetUser
                 - cognito-idp:ResendConfirmationCode
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
 
   ProductManagementFunction:
     Type: AWS::Serverless::Function
@@ -1866,7 +1989,7 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
 
   ImageUploadFunction:
     Type: AWS::Serverless::Function
@@ -1918,7 +2041,7 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
 
   DeleteBusinessFunction:
     Type: AWS::Serverless::Function
@@ -1955,7 +2078,7 @@ Resources:
               Action:
                 - cognito-idp:GetUser
                 - cognito-idp:AdminDeleteUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
 
   BusinessDetailsFunction:
     Type: AWS::Serverless::Function
@@ -1979,7 +2102,7 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
 
   LocationSettingsFunction:
     Type: AWS::Serverless::Function
@@ -2007,7 +2130,7 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
 
   # WebSocket Management Functions
   WebSocketHandlerFunction:
@@ -2131,7 +2254,7 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsUserPool}"
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
             - Effect: Allow
               Action:
                 - lambda:InvokeFunction
@@ -2565,13 +2688,13 @@ Resources:
           Value: push-notifications
 
 Outputs:
-  MerchantsUserPoolId:
+  MerchantsPhonePoolId:
     Description: "Cognito User Pool ID (Merchants)"
-    Value: !Ref MerchantsUserPool
+    Value: !Ref MerchantsPhonePool
 
-  MerchantsUserPoolClientId:
+  MerchantsPhonePoolClientId:
     Description: "Cognito App Client ID (Merchants)"
-    Value: !Ref MerchantsUserPoolClient
+    Value: !Ref MerchantsPhonePoolClient
 
   ApiGatewayEndpoint:
     Description: "API Gateway endpoint URL"

@@ -399,8 +399,9 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                           // If no categories loaded yet, return null
                           return null;
                         }(),
+                      dropdownColor: Colors.white,
                         style: AppTypography.bodyLarge.copyWith(
-                        color: WhizzColors.textPrimary,
+                        color: const Color(0xFF1A1A1A),
                         ),
                         decoration: InputDecoration(
                           labelText: 'Category',
@@ -452,7 +453,10 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                           return uniqueCategories.values.map((category) {
                             return DropdownMenuItem<String>(
                             value: category.id,
-                              child: Text(category.name),
+                            child: Text(
+                              category.name,
+                              style: const TextStyle(color: Color(0xFF1A1A1A)),
+                            ),
                             );
                           }).toList();
                         }(),
