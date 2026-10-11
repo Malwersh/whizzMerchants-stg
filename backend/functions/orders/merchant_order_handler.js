@@ -5,6 +5,7 @@ const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws
 
 const { sendMerchantOrderPush } = require('./central_push_service');
 const { triggerDriverAssignment } = require('./central-platform-integration');
+const { forwardAcceptedOrder } = require('./pos_forwarding_service');
 
 // Environment variables
 const ORDERS_TABLE = process.env.ORDERS_TABLE;
@@ -577,6 +578,16 @@ async function handleAcceptOrder(orderId, data) {
         
         // Notify Central Platform
         await notifyCentralPlatform(updatedOrder, 'confirmed');
+
+        // Forward accepted order to external POS if configured (best effort)
+        try {
+            const posResult = await forwardAcceptedOrder(updatedOrder);
+            if (posResult && !posResult.skipped) {
+                console.log(`🛒 POS forward result for order ${orderId}:`, posResult.success ? 'success' : 'failed');
+            }
+        } catch (posError) {
+            console.error(`❌ POS forward error for order ${orderId}:`, posError);
+        }
 
         return createResponse(200, {
             success: true,

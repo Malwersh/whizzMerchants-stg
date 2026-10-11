@@ -14,6 +14,15 @@ import '../core/adaptive/adaptive_widgets.dart';
 import '../core/utils/app_logger.dart';
 import '../core/exceptions/auth_exceptions.dart';
 
+/// Formats a discount value without unnecessary trailing zeros.
+/// 10.0 -> "10", 10.5 -> "10.5".
+String _formatDiscountValue(double value) {
+  if (value == value.truncateToDouble()) {
+    return value.toInt().toString();
+  }
+  return value.toString();
+}
+
 class DiscountManagementPage extends StatefulWidget {
   final Business business;
   final List<Order> orders;
@@ -1026,7 +1035,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: discount?.title ?? '');
     final valueController =
-        TextEditingController(text: discount?.value.toString() ?? '');
+        TextEditingController(text: discount != null ? _formatDiscountValue(discount.value) : '');
     final minOrderController = TextEditingController(
         text: discount?.minimumOrderAmount.toString() ?? '');
 
@@ -1408,11 +1417,11 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                             .percentage &&
                                                     valueController
                                                         .text.isEmpty) {
-                                                  valueController.text = '10.0';
+                                                  valueController.text = '10';
                                                 } else if (value !=
                                                     DiscountType.percentage) {
                                                   // Set to 0.0 for all non-percentage types
-                                                  valueController.text = '0.0';
+                                                  valueController.text = '0';
                                                 }
                                               });
                                             }
@@ -1464,7 +1473,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                   if (valueController
                                                       .text.isEmpty) {
                                                     valueController.text =
-                                                        '10.0';
+                                                        '10';
                                                   }
                                                   return 10.0;
                                                 }(),
@@ -3412,7 +3421,7 @@ class DiscountCard extends StatelessWidget {
                             ),
                             child: Text(
                               discount.type == DiscountType.percentage
-                                  ? '${discount.value}% ${AppLocalizations.of(context)!.off}'
+                                  ? '${_formatDiscountValue(discount.value)}% ${AppLocalizations.of(context)!.off}'
                                   : discount.type == DiscountType.freeDelivery
                                       ? AppLocalizations.of(context)!
                                           .freeDelivery

@@ -55,7 +55,12 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to take photos of your products for your business listings.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Used to send accepted orders to kitchen printers on your network.</string>
+	<string>Used to send accepted orders to kitchen printers on your network and to allow Flutter debugging over the local network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartobservatory._tcp</string>
+		<string>com.whizz.merchants._dartVmService._tcp</string>
+	</array>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app needs location access to help you set your business location on the map.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
