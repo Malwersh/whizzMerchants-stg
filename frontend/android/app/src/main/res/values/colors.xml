@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="ic_launcher_background">#FDC500</color>
     <!-- Firebase Cloud Messaging notification color -->
     <color name="notification_color">#FF6B35</color>
 </resources>

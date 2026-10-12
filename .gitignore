@@ -50,3 +50,6 @@ Thumbs.db
 **/credentials/
 **/*-key.json
 firebase-admin-key.json
+
+# Android generated project build output
+frontend/android/build/

@@ -74,8 +74,9 @@ async function findRegionByCoordinates(latitude, longitude) {
             req.end();
         });
         
-        if (result.success && result.data && result.data.regionId) {
-            const regionId = result.data.regionId;
+        const resolvedRegionId = result.data?.region_id || result.data?.regionId;
+        if (result.success && typeof resolvedRegionId === 'string' && resolvedRegionId.trim()) {
+            const regionId = resolvedRegionId.trim();
             console.log(`✅ تم العثور على المنطقة: ${regionId}`);
             return regionId;
         } else {
