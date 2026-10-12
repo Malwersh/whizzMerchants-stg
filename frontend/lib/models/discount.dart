@@ -169,6 +169,7 @@ class Discount {
       case 'expired':
         return DiscountStatus.expired;
       case 'inactive':
+      case 'paused':
         return DiscountStatus.inactive;
       default:
         return DiscountStatus.active;

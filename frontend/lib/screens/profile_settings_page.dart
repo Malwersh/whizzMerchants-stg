@@ -5,7 +5,6 @@ import './pos_settings_page.dart';
 import './working_hours_settings_screen.dart';
 import './about_app_screen.dart';
 import './auth/auth_screen.dart';
-import '../widgets/change_password_bottom_drawer.dart';
 import '../widgets/language_settings_bottom_drawer.dart';
 import '../widgets/location_settings_full_bottom_drawer.dart';
 import '../widgets/gps_settings_bottom_drawer.dart';
@@ -300,16 +299,6 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                 },
               ),
             SizedBox(height: AppSpacing.sm),
-              _buildModernSettingsCard(
-                icon: Icons.lock_rounded,
-                title: loc.changePassword,
-              subtitle: loc.updateYourPasswordAndSecurity,
-              color: theme.colorScheme.primary,
-                onTap: () {
-                ChangePasswordBottomDrawer.show(context);
-                },
-              ),
-            const SizedBox(height: 12),
             _buildModernSettingsCard(
               icon: Icons.language_rounded,
               title: loc.languageSettings,

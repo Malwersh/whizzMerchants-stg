@@ -229,6 +229,9 @@ Resources:
           OTPIQ_KEY_PARAM: !Sub "/whizz/${Stage}/otpiq-key"
           OTPIQ_PROVIDER: sms
           OTPIQ_SENDER_ID: ""
+          # App Store review account: this phone gets the fixed code below, no SMS sent.
+          REVIEW_TEST_PHONE: "+9647800000000"
+          REVIEW_TEST_CODE: "123456"
 
   OtpVerifyAuthChallengeFunction:
     Type: AWS::Lambda::Function
@@ -276,11 +279,27 @@ Resources:
     Type: AWS::S3::Bucket
     Condition: CreateBusinessPhotosBucket
     Properties:
+      # Business/product photos are displayed publicly in the customer app,
+      # so objects must be world-readable (enforced via bucket policy below).
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: false
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        RestrictPublicBuckets: false
+
+  BusinessPhotosBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateBusinessPhotosBucket
+    Properties:
+      Bucket: !Ref BusinessPhotosBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadBusinessPhotos
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${BusinessPhotosBucket.Arn}/*"
 
   # New Regional API to bypass CloudFront 403s
   RegionalRestApi:

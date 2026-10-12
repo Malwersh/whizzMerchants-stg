@@ -515,6 +515,57 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     }
   }
 
+  Future<void> _toggleDiscountStatus(Discount discount) async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      await _apiService.toggleDiscountStatus(discount.id);
+      await _loadDiscounts();
+    } on AuthTokenExpiredException catch (e) {
+      AppLogger.error(
+        '[DiscountManagement] Auth token expired toggling discount: ${e.message}',
+      );
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        _showAuthenticationRequiredDialog(
+          AppLocalizations.of(context)!.sessionExpiredTitle,
+          'Your session has expired. Please sign in again.',
+        );
+      }
+    } on UnauthorizedException catch (e) {
+      AppLogger.error(
+        '[DiscountManagement] Unauthorized toggling discount: ${e.message}',
+      );
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        _showAuthenticationRequiredDialog(
+          AppLocalizations.of(context)!.sessionExpiredTitle,
+          'Your session has expired. Please sign in again.',
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        showAdaptiveSnackBar(
+          context: context,
+          message: '$e',
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+    }
+  }
+
   void _showAuthenticationRequiredDialog(String title, String message) {
     final loc = AppLocalizations.of(context)!;
     showDialog(
@@ -624,6 +675,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       onDelete: () =>
                                           _showDeleteConfirmationDialog(
                                               discount),
+                                      onToggleStatus: () =>
+                                          _toggleDiscountStatus(discount),
                                     ),
                                   );
                                 },
@@ -1418,6 +1471,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                     valueController
                                                         .text.isEmpty) {
                                                   valueController.text = '10';
+                                                } else if (value ==
+                                                    DiscountType.fixedAmount) {
+                                                  // User enters the amount manually
+                                                  valueController.text = '';
                                                 } else if (value !=
                                                     DiscountType.percentage) {
                                                   // Set to 0.0 for all non-percentage types
@@ -1589,12 +1646,38 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                               ),
                                               child: TextFormField(
                                                 controller: valueController,
-                                                enabled: false,
+                                                enabled: discountType ==
+                                                    DiscountType.fixedAmount,
+                                                keyboardType: discountType ==
+                                                        DiscountType
+                                                            .fixedAmount
+                                                    ? TextInputType.number
+                                                    : null,
                                                 style: AppTypography.bodyLarge
                                                     .copyWith(
-                                                  color: WhizzColors.grey500,
+                                                  color: discountType ==
+                                                          DiscountType
+                                                              .fixedAmount
+                                                      ? WhizzColors.textPrimary
+                                                      : WhizzColors.grey500,
                                                   fontWeight: FontWeight.w500,
                                                 ),
+                                                validator: (value) {
+                                                  if (discountType ==
+                                                      DiscountType
+                                                          .fixedAmount) {
+                                                    final parsed =
+                                                        double.tryParse(
+                                                            value ?? '');
+                                                    if (parsed == null ||
+                                                        parsed <= 0) {
+                                                      return AppLocalizations
+                                                              .of(context)!
+                                                          .pleaseEnterValue;
+                                                    }
+                                                  }
+                                                  return null;
+                                                },
                                                 decoration: InputDecoration(
                                                   labelText:
                                                       AppLocalizations.of(
@@ -1610,6 +1693,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                   disabledBorder:
                                                       InputBorder.none,
                                                   hintText: discountType ==
+                                                          DiscountType
+                                                              .fixedAmount
+                                                      ? 'Amount (IQD)'
+                                                      : discountType ==
                                                           DiscountType
                                                               .freeDelivery
                                                       ? 'Free Delivery'
@@ -1631,7 +1718,13 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                     vertical: AppSpacing.sm,
                                                   ),
                                                   prefixIcon: Icon(
-                                                    Icons.lock_outline_rounded,
+                                                    discountType ==
+                                                            DiscountType
+                                                                .fixedAmount
+                                                        ? Icons
+                                                            .payments_outlined
+                                                        : Icons
+                                                            .lock_outline_rounded,
                                                     color: WhizzColors.grey400,
                                                     size: AppDimensions
                                                         .iconSizeSM,
@@ -3304,12 +3397,14 @@ class DiscountCard extends StatelessWidget {
   final Discount discount;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onToggleStatus;
 
   const DiscountCard({
     super.key,
     required this.discount,
     required this.onEdit,
     required this.onDelete,
+    required this.onToggleStatus,
   });
 
   @override
@@ -3503,6 +3598,16 @@ class DiscountCard extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
+                        _buildActionButton(
+                          icon: discount.status == DiscountStatus.inactive
+                              ? Icons.play_arrow_outlined
+                              : Icons.pause_outlined,
+                          color: discount.status == DiscountStatus.inactive
+                              ? Colors.green
+                              : WhizzColors.secondary,
+                          onPressed: onToggleStatus,
+                        ),
+                        SizedBox(width: GoldenRatio.spacing8),
                         _buildActionButton(
                           icon: Icons.edit_outlined,
                         color: WhizzColors.secondary,

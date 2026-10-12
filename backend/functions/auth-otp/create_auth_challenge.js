@@ -58,7 +58,11 @@ exports.handler = async (event) => {
   let code;
   const previous = [...session].reverse().find((s) => s.challengeMetadata && s.challengeMetadata.startsWith('CODE-'));
 
-  if (previous) {
+  const reviewPhone = process.env.REVIEW_TEST_PHONE || '';
+  if (reviewPhone && phone === reviewPhone) {
+    // App Store review account: fixed code, no SMS.
+    code = process.env.REVIEW_TEST_CODE || '123456';
+  } else if (previous) {
     // Retry inside the same session: reuse the code, do not send another SMS.
     code = previous.challengeMetadata.slice(5);
   } else {
