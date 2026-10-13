@@ -13,6 +13,7 @@ import '../config/app_config.dart';
 import '../core/utils/app_logger.dart';
 import 'token_refresh_service.dart';
 import 'audio_notification_service.dart';
+import 'merchant_notification_inbox.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -21,6 +22,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   } catch (_) {
     // Ignore; Firebase may already be initialized.
   }
+  await MerchantNotificationInbox.recordPush(message.data,title:message.notification?.title,body:message.notification?.body,messageId:message.messageId).catchError((Object _) {});
   AppLogger.debug('📩 (bg) Push message received: ${message.messageId}');
 }
 
@@ -89,6 +91,7 @@ class PushNotificationsService {
 
       // Handle foreground push notifications
       FirebaseMessaging.onMessage.listen((message) async {
+        await MerchantNotificationInbox.recordPush(message.data,title:message.notification?.title,body:message.notification?.body,messageId:message.messageId).catchError((Object _) {});
         AppLogger.debug('📩 (fg) Push message: ${message.messageId}');
         AppLogger.debug('📩 Push data: ${message.data}');
         AppLogger.debug('📩 Push notification: ${message.notification?.title} - ${message.notification?.body}');
@@ -119,7 +122,8 @@ class PushNotificationsService {
         }
       });
 
-      FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      FirebaseMessaging.onMessageOpenedApp.listen((message) async {
+        await MerchantNotificationInbox.recordPush(message.data,title:message.notification?.title,body:message.notification?.body,messageId:message.messageId).catchError((Object _) {});
         AppLogger.debug('📩 (tap) Push message opened: ${message.messageId}');
         AppLogger.debug('📩 Push data: ${message.data}');
         
@@ -140,6 +144,7 @@ class PushNotificationsService {
       // This is critical for debugging the "tap from closed" path.
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
+        await MerchantNotificationInbox.recordPush(initialMessage.data,title:initialMessage.notification?.title,body:initialMessage.notification?.body,messageId:initialMessage.messageId).catchError((Object _) {});
         AppLogger.debug('📩 (coldstart) Initial push message: ${initialMessage.messageId}');
         try {
           final prefs = await SharedPreferences.getInstance();

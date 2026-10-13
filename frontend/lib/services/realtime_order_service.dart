@@ -13,6 +13,7 @@ import '../config/app_config.dart';
 import 'order_service.dart';
 import 'app_auth_service.dart';
 import 'audio_notification_service.dart';
+import 'merchant_notification_inbox.dart';
 import 'secure_token_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app_state.dart';
@@ -154,6 +155,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
         _newOrderController != null &&
         !_newOrderController!.isClosed) {
       _newOrderController!.add(order);
+      unawaited(MerchantNotificationInbox.recordPush({'businessId':order.businessId,'orderId':order.id,
+        'action':'new_order','updatedAt':order.createdAt.toIso8601String()},
+        title:'طلب جديد #${order.orderNumber ?? order.id}',body:order.customerName).catchError((Object _) {}));
       
       // Play sound notification for new order (with deduplication)
       _playNewOrderNotificationSoundOnce(order);

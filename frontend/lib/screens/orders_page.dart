@@ -22,10 +22,12 @@ import '../core/exceptions/auth_exceptions.dart';
 
 class OrdersPage extends ConsumerStatefulWidget {
   final String? businessId;
+  final String? focusOrderId;
 
   const OrdersPage({
     super.key,
     this.businessId,
+    this.focusOrderId,
   });
 
   @override
@@ -583,7 +585,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
           
           // Log filtered orders count
-          List<Order> currentFilteredOrders = _orders.where((o) => _shouldShowInFilter(o, _selectedFilter)).toList();
+          List<Order> currentFilteredOrders = _orders.where((o) => widget.focusOrderId != null ? o.id == widget.focusOrderId : _shouldShowInFilter(o, _selectedFilter)).toList();
           AppLogger.debug(
               'Filtered orders for $_selectedFilter: ${currentFilteredOrders.length}');
 
@@ -1584,7 +1586,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     final loc = AppLocalizations.of(context)!;
     
     // Apply filtering logic using _shouldShowInFilter
-    List<Order> filteredOrders = _orders.where((o) => _shouldShowInFilter(o, _selectedFilter)).toList();
+    List<Order> filteredOrders = _orders.where((o) => widget.focusOrderId != null ? o.id == widget.focusOrderId : _shouldShowInFilter(o, _selectedFilter)).toList();
     
     // Sort orders appropriately
     if (_selectedFilter == 'pending') {

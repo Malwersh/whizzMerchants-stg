@@ -1,4 +1,5 @@
 import '../screens/merchant_wallet_accounts_screen.dart';
+import '../screens/merchant_notifications_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import '../core/theme/whizz_colors.dart';
@@ -8,6 +9,7 @@ import '../l10n/app_localizations.dart';
 /// This replaces the hamburger menu with a direct toggle
 class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
+  final String? businessId;
   final bool isOnline;
   final Future<void> Function(bool) onToggleStatus;
   final VoidCallback? onReturnOrder;
@@ -18,6 +20,7 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
   const TopAppBar({
     super.key,
     required this.title,
+    this.businessId,
     required this.isOnline,
     required this.onToggleStatus,
     this.onReturnOrder,
@@ -57,6 +60,9 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
             )
           : null,
       actions: [
+        if (businessId != null && businessId!.isNotEmpty)
+          IconButton(tooltip:'الإشعارات',icon:const Icon(Icons.notifications_none_rounded,color:WhizzColors.secondary),
+            onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>MerchantNotificationsScreen(businessId:businessId!)))),
         IconButton(
             tooltip: 'محافظ المطاعم',
             icon: const Icon(Icons.account_balance_wallet_outlined,
