@@ -68,7 +68,9 @@ class PushNotificationsService {
         await messaging.setForegroundNotificationPresentationOptions(
           alert: true,
           badge: true,
-          sound: true,
+          // Foreground orders use the deduplicated in-app audio path.
+          // Background notifications retain the APNs payload sound.
+          sound: false,
         );
       }
 
