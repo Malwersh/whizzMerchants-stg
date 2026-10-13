@@ -43,9 +43,22 @@ class PushNotificationsService {
   // Callback for order refresh (set by app/order screen)
   void Function()? _onOrderRefreshCallback;
 
+  Future<void>? _initialization;
+
   Future<void> initialize() async {
     if (_initialized) return;
+    final pending = _initialization;
+    if (pending != null) return pending;
+    final operation = _initializeInternal();
+    _initialization = operation;
+    try {
+      await operation;
+    } finally {
+      if (identical(_initialization, operation)) _initialization = null;
+    }
+  }
 
+  Future<void> _initializeInternal() async {
     try {
       await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
