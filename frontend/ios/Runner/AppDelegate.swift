@@ -188,7 +188,13 @@ extension AppDelegate {
     }
 
     // Show notification even when app is in foreground
-    super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+    // FlutterFire forwards to this original delegate when one exists.
+    // Enforce silent foreground presentation here, not just in Dart settings.
+    super.userNotificationCenter(center, willPresent: notification) { options in
+      let foregroundOptions = options.subtracting(.sound)
+      NSLog("Merchant foreground presentation: systemSound=false")
+      completionHandler(foregroundOptions)
+    }
   }
 
   // Handle notification tap
