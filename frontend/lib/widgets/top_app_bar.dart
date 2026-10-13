@@ -38,28 +38,27 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       title: Text(
         title.isEmpty ? 'Wizz Business' : title,
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
           color: WhizzColors.secondary,
         ),
       ),
       backgroundColor: Colors.white,
       foregroundColor: WhizzColors.secondary,
       elevation: 0,
-      centerTitle: false,
+      centerTitle: true,
+      toolbarHeight: 58,
       automaticallyImplyLeading: false, // Remove back button
-      // Show loading indicator at the bottom of the AppBar
-      bottom: isLoading
-          ? PreferredSize(
-              preferredSize: const Size.fromHeight(3),
-              child: const LinearProgressIndicator(
-                minHeight: 3,
-                backgroundColor: Colors.transparent,
-              ),
-            )
-          : null,
-      actions: [
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(62),
+        child: Column(children: [
+          if (isLoading) const LinearProgressIndicator(minHeight:2),
+          SizedBox(height:60,child:SingleChildScrollView(scrollDirection:Axis.horizontal,
+            child:Row(mainAxisAlignment:MainAxisAlignment.center,children: [
         if (businessId != null && businessId!.isNotEmpty)
           IconButton(tooltip:'الإشعارات',icon:const Icon(Icons.notifications_none_rounded,color:WhizzColors.secondary),
             onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>MerchantNotificationsScreen(businessId:businessId!)))),
@@ -160,7 +159,9 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
             ),
             tooltip: loc.menu,
           ),
-      ],
+      ]))),
+        ]),
+      ),
     );
   }
 
@@ -206,5 +207,5 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Size get preferredSize =>
-      const Size.fromHeight(kToolbarHeight * 1.25); // 25% increase
+      const Size.fromHeight(120);
 }
