@@ -1,3 +1,4 @@
+import 'screens/merchant_wallet_accounts_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -44,7 +45,8 @@ class OrderReceiverApp extends ConsumerStatefulWidget {
   ConsumerState<OrderReceiverApp> createState() => _OrderReceiverAppState();
 }
 
-class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp> with WidgetsBindingObserver {
+class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -64,7 +66,7 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp> with Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
+
     if (state == AppLifecycleState.resumed) {
       // Validate session when app resumes
       debugPrint('🔄 App resumed - validating session...');
@@ -129,12 +131,17 @@ class AuthGate extends ConsumerWidget {
       final prevBusinessId = previous?.businessId;
       final becameAuthed = !prevAuthed && next.isAuthenticated;
       final businessChanged = prevBusinessId != next.businessId;
-      final hasBusiness = next.businessId != null && next.businessId!.isNotEmpty;
+      final hasBusiness =
+          next.businessId != null && next.businessId!.isNotEmpty;
 
-      if ((becameAuthed || businessChanged) && next.isAuthenticated && hasBusiness && !next.isExpired) {
+      if ((becameAuthed || businessChanged) &&
+          next.isAuthenticated &&
+          hasBusiness &&
+          !next.isExpired) {
         try {
           await ref.read(sessionProvider.notifier).waitForSessionReady();
-          await PushNotificationsService.instance.registerTokenIfPossible(businessId: next.businessId);
+          await PushNotificationsService.instance
+              .registerTokenIfPossible(businessId: next.businessId);
         } catch (e) {
           debugPrint('⚠️ Push token registration skipped/failed: $e');
         }
@@ -150,6 +157,9 @@ class AuthGate extends ConsumerWidget {
 
     if (auth.isAuthenticated && hasBusiness && !session.isExpired) {
       return const BusinessDashboard();
+    }
+    if (auth.isAuthenticated && !session.isExpired && !hasBusiness) {
+      return const MerchantWalletAccountsScreen();
     }
     return const AuthScreen();
   }

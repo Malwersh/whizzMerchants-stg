@@ -193,10 +193,11 @@ class OrderService {
     AppLogger.debug('   Reason: ${reason ?? "No reason provided"}');
 
     // Use unified OrderService /order/cancel endpoint
-    // Note: No Authorization header - Order Service has no authorizer
+    // Authenticate ownership before cancellation and wallet hold release.
     final response = await http.post(
       Uri.parse('${AppConfig.orderServiceUrl}/order/cancel'),
       headers: {
+        'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },

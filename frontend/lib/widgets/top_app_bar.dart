@@ -1,3 +1,4 @@
+import '../screens/merchant_wallet_accounts_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import '../core/theme/whizz_colors.dart';
@@ -56,6 +57,14 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
             )
           : null,
       actions: [
+        IconButton(
+            tooltip: 'محافظ المطاعم',
+            icon: const Icon(Icons.account_balance_wallet_outlined,
+                color: WhizzColors.secondary),
+            onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const MerchantWalletAccountsScreen()))),
         if (showToggle) ...[
           // Online/Offline Status Toggle
           Container(
@@ -94,7 +103,7 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                
+
                 // Status text
                 Text(
                   isOnline ? loc.online : loc.offline,
@@ -104,9 +113,9 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
                     fontSize: 14,
                   ),
                 ),
-                
+
                 const SizedBox(width: 10),
-                
+
                 // Toggle Switch
                 Transform.scale(
                   scale: 0.85, // Make switch smaller to fit
@@ -125,14 +134,15 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
                               .withValues(alpha: 0.5),
                           inactiveTrackColor:
                               theme.colorScheme.primary.withValues(alpha: 0.3),
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
                         ),
                 ),
               ],
             ),
           ),
         ],
-        
+
         // Menu button for return order (if needed)
         if (onReturnOrder != null)
           IconButton(
@@ -161,7 +171,7 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   void _showQuickMenu(BuildContext context) {
     if (onReturnOrder == null) return;
-    
+
     final loc = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,

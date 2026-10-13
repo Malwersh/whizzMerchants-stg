@@ -1,3 +1,4 @@
+import 'wallet_transfer_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -354,6 +355,12 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           textAlign: TextAlign.center,
         ),
         actions: [
+          IconButton(
+              tooltip: 'محفظة المطعم',
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) =>
+                      WalletTransferScreen(businessId: widget.business.id)))),
           TextButton(
             onPressed: () => _navigateToLogin(),
             style: TextButton.styleFrom(
@@ -403,7 +410,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       return _formatAddress(address['M']);
     }
     // Now address should be a map of components
-    final Map<String, dynamic> addrMap = Map<String, dynamic>.from(address as Map);
+    final Map<String, dynamic> addrMap =
+        Map<String, dynamic>.from(address as Map);
     String extract(dynamic v) {
       if (v == null) return '';
       if (v is String) return v;
@@ -414,10 +422,14 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         final m = Map<String, dynamic>.from(v['M'] as Map);
         if (m.containsKey('S')) return m['S']?.toString() ?? '';
         // Fallback: join nested values
-        return m.values.map((e) => extract(e)).where((s) => s.isNotEmpty).join(' ');
+        return m.values
+            .map((e) => extract(e))
+            .where((s) => s.isNotEmpty)
+            .join(' ');
       }
       return v.toString();
     }
+
     final components = <String>[
       extract(addrMap['home_address']),
       extract(addrMap['street']),
@@ -452,13 +464,13 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     return Scaffold(
       backgroundColor: WhizzColors.grey50,
       body: SafeArea(
-          child: Column(
-            children: [
+        child: Column(
+          children: [
             // Modern Material 3 App Bar with subtle secondary color accent
-              _buildModernAppBar(context, l10n),
+            _buildModernAppBar(context, l10n),
 
             // Content - Wide White Area with Responsive Constraints
-              Expanded(
+            Expanded(
               child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
@@ -487,76 +499,80 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                       padding: EdgeInsets.all(
                           ResponsiveHelper.getResponsivePadding(context)),
                       child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Main Content
-                      Consumer(
-                        builder: (context, ref, child) {
-                          // Watch both providers: enhanced for richer data, regular as fallback
-                          final enhancedBusinessAsync =
-                              ref.watch(enhancedBusinessProvider);
-                          final businessAsyncValue =
-                              ref.watch(businessProvider);
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Main Content
+                          Consumer(
+                            builder: (context, ref, child) {
+                              // Watch both providers: enhanced for richer data, regular as fallback
+                              final enhancedBusinessAsync =
+                                  ref.watch(enhancedBusinessProvider);
+                              final businessAsyncValue =
+                                  ref.watch(businessProvider);
 
-                          return enhancedBusinessAsync.when(
-                            data: (enhancedBusiness) {
-                              // Use enhanced business data if available
-                              final business =
-                                  enhancedBusiness ?? businessAsyncValue.value;
-                              if (business == null) {
-                                return _buildErrorStateWithMessage(l10n, theme,
+                              return enhancedBusinessAsync.when(
+                                data: (enhancedBusiness) {
+                                  // Use enhanced business data if available
+                                  final business = enhancedBusiness ??
+                                      businessAsyncValue.value;
+                                  if (business == null) {
+                                    return _buildErrorStateWithMessage(
+                                        l10n,
+                                        theme,
                                         l10n.noBusinessFoundForThisAccount);
-                              }
+                                  }
 
-                              // Update controllers with fresh business data
-                              if (_businessNameController.text !=
-                                  business.name) {
-                                _businessNameController.text = business.name;
-                              }
-                              if (_ownerNameController.text !=
-                                  (business.ownerName ?? '')) {
-                                _ownerNameController.text =
-                                    business.ownerName ?? '';
-                              }
-                              if (_addressController.text !=
-                                  _formatAddress(business.address)) {
-                                _addressController.text =
-                                    _formatAddress(business.address);
-                              }
-                              if (_descriptionController.text !=
-                                  (business.description ?? '')) {
-                                _descriptionController.text =
-                                    business.description ?? '';
-                              }
-                              if (_websiteController.text !=
-                                  (business.website ?? '')) {
-                                _websiteController.text =
-                                    business.website ?? '';
-                              }
-                              if (_phoneController.text !=
-                                  (business.phone ?? '')) {
-                                _phoneController.text = business.phone ?? '';
-                              }
+                                  // Update controllers with fresh business data
+                                  if (_businessNameController.text !=
+                                      business.name) {
+                                    _businessNameController.text =
+                                        business.name;
+                                  }
+                                  if (_ownerNameController.text !=
+                                      (business.ownerName ?? '')) {
+                                    _ownerNameController.text =
+                                        business.ownerName ?? '';
+                                  }
+                                  if (_addressController.text !=
+                                      _formatAddress(business.address)) {
+                                    _addressController.text =
+                                        _formatAddress(business.address);
+                                  }
+                                  if (_descriptionController.text !=
+                                      (business.description ?? '')) {
+                                    _descriptionController.text =
+                                        business.description ?? '';
+                                  }
+                                  if (_websiteController.text !=
+                                      (business.website ?? '')) {
+                                    _websiteController.text =
+                                        business.website ?? '';
+                                  }
+                                  if (_phoneController.text !=
+                                      (business.phone ?? '')) {
+                                    _phoneController.text =
+                                        business.phone ?? '';
+                                  }
 
-                              return _buildAccountContentWithBusiness(
-                                  l10n, theme, business);
+                                  return _buildAccountContentWithBusiness(
+                                      l10n, theme, business);
+                                },
+                                loading: () => _buildLoadingState(),
+                                error: (error, stack) =>
+                                    _buildErrorStateWithMessage(l10n, theme,
+                                        'Error loading account: $error'),
+                              );
                             },
-                            loading: () => _buildLoadingState(),
-                            error: (error, stack) =>
-                                _buildErrorStateWithMessage(l10n, theme,
-                                    'Error loading account: $error'),
-                          );
-                        },
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
                   ),
                 ),
               ),
             ),
-            ],
-          ),
+          ],
+        ),
       ),
       floatingActionButton: businessAsyncValue.maybeWhen(
         data: (business) => business != null
@@ -575,7 +591,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   // Modern Material 3 App Bar with subtle secondary accent
   Widget _buildModernAppBar(BuildContext context, AppLocalizations loc) {
     final isMobile = ResponsiveHelper.isMobile(context);
-    
+
     return Container(
       padding: EdgeInsets.fromLTRB(
         isMobile ? 16 : 20,
@@ -721,7 +737,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     );
   }
 
-  Widget _buildErrorStateWithMessage(AppLocalizations l10n, ThemeData theme, String message) {
+  Widget _buildErrorStateWithMessage(
+      AppLocalizations l10n, ThemeData theme, String message) {
     return Container(
       margin: const EdgeInsets.all(24),
       padding: const EdgeInsets.all(32),
@@ -792,7 +809,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     );
   }
 
-  Widget _buildAccountContentWithBusiness(AppLocalizations l10n, ThemeData theme, Business business) {
+  Widget _buildAccountContentWithBusiness(
+      AppLocalizations l10n, ThemeData theme, Business business) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -883,7 +901,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     );
   }
 
-  Widget _buildAccountOverviewCardWithBusiness(AppLocalizations l10n, ThemeData theme, Business business) {
+  Widget _buildAccountOverviewCardWithBusiness(
+      AppLocalizations l10n, ThemeData theme, Business business) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -1012,9 +1031,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     );
   }
 
-
-
-  Widget _buildPersonalInfoCardWithBusiness(AppLocalizations l10n, ThemeData theme, Business business) {
+  Widget _buildPersonalInfoCardWithBusiness(
+      AppLocalizations l10n, ThemeData theme, Business business) {
     if (_isEditing) {
       return _buildModernCard([
         _buildEditableField(
@@ -1059,8 +1077,6 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           l10n.phoneNumber, business.phone ?? l10n.notProvided, Icons.phone),
     ]);
   }
-
-
 
   Widget _buildBusinessInfoCardWithBusiness(
       AppLocalizations l10n, ThemeData theme, Business business) {
@@ -1112,7 +1128,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         ),
       ]);
     }
-    
+
     return _buildModernCard([
       _buildInfoRow(l10n.businessName, business.name, Icons.business),
       Container(
@@ -1120,7 +1136,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         height: 1,
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
-      _buildInfoRow(l10n.businessType, business.businessType.name, Icons.category),
+      _buildInfoRow(
+          l10n.businessType, business.businessType.name, Icons.category),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         height: 1,
@@ -1151,9 +1168,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     ]);
   }
 
-
-
-  Widget _buildAccountStatusCardWithBusiness(AppLocalizations l10n, ThemeData theme, Business business) {
+  Widget _buildAccountStatusCardWithBusiness(
+      AppLocalizations l10n, ThemeData theme, Business business) {
     return _buildModernCard([
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1168,7 +1184,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
             l10n.verified,
             business.status == 'approved',
             Icons.verified,
-            business.status == 'approved' ? const Color(0xFF007fff) : Colors.grey,
+            business.status == 'approved'
+                ? const Color(0xFF007fff)
+                : Colors.grey,
           ),
         ],
       ),
@@ -1311,7 +1329,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     );
   }
 
-  Widget _buildStatusIndicator(String label, bool isActive, IconData icon, Color color) {
+  Widget _buildStatusIndicator(
+      String label, bool isActive, IconData icon, Color color) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
