@@ -276,11 +276,27 @@ Resources:
     Type: AWS::S3::Bucket
     Condition: CreateBusinessPhotosBucket
     Properties:
+      # Business/product photos are displayed publicly in the customer app,
+      # so objects must be world-readable (enforced via bucket policy below).
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: false
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        RestrictPublicBuckets: false
+
+  BusinessPhotosBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateBusinessPhotosBucket
+    Properties:
+      Bucket: !Ref BusinessPhotosBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadBusinessPhotos
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${BusinessPhotosBucket.Arn}/*"
 
   # New Regional API to bypass CloudFront 403s
   RegionalRestApi:
@@ -1027,6 +1043,83 @@ Resources:
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
               
+              /businesses/{businessId}/pos-settings:
+                get:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${PosSettingsFunction.Arn}/invocations
+                put:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${PosSettingsFunction.Arn}/invocations
+                options:
+                  security: []
+                  responses:
+                    '200':
+                      description: CORS preflight response
+                      headers:
+                        Access-Control-Allow-Origin:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Methods:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Headers:
+                          schema:
+                            type: string
+                  x-amazon-apigateway-integration:
+                    type: mock
+                    requestTemplates:
+                      application/json: '{"statusCode": 200}'
+                    responses:
+                      default:
+                        statusCode: "200"
+                        responseParameters:
+                          method.response.header.Access-Control-Allow-Origin: "'*'"
+                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+
+              /businesses/{businessId}/pos-settings/test-connection:
+                post:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${PosSettingsFunction.Arn}/invocations
+                options:
+                  security: []
+                  responses:
+                    '200':
+                      description: CORS preflight response
+                      headers:
+                        Access-Control-Allow-Origin:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Methods:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Headers:
+                          schema:
+                            type: string
+                  x-amazon-apigateway-integration:
+                    type: mock
+                    requestTemplates:
+                      application/json: '{"statusCode": 200}'
+                    responses:
+                      default:
+                        statusCode: "200"
+                        responseParameters:
+                          method.response.header.Access-Control-Allow-Origin: "'*'"
+                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+
               /business/details:
                 get:
                   security:
@@ -1946,6 +2039,14 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RegionalRestApi}/*/*"
 
+  PosSettingsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PosSettingsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RegionalRestApi}/*/*"
+
   UnifiedAuthFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -2160,6 +2261,32 @@ Resources:
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Users/index/*"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_BusinessWorkingHours"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_BusinessWorkingHours/index/*"
+            - Effect: Allow
+              Action:
+                - cognito-idp:GetUser
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${MerchantsPhonePool}"
+
+  PosSettingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'order-receiver-regional-${Stage}-pos-settings-v1-sam'
+      CodeUri: functions/business/
+      Handler: pos_settings_handler.handler
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses/index/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Users"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Users/index/*"
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser

@@ -427,6 +427,25 @@ class ApiService {
     }
   }
 
+  /// Toggle a discount between active and paused.
+  Future<Map<String, dynamic>> toggleDiscountStatus(String discountId) async {
+    final token = await _getValidToken();
+    final response = await http.patch(
+      Uri.parse('$baseUrl/discounts/$discountId/toggle-status'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(
+          'Failed to toggle discount: ${data['message'] ?? response.body}');
+    }
+    return data;
+  }
+
   // POS Settings API Methods
 
   /// Update POS settings for a business

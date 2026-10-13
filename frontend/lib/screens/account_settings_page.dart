@@ -170,11 +170,31 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       if (result['success']) {
         final newImageUrl = result['imageUrl'];
 
+        // Persist the new photo URL on the business profile
+        final business = ref.read(businessProvider).value ?? widget.business;
+        await ApiService().updateBusinessPhoto(business.id, newImageUrl);
+
         // Update the business object with the new photo URL
         setState(() {
           widget.business.businessPhotoUrl = newImageUrl;
           _isSaving = false;
         });
+
+        // Keep the cached session business data in sync: businessProvider is
+        // cache-first, so without this the refreshed provider would serve the
+        // stale photo URL
+        final session = ref.read(sessionProvider);
+        if (session.businessData != null) {
+          final updatedData = Map<String, dynamic>.from(session.businessData!)
+            ..['businessPhotoUrl'] = newImageUrl;
+          await ref
+              .read(sessionProvider.notifier)
+              .setSessionWithBusinessData(business.id, updatedData);
+        }
+
+        // Refresh providers so the new photo loads from the backend
+        ref.invalidate(businessProvider);
+        ref.invalidate(enhancedBusinessProvider);
 
         if (mounted) {
           final loc = AppLocalizations.of(context)!;

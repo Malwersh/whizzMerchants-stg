@@ -240,11 +240,32 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
         }
 
         // Validate discount type
-        const validTypes = ['percentage', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const validTypes = ['percentage', 'fixedAmount', 'conditional', 'freeDelivery', 'buyXGetY'];
         if (!validTypes.includes(discountData.type)) {
             return createResponse(400, {
                 success: false,
                 message: 'Invalid discount type'
+            });
+        }
+
+        // Validate value ranges (server-side, UI presets are cosmetic)
+        const numValue = parseFloat(discountData.value);
+        if (isNaN(numValue) || numValue < 0) {
+            return createResponse(400, {
+                success: false,
+                message: 'Discount value must be a non-negative number'
+            });
+        }
+        if (discountData.type === 'percentage' && (numValue <= 0 || numValue > 100)) {
+            return createResponse(400, {
+                success: false,
+                message: 'Percentage discount must be between 1 and 100'
+            });
+        }
+        if (discountData.type === 'fixedAmount' && numValue <= 0) {
+            return createResponse(400, {
+                success: false,
+                message: 'Fixed amount discount must be greater than 0'
             });
         }
 
@@ -356,6 +377,37 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
         const expressionAttributeValues = {
             ':timestamp': new Date().toISOString()
         };
+        const validTypes = ['percentage', 'fixedAmount', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const effectiveType = updateData.type !== undefined
+            ? updateData.type
+            : JSON.parse(existingDiscount.body).discount?.type;
+        if (updateData.type !== undefined && !validTypes.includes(updateData.type)) {
+            return createResponse(400, {
+                success: false,
+                message: 'Invalid discount type'
+            });
+        }
+        if (updateData.value !== undefined) {
+            const numValue = parseFloat(updateData.value);
+            if (isNaN(numValue) || numValue < 0) {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Discount value must be a non-negative number'
+                });
+            }
+            if (effectiveType === 'percentage' && (numValue <= 0 || numValue > 100)) {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Percentage discount must be between 1 and 100'
+                });
+            }
+            if (effectiveType === 'fixedAmount' && numValue <= 0) {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Fixed amount discount must be greater than 0'
+                });
+            }
+        }
 
         if (updateData.title !== undefined) {
             updateExpression += ', title = :title';
@@ -413,10 +465,6 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
             updateExpression += ', conditional_parameters = :conditional_parameters';
             expressionAttributeValues[':conditional_parameters'] = updateData.conditionalParameters;
         }
-
-        // Always update the updatedAt timestamp
-        updateExpression += ', updated_at = :updatedAt';
-        expressionAttributeValues[':updatedAt'] = new Date().toISOString();
 
         const params = {
             TableName: DISCOUNTS_TABLE,
@@ -520,7 +568,7 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
             UpdateExpression: 'SET #status = :status, #updatedAt = :updatedAt',
             ExpressionAttributeNames: {
                 '#status': 'status',
-                '#updatedAt': 'updatedAt'
+                '#updatedAt': 'updated_at'
             },
             ExpressionAttributeValues: {
                 ':status': newStatus,
@@ -542,10 +590,27 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
     }
 }
 
+// Normalize a raw DynamoDB discount item to the camelCase shape the
+// validation/calculation logic expects. The table stores snake_case
+// (valid_from, minimum_order_amount, usage_limit, ...), so reading the
+// camelCase names directly would silently disable those checks.
+function normalizeDiscount(d) {
+    if (!d) return d;
+    return {
+        ...d,
+        validFrom: d.validFrom || d.valid_from,
+        validTo: d.validTo || d.valid_to,
+        minimumOrderAmount: d.minimumOrderAmount ?? d.minimum_order_amount ?? 0,
+        usageLimit: d.usageLimit ?? d.usage_limit ?? null,
+        usageCount: d.usageCount ?? d.usage_count ?? 0,
+        conditionalParameters: d.conditionalParameters || d.conditional_parameters || {},
+    };
+}
+
 // POST /discounts/validate-discount - Validate if discount can be applied to an order
 async function handleValidateDiscount(dynamodb, businessId, orderData) {
     try {
-        const { discountId, orderTotal, items } = orderData;
+        const { discountId, orderTotal, items, deliveryFee } = orderData;
 
         if (!discountId || orderTotal === undefined || !items) {
             return createResponse(400, {
@@ -567,7 +632,7 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
             return createResponse(404, { success: false, message: 'Discount not found' });
         }
 
-        const discount = result.Item;
+        const discount = normalizeDiscount(result.Item);
 
         // Check if the discount belongs to the business
         if (discount.businessId !== businessId) {
@@ -615,7 +680,7 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
         }
 
         // Calculate discount amount
-        const discountAmount = calculateDiscountAmount(discount, orderTotal, items);
+        const discountAmount = calculateDiscountAmount(discount, orderTotal, items, deliveryFee);
 
         return createResponse(200, {
             success: true,
@@ -632,7 +697,7 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
 // POST /discounts/apply-discount - Apply discount to an order
 async function handleApplyDiscount(dynamodb, businessId, orderData) {
     try {
-        const { discountId, orderTotal, items } = orderData;
+        const { discountId, orderTotal, items, deliveryFee } = orderData;
 
         // First validate the discount
         const validation = await handleValidateDiscount(dynamodb, businessId, orderData);
@@ -644,7 +709,9 @@ async function handleApplyDiscount(dynamodb, businessId, orderData) {
         const discount = validationBody.discount;
         const discountAmount = validationBody.discountAmount;
 
-        // Increment usage count
+        // Increment usage count atomically. When a usage limit exists, the
+        // ConditionExpression makes validate+increment a single atomic
+        // operation, so concurrent applies can never exceed the limit.
         const updateParams = {
             TableName: DISCOUNTS_TABLE,
             Key: {
@@ -652,8 +719,8 @@ async function handleApplyDiscount(dynamodb, businessId, orderData) {
             },
             UpdateExpression: 'SET #usageCount = #usageCount + :inc, #updatedAt = :updatedAt',
             ExpressionAttributeNames: {
-                '#usageCount': 'usageCount',
-                '#updatedAt': 'updatedAt'
+                '#usageCount': 'usage_count',
+                '#updatedAt': 'updated_at'
             },
             ExpressionAttributeValues: {
                 ':inc': 1,
@@ -661,7 +728,24 @@ async function handleApplyDiscount(dynamodb, businessId, orderData) {
             }
         };
 
-        await dynamodb.send(new UpdateCommand(updateParams));
+        if (discount.usageLimit) {
+            updateParams.ConditionExpression =
+                'attribute_not_exists(#usageCount) OR #usageCount < :limit';
+            updateParams.ExpressionAttributeValues[':limit'] = discount.usageLimit;
+        }
+
+        try {
+            await dynamodb.send(new UpdateCommand(updateParams));
+        } catch (updateError) {
+            if (updateError.name === 'ConditionalCheckFailedException') {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Discount usage limit reached',
+                    valid: false
+                });
+            }
+            throw updateError;
+        }
 
         return createResponse(200, {
             success: true,
@@ -716,7 +800,7 @@ async function handleGetDiscountStats(dynamodb, businessId) {
 }
 
 // Helper function to calculate discount amount
-function calculateDiscountAmount(discount, orderTotal, items) {
+function calculateDiscountAmount(discount, orderTotal, items, deliveryFee) {
     let discountableAmount = 0;
 
     // Determine discountable amount based on applicability
@@ -744,13 +828,17 @@ function calculateDiscountAmount(discount, orderTotal, items) {
     // Calculate discount based on type
     switch (discount.type) {
         case 'percentage':
-            return discountableAmount * (discount.value / 100);
+            // Clamp: never discount more than the discountable amount
+            return Math.min(discountableAmount * (discount.value / 100), discountableAmount);
+        case 'fixedAmount':
+            return Math.min(discount.value, discountableAmount);
         case 'buyXGetY':
         case 'conditional':
             // For Buy X Get Y, implement specific logic based on items
             return calculateBuyXGetYDiscount(discount, items);
         case 'freeDelivery':
-            return 0; // This would be handled separately for delivery charges
+            // Waive the delivery fee; item prices are untouched
+            return Math.max(0, deliveryFee || 0);
         default:
             return 0; // Default to 0 for unknown types
     }
