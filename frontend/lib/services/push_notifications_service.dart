@@ -31,6 +31,9 @@ class PushNotificationsService {
   bool _initialized = false;
   bool _isRegistering = false;
   String? _lastRegisteredToken;
+  String? _lastRegisteredBusinessId;
+  String? _lastRegisteredSubjectId;
+  bool _registrationPending = false;
   DateTime? _lastRegisterAttemptAt;
   String? _lastKnownBusinessId;
   
@@ -82,7 +85,10 @@ class PushNotificationsService {
           
           // Play notification sound
           try {
-            await _audioService.playNotificationSound('new_order');
+            final orderId = message.data['orderId']?.toString();
+            if (orderId != null && orderId.isNotEmpty) {
+              await _audioService.playNewOrderSoundOnce(orderId);
+            }
             AppLogger.debug('🔊 New order sound played successfully');
           } catch (e) {
             AppLogger.debug('⚠️ Failed to play sound: $e');
@@ -165,10 +171,13 @@ class PushNotificationsService {
       await initialize();
     }
 
-    // Avoid spam: if called repeatedly in a short burst, back off.
+    final requestedBusiness = businessId?.trim();
+    if (requestedBusiness != null && requestedBusiness.isNotEmpty) {
+      _lastKnownBusinessId = requestedBusiness;
+    }
     final now = DateTime.now();
-    if (_isRegistering) return;
-    if (_lastRegisterAttemptAt != null && now.difference(_lastRegisterAttemptAt!) < const Duration(seconds: 3)) {
+    if (_isRegistering) {
+      _registrationPending = true;
       return;
     }
 
@@ -182,16 +191,22 @@ class PushNotificationsService {
         return;
       }
 
-      if (_lastRegisteredToken == token) {
-        return;
-      }
-
       final authToken = await TokenRefreshService.getValidAccessToken();
       if (authToken == null || authToken.isEmpty) {
         // Not logged in (or session not ready) → skip for now.
         AppLogger.debug('ℹ️ No auth token yet; skipping push token registration');
         return;
       }
+
+      final parts = authToken.split('.');
+      final claims = jsonDecode(utf8.decode(base64Url.decode(
+        base64Url.normalize(parts[1]),
+      ))) as Map<String, dynamic>;
+      final subjectId = claims['sub']?.toString();
+      final registrationBusiness = _lastKnownBusinessId;
+      if (_lastRegisteredToken == token &&
+          _lastRegisteredBusinessId == registrationBusiness &&
+          _lastRegisteredSubjectId == subjectId) return;
 
       final platform = Platform.isIOS
           ? 'ios'
@@ -207,11 +222,6 @@ class PushNotificationsService {
       final deviceId = await _getDeviceIdSafe();
       final pkg = await PackageInfo.fromPlatform();
 
-      final safeBusinessId = (businessId ?? '').trim();
-      if (safeBusinessId.isNotEmpty) {
-        _lastKnownBusinessId = safeBusinessId;
-      }
-
       final url = Uri.parse('${AppConfig.pushNotificationsUrl}/push/tokens/register');
 
       final body = {
@@ -221,7 +231,7 @@ class PushNotificationsService {
         'deviceId': deviceId,
         'appVersion': pkg.version,
         'buildNumber': pkg.buildNumber,
-        if (_lastKnownBusinessId != null && _lastKnownBusinessId!.isNotEmpty) 'businessId': _lastKnownBusinessId,
+        if (registrationBusiness != null && registrationBusiness.isNotEmpty) 'businessId': registrationBusiness,
       };
 
       AppLogger.debug('📡 Registering push token to Central Notifications...');
@@ -237,6 +247,8 @@ class PushNotificationsService {
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         _lastRegisteredToken = token;
+        _lastRegisteredBusinessId = registrationBusiness;
+        _lastRegisteredSubjectId = subjectId;
         AppLogger.success('✅ Push token registered (merchant)');
         return;
       }
@@ -246,6 +258,10 @@ class PushNotificationsService {
       AppLogger.error('❌ Push token registration error: $e');
     } finally {
       _isRegistering = false;
+      if (_registrationPending) {
+        _registrationPending = false;
+        unawaited(registerTokenIfPossible(businessId: _lastKnownBusinessId));
+      }
     }
   }
 

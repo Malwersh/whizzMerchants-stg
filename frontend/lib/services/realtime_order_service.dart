@@ -195,7 +195,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       bool isUrgent = order.totalAmount > 100.0; // Orders over $100 are urgent
 
       // Play appropriate sound based on urgency
-      _audioService.playNotificationSound('new_order', isUrgent: isUrgent);
+      _audioService.playNewOrderSoundOnce(order.id);
 
       debugPrint(
           '🔊 Sound notification played for order: ${order.id} (${isUrgent ? 'URGENT' : 'NORMAL'})');
