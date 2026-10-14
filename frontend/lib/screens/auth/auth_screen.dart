@@ -1,3 +1,5 @@
+import '../delete_account_screen.dart';
+import '../../services/account_deletion_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -65,6 +67,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
             // Tab bar
             _buildModernTabBar(),
+            FutureBuilder<bool>(
+              future: AccountDeletionService.hasSavedAccountReceipt(),
+              builder: (context, snapshot) => snapshot.data == true
+                  ? TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeleteAccountScreen(scope: 'ACCOUNT'))), child: const Text('متابعة طلب حذف الحساب'))
+                  : const SizedBox.shrink(),
+            ),
 
             // Tab views
             Expanded(

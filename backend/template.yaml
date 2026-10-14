@@ -227,7 +227,7 @@ Resources:
       Environment:
         Variables:
           OTPIQ_KEY_PARAM: !Sub "/whizz/${Stage}/otpiq-key"
-          OTPIQ_PROVIDER: sms
+          OTPIQ_PROVIDER: whatsapp-sms
           OTPIQ_SENDER_ID: ""
 
   OtpVerifyAuthChallengeFunction:

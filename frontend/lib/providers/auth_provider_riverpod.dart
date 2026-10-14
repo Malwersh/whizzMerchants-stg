@@ -50,11 +50,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (signedIn) {
         userData = await AppAuthService.getCurrentUser();
         
-        // Register push token if already signed in
+        // Register only after live identity validation.
+        if (userData != null) {
         try {
-          final businessId = userData?['custom:business_id'] ?? 
-                            userData?['custom:businessId'] ?? 
-                            userData?['businessId'];
+          final businessId = userData['custom:business_id'] ??
+                            userData['custom:businessId'] ??
+                            userData['businessId'];
           await PushNotificationsService.instance.registerTokenIfPossible(
             businessId: businessId is String ? businessId : null,
           );
@@ -62,10 +63,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         } catch (e) {
           AppLogger.warning('⚠️ Push token registration failed on init (non-critical): $e');
         }
+        }
       }
       
-      state = state.copyWith(
-        status: signedIn
+      state = AuthState(
+        status: signedIn && userData != null
             ? AuthStatus.authenticated
             : AuthStatus.unauthenticated,
         isLoading: false,

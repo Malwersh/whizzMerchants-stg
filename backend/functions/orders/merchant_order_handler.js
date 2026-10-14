@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, BatchGetCommand } = require('@aws-sdk/lib-dynamodb');
 const { SNSClient, PublishCommand, CreatePlatformEndpointCommand } = require('@aws-sdk/client-sns');
@@ -20,7 +21,8 @@ const cloudwatch = new CloudWatchClient({ region: process.env.AWS_REGION || 'us-
 
 // Initialize AWS clients
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb=DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb=merchantLifecycleClient(lifecycleRawDb);
 const sns = new SNSClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
 async function getBusinessOwnerId(businessId) {
@@ -115,7 +117,7 @@ async function isBusinessOnline(businessId) {
  * Following the ecosystem architecture plan
  */
 exports.handler = async (event) => {
-    console.log('Merchant Order Handler - Event:', JSON.stringify(event, null, 2));
+    console.log('Merchant Order Handler - Event:', {method:event.httpMethod,path:event.path});
 
     const { httpMethod, path, pathParameters, headers, body } = event;
 
@@ -1724,3 +1726,21 @@ async function handleTimeoutLog(orderId, requestData) {
         });
     }
 }
+
+const originalMerchantHandler=module.exports.handler;
+const authenticatedMerchantHandler=merchantHandler(originalMerchantHandler,{db:lifecycleRawDb});
+module.exports.handler=async(event,context)=>{
+ if(event.path?.includes('/webhooks/orders')&&event.httpMethod==='POST'){
+  const expected=process.env.MERCHANT_WEBHOOK_INTERNAL_KEY;
+  const supplied=event.headers?.['x-merchant-webhook-key']||event.headers?.['X-Merchant-Webhook-Key'];
+  if(!expected||typeof supplied!=='string'||supplied.length!==expected.length||!require('node:crypto').timingSafeEqual(Buffer.from(supplied),Buffer.from(expected)))return createResponse(401,{code:'UNAUTHORIZED'});
+  let body;try{body=JSON.parse(event.body||'{}');}catch(_){return createResponse(400,{code:'INVALID_BODY'});}
+  const order=(await lifecycleRawDb.send(new GetCommand({TableName:ORDERS_TABLE,Key:{PK:'ORDER#'+body.orderId,SK:'META'},ConsistentRead:true}))).Item;
+  const businessId=resolveBusinessId(order);
+  if(!order||businessId!==body.storeId)return createResponse(403,{code:'ORDER_BUSINESS_SCOPE_INVALID'});
+  const business=(await lifecycleRawDb.send(new GetCommand({TableName:'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}))).Item;
+  if(!business||business.deletionRequestId||!business.ownerId||business.ownerId!==business.cognitoUserId)return createResponse(409,{code:'BUSINESS_UNAVAILABLE'});
+  return require('../shared/merchant-lifecycle').merchantRequestContext.run({sub:business.ownerId,businessId},()=>originalMerchantHandler(event,context));
+ }
+ return authenticatedMerchantHandler(event,context);
+};

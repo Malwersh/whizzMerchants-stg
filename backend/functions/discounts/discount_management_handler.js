@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
@@ -35,12 +36,12 @@ const BUSINESSES_TABLE = process.env.BUSINESSES_TABLE || 'WhizzMerchants_Busines
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
 
 exports.handler = async (event) => {
-    console.log('Discount Management Handler - Event:', JSON.stringify(event, null, 2));
+    console.log('Discount Management Handler - Event:', {method:event.httpMethod,path:event.path});
 
     // Instantiate AWS clients for this invocation
     const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION || 'us-east-1' });
     const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-    const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+    const dynamodb = merchantLifecycleClient(DynamoDBDocumentClient.from(dynamoDbClient));
 
     const { httpMethod, path, pathParameters, headers } = event;
 
@@ -517,14 +518,11 @@ async function handleDeleteDiscount(dynamodb, businessId, discountId) {
             Key: {
                 discountId: discountId
             },
-            ReturnValues: 'ALL_OLD'
+            ConditionExpression: 'businessId = :business',
+            ExpressionAttributeValues: { ':business': businessId }
         };
 
-        const result = await dynamodb.send(new DeleteCommand(params));
-
-        if (!result.Attributes) {
-            return createResponse(404, { success: false, message: 'Discount not found' });
-        }
+        await dynamodb.send(new DeleteCommand(params));
 
         return createResponse(200, {
             success: true,
@@ -881,3 +879,5 @@ function calculateBuyXGetYDiscount(discount, items) {
         return freeItems * getItem.price * (discount.value / 100);
     }
 }
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:DynamoDBDocumentClient.from(new DynamoDBClient({region:"us-east-1"}))});

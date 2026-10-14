@@ -91,7 +91,7 @@ async function findRegionByCoordinates(latitude, longitude) {
 }
 
 module.exports.handler = async (event) => {
-    console.log('Received event in Auth Handler:', JSON.stringify(event, null, 2));
+    console.log('Auth request', { method: event.httpMethod, path: event.path });
     const { httpMethod, path } = event;
 
     if (httpMethod === 'OPTIONS') {
@@ -217,7 +217,7 @@ module.exports.handler = async (event) => {
                     }
                 }
                 
-                console.log('Phone number formatting:', phoneNumber, '->', formattedPhoneNumber);
+                // Phone values are not written to technical logs.
 
                 if (!/^\+9647\d{9}$/.test(formattedPhoneNumber)) {
                     return createResponse(400, {
@@ -743,179 +743,28 @@ module.exports.handler = async (event) => {
             }
         }
 
-        // Handle getting user businesses (used by business provider)
+        // An authenticated person can legitimately have no businesses after closure.
         if (path === '/auth/user-businesses' && httpMethod === 'GET') {
-            console.log('🏢 Getting user businesses from access token...');
-            
             const authHeader = event.headers?.Authorization || event.headers?.authorization;
-            
-            if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                return createResponse(401, {
-                    success: false,
-                    message: 'Authorization header is missing or invalid'
-                });
-            }
-
-            const bearerToken = authHeader.replace('Bearer ', '');
-
+            if (!authHeader?.startsWith('Bearer ')) return createResponse(401, { success: false, message: 'Authentication required' });
+            let identity;
             try {
-                // The API Gateway Cognito authorizer has already verified the token.
-                // Read user info from the verified claims when available; otherwise
-                // decode the JWT payload directly. This works for both ID tokens
-                // (sent by the app) and access tokens, avoiding Cognito GetUser
-                // which only accepts access tokens.
-                let claims = event.requestContext?.authorizer?.claims;
-                if (!claims) {
-                    try {
-                        const payload = bearerToken.split('.')[1];
-                        const decoded = Buffer.from(
-                            payload.replace(/-/g, '+').replace(/_/g, '/'),
-                            'base64'
-                        ).toString('utf8');
-                        claims = JSON.parse(decoded);
-                    } catch (decodeErr) {
-                        console.error('❌ Failed to decode token payload:', decodeErr);
-                        return createResponse(401, {
-                            success: false,
-                            message: 'Invalid or expired access token'
-                        });
-                    }
-                }
-
-                const email = claims.email;
-                const userId = claims.sub || claims['cognito:username'] || claims.username;
-                const firstName = claims.given_name;
-                const lastName = claims.family_name;
-                const phoneNumber = claims.phone_number;
-
-                console.log(`🔐 Authenticated user: ${email || phoneNumber} (${userId})`);
-
-                // Query businesses for this user - ENHANCED DEBUGGING
-                let businesses = [];
-                console.log(`🔍 DEBUG: Querying businesses for user: ${email}`);
-                console.log(`🔍 DEBUG: User ID: ${userId}`);
-                console.log(`🔍 DEBUG: Table: ${process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses'}`);
-                
-                try {
-                    // Phone-only users may have no email: only use email-index when an email exists.
-                    let businessResult = { Items: [] };
-                    if (email) {
-                        const businessQueryParams = {
-                            TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
-                            IndexName: 'email-index',
-                            KeyConditionExpression: 'email = :email',
-                            ExpressionAttributeValues: {
-                                ':email': email.toLowerCase().trim()
-                            }
-                        };
-                        businessResult = await dynamodb.send(new QueryCommand(businessQueryParams));
-                    }
-                    console.log(`🔍 DEBUG: Email query result: Found ${businessResult.Items?.length || 0} businesses`);
-                    
-                    if (businessResult.Items && businessResult.Items.length > 0) {
-                        businesses = businessResult.Items.map(business => ({
-                            businessId: business.businessId,
-                            businessName: business.businessName || business.name,
-                            email: business.email,
-                            businessPhotoUrl: business.businessPhotoUrl || business.business_photo_url || null,
-                            ownerId: business.ownerId,
-                            cognitoUserId: business.cognitoUserId,
-                            status: business.status || 'approved',
-                            businessType: business.businessType || 'restaurant',
-                            address: business.address,
-                            phoneNumber: business.phoneNumber || business.phone,
-                            city: business.city,
-                            district: business.district,
-                            country: business.country
-                        }));
-                        console.log(`✅ Found ${businesses.length} businesses for user: ${email}`);
-                        console.log(`📋 Business IDs: ${businesses.map(b => b.businessId).join(', ')}`);
-                    } else {
-                        console.log(`⚠️ No businesses found with email-index query for: ${email}`);
-                        
-                        // Try alternative approach: scan by cognitoUserId
-                        console.log(`🔄 Trying alternative query by cognitoUserId: ${userId}`);
-                        const altParams = {
-                            TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
-                            FilterExpression: 'cognitoUserId = :userId OR ownerId = :userId' + (phoneNumber ? ' OR phoneNumber = :phone OR phone = :phone' : ''),
-                            ExpressionAttributeValues: phoneNumber
-                                ? { ':userId': userId, ':phone': phoneNumber }
-                                : { ':userId': userId }
-                        };
-                        
-                        const altResult = await dynamodb.send(new ScanCommand(altParams));
-                        console.log(`🔍 Alternative scan result: Found ${altResult.Items?.length || 0} businesses`);
-                        
-                        if (altResult.Items && altResult.Items.length > 0) {
-                            businesses = altResult.Items.map(business => ({
-                                businessId: business.businessId,
-                                businessName: business.businessName || business.name,
-                                email: business.email,
-                                businessPhotoUrl: business.businessPhotoUrl || business.business_photo_url || null,
-                                ownerId: business.ownerId,
-                                cognitoUserId: business.cognitoUserId,
-                                status: business.status || 'approved',
-                                businessType: business.businessType || 'restaurant',
-                                address: business.address,
-                                phoneNumber: business.phoneNumber || business.phone,
-                                city: business.city,
-                                district: business.district,
-                                country: business.country
-                            }));
-                            console.log(`✅ Found ${businesses.length} businesses via cognitoUserId`);
-                            console.log(`📋 Business IDs: ${businesses.map(b => b.businessId).join(', ')}`);
-                        } else {
-                            console.error(`❌ NO BUSINESSES FOUND for user ${userId} (${email})`);
-                            console.error(`❌ This should not happen for registered business users`);
-                            // Return empty array instead of creating fake business
-                            businesses = [];
-                        }
-                    }
-                } catch (businessError) {
-                    console.error('❌ Error querying businesses:', businessError);
-                    // Return empty array on error instead of creating fake business
-                    businesses = [];
-                }
-
-                console.log(`✅ Returning ${businesses.length} businesses for user ${email}`);
-                
-                if (businesses.length === 0) {
-                    return createResponse(404, {
-                        success: false,
-                        message: 'No businesses found for this user',
-                        debug: {
-                            email: email,
-                            userId: userId,
-                            queryAttempts: ['email-index', 'cognitoUserId scan']
-                        }
-                    });
-                }
-
-                return createResponse(200, {
-                    success: true,
-                    businesses: businesses,
-                    debug: {
-                        email: email,
-                        userId: userId,
-                        found: businesses.length
-                    }
-                });
-
-            } catch (cognitoError) {
-                console.error('Error verifying access token:', cognitoError);
-                
-                if (cognitoError.name === 'NotAuthorizedException') {
-                    return createResponse(401, {
-                        success: false,
-                        message: 'Invalid or expired access token'
-                    });
-                }
-                
-                return createResponse(500, {
-                    success: false,
-                    message: 'Authentication service error',
-                    error: cognitoError.message
-                });
+                identity = await require('../shared/merchant-lifecycle').liveMerchantIdentity(cognitoClient, authHeader.slice(7));
+                const { user, claims } = identity;
+                const sub = (user.UserAttributes || []).find(a => a.Name === 'sub')?.Value;
+                if (claims.iss !== 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_gtCR3ndzT' ||
+                    (claims.token_use === 'access' ? claims.client_id : claims.aud) !== '4qabvh11nmghmf9fmc6e6ludd2' ||
+                    !sub || sub !== claims.sub) throw new Error('UNAUTHORIZED');
+            } catch (error) {
+                const denied = ['UNAUTHORIZED', 'NotAuthorizedException', 'UserNotFoundException'].includes(error.message) ||
+                    ['NotAuthorizedException', 'UserNotFoundException'].includes(error.name);
+                return createResponse(denied ? 401 : 503, { success: false, message: denied ? 'Authentication required' : 'Authentication temporarily unavailable' });
+            }
+            try {
+                const businesses = await require('./merchant_business_list').listOwnedBusinesses(dynamodb, identity.claims.sub);
+                return createResponse(200, { success: true, businesses });
+            } catch (_) {
+                return createResponse(503, { success: false, message: 'Business list temporarily unavailable' });
             }
         }
 

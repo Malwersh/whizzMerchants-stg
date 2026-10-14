@@ -4,6 +4,7 @@ import '../core/theme/whizz_colors.dart';
 import '../services/wallet_transfer_service.dart';
 import '../providers/auth_provider_riverpod.dart';
 import 'wallet_transfer_screen.dart';
+import 'delete_account_screen.dart';
 import 'auth/auth_screen.dart';
 
 class MerchantWalletAccountsScreen extends ConsumerStatefulWidget {
@@ -59,6 +60,11 @@ class _MerchantWalletAccountsScreenState
                     const Text(
                         'تظهر هنا المطاعم التي تملكها أو مُنحت صلاحية مالية عليها.'),
                     const SizedBox(height: 24),
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeleteAccountScreen(scope: 'ACCOUNT'))),
+                      icon: const Icon(Icons.person_remove_outlined),
+                      label: const Text('حذف حسابي الشخصي'),
+                    ),
                     if (error != null) ...[
                       Text(error!),
                       TextButton(
@@ -87,7 +93,13 @@ class _MerchantWalletAccountsScreenState
                               subtitle: Text(a['isOwner'] == true
                                   ? 'صاحب المطعم'
                                   : 'موظف مالي'),
-                              trailing: const Icon(Icons.chevron_left),
+                              trailing: a['isOwner'] == true ? const Icon(Icons.chevron_left) : PopupMenuButton<String>(
+                                onSelected: (_) async {
+                                  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DeleteAccountScreen(scope: 'MEMBERSHIP', businessId: a['businessId'])));
+                                  if (mounted) await _load();
+                                },
+                                itemBuilder: (_) => [const PopupMenuItem(value: 'leave', child: Text('مغادرة المطعم وإزالة صلاحياتي'))],
+                              ),
                               onTap: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
