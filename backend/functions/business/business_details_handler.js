@@ -22,7 +22,7 @@ const corsHeaders = {
  * Fetches complete business information including all details from the businesses table
  */
 exports.handler = async (event) => {
-  console.log('📋 Business Details Event:', JSON.stringify(event, null, 2));
+  console.log('📋 Business Details Event:', {method:event.httpMethod,path:event.path});
 
   // Handle CORS preflight requests
   if (event.httpMethod === 'OPTIONS') {

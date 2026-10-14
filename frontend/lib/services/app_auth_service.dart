@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
@@ -408,6 +409,10 @@ class AppAuthService {
           );
         }
       }
+      if (businesses.isEmpty) {
+        await SecureTokenStorage.clearBusinessId();
+        await _container?.read(sessionProvider.notifier).clearBusinessSelection();
+      }
       return SignInResult(
         success: true,
         message: 'Sign in successful',
@@ -507,7 +512,30 @@ class AppAuthService {
   static Future<Map<String, dynamic>?> getCurrentUser() async {
     await initialize();
 
-    // Check cache first to avoid repeated API calls
+    // Cached user data cannot establish that an account still exists.
+    final token = await SecureTokenStorage.getAccessToken();
+    if (token == null) return null;
+    if (token.isNotEmpty) {
+      try {
+        final response = await http.post(
+          Uri.https('cognito-idp.${AppConfig.cognitoRegion}.amazonaws.com', '/'),
+          headers: {'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': 'AWSCognitoIdentityProviderService.GetUser'},
+          body: jsonEncode({'AccessToken': token}),
+        ).timeout(const Duration(seconds: 15));
+        if (response.statusCode != 200) {
+          final code = '${(jsonDecode(response.body) as Map)['__type']}'.split('#').last;
+          if (code == 'NotAuthorizedException' || code == 'UserNotFoundException') {
+            final refreshed = await _syncTokensFromAmplify(forceRefresh: true);
+            if (!refreshed) await signOut();
+            return null;
+          }
+          return null;
+        }
+      } catch (_) {
+        return null;
+      }
+    }
+    // Use cached profile only after validating the live identity.
     final now = DateTime.now();
     if (_cachedUserData != null &&
         _cacheTimestamp != null &&

@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const {
   DynamoDBDocumentClient,
@@ -21,7 +22,8 @@ const DYNAMODB_REGION = process.env.DYNAMODB_REGION || 'us-east-1';
 const COGNITO_REGION = process.env.COGNITO_REGION || 'us-east-1';
 
 const client = new DynamoDBClient({ region: DYNAMODB_REGION });
-const docClient = DynamoDBDocumentClient.from(client);
+const lifecycleRawDb = DynamoDBDocumentClient.from(client);
+const docClient = merchantLifecycleClient(lifecycleRawDb);
 
 const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -479,7 +481,7 @@ async function handleGetCategoriesByBusinessType(event) {
 }
 
 module.exports.handler = async (event) => {
-    console.log('Received event in Product Management Handler:', JSON.stringify(event, null, 2));
+    console.log('Received event in Product Management Handler:', {method:event.httpMethod,path:event.path});
     const { httpMethod, path } = event;
 
     if (httpMethod === 'OPTIONS') {
@@ -518,3 +520,5 @@ module.exports.handler = async (event) => {
         return createResponse(500, { success: false, message: 'Internal server error' });
     }
 };
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});

@@ -227,11 +227,8 @@ Resources:
       Environment:
         Variables:
           OTPIQ_KEY_PARAM: !Sub "/whizz/${Stage}/otpiq-key"
-          OTPIQ_PROVIDER: sms
+          OTPIQ_PROVIDER: whatsapp-sms
           OTPIQ_SENDER_ID: ""
-          # App Store review account: this phone gets the fixed code below, no SMS sent.
-          REVIEW_TEST_PHONE: "+9647800000000"
-          REVIEW_TEST_CODE: "123456"
 
   OtpVerifyAuthChallengeFunction:
     Type: AWS::Lambda::Function
@@ -464,6 +461,39 @@ Resources:
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
               /auth/confirm:
+                post:
+                  security: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                options:
+                  security: []
+                  responses:
+                    '200':
+                      description: CORS preflight response
+                      headers:
+                        Access-Control-Allow-Origin:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Methods:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Headers:
+                          schema:
+                            type: string
+                  x-amazon-apigateway-integration:
+                    type: mock
+                    requestTemplates:
+                      application/json: '{"statusCode": 200}'
+                    responses:
+                      default:
+                        statusCode: "200"
+                        responseParameters:
+                          method.response.header.Access-Control-Allow-Origin: "'*'"
+                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /auth/get-user-by-email:
                 post:
                   security: []
                   x-amazon-apigateway-integration:

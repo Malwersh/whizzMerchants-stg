@@ -66,7 +66,8 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/whizz_logo.png"
+  # Base icon (square 1024x1024) with PRIMARY yellow background
+  image_path: "assets/images/wizbusiness_wordmark_on_yellow_1024.png"
   min_sdk_android: 21
   
   # iOS specific
@@ -75,6 +76,6 @@ flutter_launcher_icons:
   # Remove default Flutter icons
   remove_alpha_ios: true
   
-  # Adaptive icon for Android (optional - use if you have separate foreground)
-  adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/images/whizz_logo.png"
+  # Adaptive icon for Android (yellow background + transparent foreground)
+  adaptive_icon_background: "#FDC500"
+  adaptive_icon_foreground: "assets/images/wizbusiness_wordmark_fg_1024.png"

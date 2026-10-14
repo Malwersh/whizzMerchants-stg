@@ -30,6 +30,17 @@ class AudioNotificationService {
     }
   }
 
+  final Map<String, DateTime> _announcedOrders = {};
+
+  Future<void> playNewOrderSoundOnce(String orderId) async {
+    if (!_settings.shouldPlaySound('new_order')) return;
+    final now = DateTime.now();
+    _announcedOrders.removeWhere((_, time) => now.difference(time).inHours >= 1);
+    if (_announcedOrders.containsKey(orderId)) return;
+    _announcedOrders[orderId] = now;
+    await playNewOrderSound();
+  }
+
   /// Play new order notification sound with IMMEDIATE priority
   Future<void> playNewOrderSound() async {
     if (!_settings.shouldPlaySound('new_order')) {

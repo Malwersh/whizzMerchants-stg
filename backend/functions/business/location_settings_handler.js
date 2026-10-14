@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
@@ -5,7 +6,8 @@ const jwt = require('jsonwebtoken');
 
 // Initialize DynamoDB
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb = DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb = merchantLifecycleClient(lifecycleRawDb);
 
 // Table names from environment variables (same as other handlers)
 const BUSINESSES_TABLE = process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses';
@@ -23,7 +25,7 @@ const corsHeaders = {
  * Manages business location settings including GPS coordinates and address information
  */
 exports.handler = async (event) => {
-  console.log('📍 Location Settings Handler - Event:', JSON.stringify(event, null, 2));
+  console.log('📍 Location Settings Handler - Event:', {method:event.httpMethod,path:event.path});
 
   // Handle preflight CORS requests
   if (event.httpMethod === 'OPTIONS') {
@@ -669,3 +671,5 @@ async function handleUpdateWorkingHours(businessId, requestBody) {
     };
   }
 }
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});

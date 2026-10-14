@@ -1,3 +1,4 @@
+import 'screens/merchant_wallet_accounts_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -11,6 +12,7 @@ import 'providers/session_provider.dart';
 import 'providers/language_provider_riverpod.dart';
 import 'screens/auth/auth_screen.dart';
 import 'screens/dashboards/business_dashboard.dart';
+import 'screens/splash_screen.dart'; // ✅ إضافة SplashScreen
 import 'services/app_auth_service.dart';
 import 'services/push_notifications_service.dart';
 import 'config/app_config.dart';
@@ -49,7 +51,8 @@ class OrderReceiverApp extends ConsumerStatefulWidget {
   ConsumerState<OrderReceiverApp> createState() => _OrderReceiverAppState();
 }
 
-class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp> with WidgetsBindingObserver {
+class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -69,7 +72,7 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp> with Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
+
     if (state == AppLifecycleState.resumed) {
       // Validate session when app resumes
       debugPrint('🔄 App resumed - validating session...');
@@ -99,7 +102,10 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp> with Widget
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('ar'), Locale('en')],
-      home: const AuthGate(),
+      home: const SplashScreen(
+        nextScreen: AuthGate(),
+        duration: Duration(seconds: 2), // ✅ مدة Splash 2 ثانية
+      ),
     );
   }
 }
@@ -131,12 +137,17 @@ class AuthGate extends ConsumerWidget {
       final prevBusinessId = previous?.businessId;
       final becameAuthed = !prevAuthed && next.isAuthenticated;
       final businessChanged = prevBusinessId != next.businessId;
-      final hasBusiness = next.businessId != null && next.businessId!.isNotEmpty;
+      final hasBusiness =
+          next.businessId != null && next.businessId!.isNotEmpty;
 
-      if ((becameAuthed || businessChanged) && next.isAuthenticated && hasBusiness && !next.isExpired) {
+      if ((becameAuthed || businessChanged) &&
+          next.isAuthenticated &&
+          hasBusiness &&
+          !next.isExpired) {
         try {
           await ref.read(sessionProvider.notifier).waitForSessionReady();
-          await PushNotificationsService.instance.registerTokenIfPossible(businessId: next.businessId);
+          await PushNotificationsService.instance
+              .registerTokenIfPossible(businessId: next.businessId);
         } catch (e) {
           debugPrint('⚠️ Push token registration skipped/failed: $e');
         }
@@ -152,6 +163,9 @@ class AuthGate extends ConsumerWidget {
 
     if (auth.isAuthenticated && hasBusiness && !session.isExpired) {
       return const BusinessDashboard();
+    }
+    if (auth.isAuthenticated && !session.isExpired && !hasBusiness) {
+      return const MerchantWalletAccountsScreen();
     }
     return const AuthScreen();
   }

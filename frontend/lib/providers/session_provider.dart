@@ -324,6 +324,13 @@ class SessionNotifier extends StateNotifier<Session> {
     }
   }
 
+  Future<void> clearBusinessSelection() async {
+    await SecureTokenStorage.clearBusinessId();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('business_data');
+    state = Session(isAuthenticated: state.isAuthenticated, isReady: true);
+  }
+
   Future<void> clearSession() async {
     debugPrint('🧹 SessionProvider: clearSession called');
     
@@ -343,7 +350,7 @@ class SessionNotifier extends StateNotifier<Session> {
       
       // Also clear from secure storage
       try {
-        await SecureTokenStorage.setBusinessId(''); // Clear business ID from secure storage
+        await SecureTokenStorage.clearBusinessId(); // Clear business ID from secure storage
       } catch (e) {
         debugPrint('⚠️ SessionProvider: failed to clear businessId from secure storage: $e');
       }

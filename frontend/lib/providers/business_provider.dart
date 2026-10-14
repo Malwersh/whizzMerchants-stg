@@ -27,16 +27,14 @@ final businessProvider = FutureProvider<Business?>((ref) async {
     debugPrint(
         '🏢 BusinessProvider: API returned ${businesses.length} businesses');
 
-    if (businesses.isNotEmpty) {
-      final match = businesses.firstWhere(
-        (b) => (b['businessId'] ?? b['id']) == session.businessId,
-        orElse: () => businesses.first,
-      );
-      debugPrint(
-          '🏢 BusinessProvider: matched business from API: ${match['businessName'] ?? match['name']}');
-      return Business.fromJson(match);
-    }
-    debugPrint('🏢 BusinessProvider: API returned no businesses, trying cache');
+    final matches = businesses.where((b) =>
+        (b['businessId'] ?? b['id']) == session.businessId &&
+        b['deletionRequestId'] == null).toList();
+    if (matches.isNotEmpty) return Business.fromJson(matches.first);
+    // A successful server response is authoritative: do not restore a
+    // removed business from cached data or synthesize a placeholder for it.
+    await ref.read(sessionProvider.notifier).clearBusinessSelection();
+    return null;
   } catch (e) {
     debugPrint('🏢 BusinessProvider: API error, falling back to cache: $e');
   }

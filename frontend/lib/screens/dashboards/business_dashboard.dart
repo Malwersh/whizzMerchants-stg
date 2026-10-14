@@ -300,6 +300,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
   Widget _buildMobileLayout(Business business) {
     return Scaffold(
       appBar: TopAppBar(
+        businessId: business.id,
         title: business.name,
         isOnline: _isOnline,
         onToggleStatus: (value) async => await _toggleOnlineStatus(value),

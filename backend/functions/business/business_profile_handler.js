@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, UpdateCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
@@ -5,7 +6,8 @@ const jwt = require('jsonwebtoken');
 
 // Initialize DynamoDB
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb = DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb = merchantLifecycleClient(lifecycleRawDb);
 
 // Table names from environment variables
 const BUSINESSES_TABLE = process.env.BUSINESSES_TABLE || 'order-receiver-businesses-dev';
@@ -26,7 +28,7 @@ const corsHeaders = {
  * - Address and contact information
  */
 exports.handler = async (event) => {
-  console.log('📋 Business Profile Event:', JSON.stringify(event, null, 2));
+  console.log('📋 Business Profile Event:', {method:event.httpMethod,path:event.path});
 
   // Handle CORS preflight requests
   if (event.httpMethod === 'OPTIONS') {
@@ -378,3 +380,5 @@ async function handleUpdateBusinessProfile(businessId, requestBody) {
     };
   }
 }
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});

@@ -37,7 +37,6 @@ import FirebaseMessaging
         if let error = error {
           print("❌ Error fetching FCM token on startup: \(error)")
         } else if let token = token {
-          print("🎫 FCM Token retrieved on startup: \(token)")
           self.fcmMethodChannel?.invokeMethod("onTokenRefresh", arguments: token)
         } else {
           print("⚠️ FCM Token is nil on startup")
@@ -88,7 +87,7 @@ import FirebaseMessaging
     application.registerForRemoteNotifications()
 
     // Set FCM messaging delegate
-    Messaging.messaging().delegate = self
+    // FlutterFire owns the messaging delegate and forwards token refresh events.
 
     // Explicitly request FCM token on startup (after APNs token is available)
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -130,15 +129,14 @@ import FirebaseMessaging
     _ application: UIApplication,
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
     Messaging.messaging().apnsToken = deviceToken
-    print("📱 APNs device token set: \(deviceToken.map { String(format: "%02.2hhx", $0) }.joined())")
 
     // After setting APNs token, try to get FCM token
     Messaging.messaging().token { token, error in
       if let error = error {
         print("❌ Error fetching FCM token after APNs registration: \(error)")
       } else if let token = token {
-        print("✅ FCM Token obtained after APNs registration: \(token)")
       }
     }
   }
@@ -155,7 +153,6 @@ import FirebaseMessaging
 // MARK: - MessagingDelegate
 extension AppDelegate: MessagingDelegate {
   func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-    print("🎫 Firebase registration token: \(String(describing: fcmToken))")
 
     // Send token to Flutter via method channel
     if let token = fcmToken {
@@ -191,7 +188,13 @@ extension AppDelegate {
     }
 
     // Show notification even when app is in foreground
-    completionHandler([[.alert, .sound, .badge]])
+    // FlutterFire forwards to this original delegate when one exists.
+    // Enforce silent foreground presentation here, not just in Dart settings.
+    super.userNotificationCenter(center, willPresent: notification) { options in
+      let foregroundOptions = options.subtracting(.sound)
+      NSLog("Merchant foreground presentation: systemSound=false")
+      completionHandler(foregroundOptions)
+    }
   }
 
   // Handle notification tap
@@ -208,6 +211,6 @@ extension AppDelegate {
       fcmChannel.invokeMethod("onNotificationTapped", arguments: userInfo)
     }
 
-    completionHandler()
+    super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
   }
 }

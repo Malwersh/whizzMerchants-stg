@@ -1,10 +1,12 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const jwt = require('jsonwebtoken');
 
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb = DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb = merchantLifecycleClient(lifecycleRawDb);
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
 const corsHeaders = {
@@ -382,7 +384,7 @@ async function handleGetBusinessStatus(event) {
  */
 exports.handler = async (event) => {
     console.log('🚀 Business Status Handler - Perfect Solution');
-    console.log('📥 Event:', JSON.stringify(event, null, 2));
+    console.log('📥 Event:', {method:event.httpMethod,path:event.path});
 
     // Handle preflight CORS requests
     if (event.httpMethod === 'OPTIONS') {
@@ -459,3 +461,5 @@ async function getBusinessOnlineStatus(businessId) {
 
 // Export for backward compatibility
 module.exports.getBusinessOnlineStatus = getBusinessOnlineStatus;
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});

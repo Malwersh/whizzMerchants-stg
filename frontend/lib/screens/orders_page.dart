@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../models/order.dart';
 import '../services/order_service.dart';
+import '../services/audio_notification_service.dart';
 import '../services/kitchen_dispatch_service.dart';
 import '../services/realtime_order_service.dart';
 import '../services/order_cache_service.dart';
@@ -21,10 +22,12 @@ import '../core/exceptions/auth_exceptions.dart';
 
 class OrdersPage extends ConsumerStatefulWidget {
   final String? businessId;
+  final String? focusOrderId;
 
   const OrdersPage({
     super.key,
     this.businessId,
+    this.focusOrderId,
   });
 
   @override
@@ -38,6 +41,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   String _selectedFilter = 'confirmed'; // عرض الطلبات المؤكدة بشكل افتراضي
   bool _isInitializing = true;
   bool _isLoading = true;
+  String? _soundSnapshotBusinessId;
+  final Set<String> _observedOrderIds = {};
   StreamSubscription? _newOrderSubscription;
   StreamSubscription? _orderUpdateSubscription;
   Timer? _smartPollingTimer; // 🎯 Smart polling للطلبات النشطة فقط
@@ -507,6 +512,20 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
       final orders = await _orderService.getMerchantOrders(businessId, status: null);
       AppLogger.info('Received ${orders.length} orders from API');
+      unawaited(PushNotificationsService.instance.registerTokenIfPossible(businessId: businessId));
+      if (!mounted || _disposed) return;
+      if (_soundSnapshotBusinessId == businessId) {
+        for (final order in orders) {
+          if (order.status == OrderStatus.pending &&
+              !_observedOrderIds.contains(order.id)) {
+            unawaited(AudioNotificationService().playNewOrderSoundOnce(order.id));
+          }
+        }
+      } else {
+        _soundSnapshotBusinessId = businessId;
+        _observedOrderIds.clear();
+      }
+      _observedOrderIds.addAll(orders.map((order) => order.id));
 
       
       if (mounted) {
@@ -566,7 +585,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
           
           // Log filtered orders count
-          List<Order> currentFilteredOrders = _orders.where((o) => _shouldShowInFilter(o, _selectedFilter)).toList();
+          List<Order> currentFilteredOrders = _orders.where((o) => widget.focusOrderId != null ? o.id == widget.focusOrderId : _shouldShowInFilter(o, _selectedFilter)).toList();
           AppLogger.debug(
               'Filtered orders for $_selectedFilter: ${currentFilteredOrders.length}');
 
@@ -1567,7 +1586,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     final loc = AppLocalizations.of(context)!;
     
     // Apply filtering logic using _shouldShowInFilter
-    List<Order> filteredOrders = _orders.where((o) => _shouldShowInFilter(o, _selectedFilter)).toList();
+    List<Order> filteredOrders = _orders.where((o) => widget.focusOrderId != null ? o.id == widget.focusOrderId : _shouldShowInFilter(o, _selectedFilter)).toList();
     
     // Sort orders appropriately
     if (_selectedFilter == 'pending') {
