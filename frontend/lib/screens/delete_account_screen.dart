@@ -13,7 +13,8 @@ import 'auth/auth_screen.dart';
 
 
 class DeleteAccountScreen extends ConsumerStatefulWidget {
-  const DeleteAccountScreen({super.key, required this.scope, this.businessId});
+  const DeleteAccountScreen({super.key, required this.scope, this.businessId, this.service});
+  final AccountDeletionService? service;
   final String scope;
   final String? businessId;
   @override
@@ -33,7 +34,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   @override
   void initState() {
     super.initState();
-    _service = AccountDeletionService(scope: widget.scope, businessId: widget.businessId);
+    _service = widget.service ?? AccountDeletionService(scope: widget.scope, businessId: widget.businessId);
     _refresh();
   }
 
