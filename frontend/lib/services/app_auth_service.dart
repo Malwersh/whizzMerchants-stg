@@ -26,6 +26,17 @@ class AppAuthService {
   static DateTime? _cacheTimestamp;
   static const Duration _cacheTimeout = Duration(minutes: 5);
 
+  /// Strip the Dart `Exception:` wrapper from thrown messages so users see the
+  /// backend/localized text instead of raw exception noise.
+  static String _extractErrorMessage(dynamic error) {
+    final raw = error.toString();
+    const prefix = 'Exception: ';
+    if (raw.startsWith(prefix)) {
+      return raw.substring(prefix.length);
+    }
+    return raw;
+  }
+
   /// Store authentication tokens in SecureStorage for better persistence across app restarts
   static Future<void> _storeAuthTokens(Map<String, String?> tokens) async {
     try {
@@ -709,7 +720,7 @@ class AppAuthService {
 
       return RegisterResult(
         success: false,
-        message: e.toString(),
+        message: _extractErrorMessage(e),
         userSub: null,
         codeDeliveryDetails: null,
         businessId: null,

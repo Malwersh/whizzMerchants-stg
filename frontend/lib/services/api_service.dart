@@ -280,7 +280,14 @@ class ApiService {
       final data = jsonDecode(response.body);
       return data;
     } else {
-      throw Exception('Failed to register with business: ${response.body}');
+      String errorMessage;
+      try {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        errorMessage = data['message'] as String? ?? response.body;
+      } catch (_) {
+        errorMessage = response.body;
+      }
+      throw Exception(errorMessage);
     }
   }
 

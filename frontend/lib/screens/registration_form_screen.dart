@@ -1703,10 +1703,31 @@ class _RegistrationFormScreenState
         }
       } else {
         if (mounted) {
+          final isDuplicate = registerResult.message
+              .toLowerCase()
+              .contains('already exists');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(registerResult.message),
+              content: Text(
+                isDuplicate
+                    ? loc.phoneNumberAlreadyExists
+                    : registerResult.message,
+              ),
               backgroundColor: Colors.red,
+              action: isDuplicate
+                  ? SnackBarAction(
+                      label: loc.loginInstead,
+                      textColor: Colors.white,
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AuthScreen(),
+                          ),
+                        );
+                      },
+                    )
+                  : null,
             ),
           );
         }
