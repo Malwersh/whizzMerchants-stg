@@ -442,13 +442,10 @@ class ProductService {
         'ProductService: Getting categories for business type: $businessType');
 
     try {
-      final url = '$baseUrl/categories/business-type/$businessType';
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      );
+      final businessId = await _getBusinessId();
+      final url = Uri.parse('$baseUrl/categories/business-type/$businessType')
+          .replace(queryParameters: {if (businessId != null) 'businessId': businessId}).toString();
+      final response = await _resilientGet(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -468,310 +465,22 @@ class ProductService {
         AppLogger.error('ProductService: API error: ${errorData['message']}');
 
         
-        // Fallback to predefined categories when API fails
-        AppLogger.info(
-            'ProductService: Using fallback categories for business type: $businessType');
-        final fallbackCategories = _getFallbackCategories(businessType);
-        
-        return {
-          'success': true,
-          'categories': fallbackCategories,
-          'source': 'fallback',
-          'message': 'API temporarily unavailable, using default categories',
-        };
+        return {'success': false, 'categories': [],
+          'message': 'تعذر تحميل الأقسام. أعد المحاولة.'};
       }
     } catch (e) {
-      AppLogger.error('ProductService: Network error: $e');
-
-      
-      // Fallback to predefined categories on network error
-      AppLogger.info(
-          'ProductService: Network error, using fallback categories for business type: $businessType');
-      final fallbackCategories = _getFallbackCategories(businessType);
-      
-      return {
-        'success': true,
-        'categories': fallbackCategories,
-        'source': 'fallback',
-        'message': 'Network error, using default categories',
-      };
+      return {'success': false, 'categories': [],
+        'message': 'تعذر تحميل الأقسام. تحقق من الاتصال وأعد المحاولة.'};
     }
   }
 
-  /// Get fallback categories when API is unavailable
-  static List<Map<String, dynamic>> _getFallbackCategories(
-      String businessType) {
-    final fallbackCategories = <Map<String, dynamic>>[];
-
-    switch (businessType.toLowerCase()) {
-      case 'restaurant':
-      case 'kitchen':
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-appetizers-001',
-            'name': 'Appetizers',
-            'name_ar': 'المقبلات',
-            'description': 'Starters and appetizers',
-            'businessType': 'restaurant',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-main-courses-002',
-            'name': 'Main Courses',
-            'name_ar': 'الأطباق الرئيسية',
-            'description': 'Main dishes and entrees',
-            'businessType': 'restaurant',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-desserts-003',
-            'name': 'Desserts',
-            'name_ar': 'الحلويات',
-            'description': 'Sweet desserts and treats',
-            'businessType': 'restaurant',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-beverages-004',
-            'name': 'Beverages',
-            'name_ar': 'المشروبات',
-            'description': 'Drinks and beverages',
-            'businessType': 'restaurant',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-sides-005',
-            'name': 'Sides',
-            'name_ar': 'الأطباق الجانبية',
-            'description': 'Side dishes',
-            'businessType': 'restaurant',
-            'is_active': true,
-          },
-        ]);
-        break;
-
-      case 'cloudkitchen':
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-ck-appetizers-001',
-            'name': 'Appetizers',
-            'name_ar': 'المقبلات',
-            'description': 'Starters and appetizers',
-            'businessType': 'cloudkitchen',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-ck-main-002',
-            'name': 'Main Courses',
-            'name_ar': 'الأطباق الرئيسية',
-            'description': 'Main dishes and entrees',
-            'businessType': 'cloudkitchen',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-ck-desserts-003',
-            'name': 'Desserts',
-            'name_ar': 'الحلويات',
-            'description': 'Sweet desserts and treats',
-            'businessType': 'cloudkitchen',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-ck-beverages-004',
-            'name': 'Beverages',
-            'name_ar': 'المشروبات',
-            'description': 'Drinks and beverages',
-            'businessType': 'cloudkitchen',
-            'is_active': true,
-          },
-        ]);
-        break;
-
-      case 'store':
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-store-grocery-001',
-            'name': 'Groceries',
-            'name_ar': 'البقالة',
-            'description': 'Daily groceries and essentials',
-            'businessType': 'store',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-store-snacks-002',
-            'name': 'Snacks',
-            'name_ar': 'الوجبات الخفيفة',
-            'description': 'Snacks and light meals',
-            'businessType': 'store',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-store-beverages-003',
-            'name': 'Beverages',
-            'name_ar': 'المشروبات',
-            'description': 'Drinks and beverages',
-            'businessType': 'store',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-store-household-004',
-            'name': 'Household Items',
-            'name_ar': 'أدوات منزلية',
-            'description': 'Household supplies and items',
-            'businessType': 'store',
-            'is_active': true,
-          },
-        ]);
-        break;
-
-      case 'pharmacy':
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-pharm-prescription-001',
-            'name': 'Prescription Medications',
-            'name_ar': 'الأدوية الموصوفة',
-            'description': 'Prescription drugs and medications',
-            'businessType': 'pharmacy',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-pharm-otc-002',
-            'name': 'Over-the-Counter',
-            'name_ar': 'أدوية بدون وصفة',
-            'description': 'Non-prescription medications',
-            'businessType': 'pharmacy',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-pharm-vitamins-003',
-            'name': 'Vitamins & Supplements',
-            'name_ar': 'الفيتامينات والمكملات',
-            'description': 'Health supplements and vitamins',
-            'businessType': 'pharmacy',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-pharm-personal-004',
-            'name': 'Personal Care',
-            'name_ar': 'العناية الشخصية',
-            'description': 'Personal care and hygiene products',
-            'businessType': 'pharmacy',
-            'is_active': true,
-          },
-        ]);
-        break;
-
-      case 'cafe':
-      case 'caffe':
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-cafe-coffee-001',
-            'name': 'Coffee',
-            'name_ar': 'القهوة',
-            'description': 'Hot and cold coffee beverages',
-            'businessType': 'cafe',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-cafe-tea-002',
-            'name': 'Tea',
-            'name_ar': 'الشاي',
-            'description': 'Various types of tea',
-            'businessType': 'cafe',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-cafe-pastries-003',
-            'name': 'Pastries',
-            'name_ar': 'المعجنات',
-            'description': 'Fresh pastries and baked goods',
-            'businessType': 'cafe',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-cafe-sandwiches-004',
-            'name': 'Sandwiches',
-            'name_ar': 'الساندويشات',
-            'description': 'Light meals and sandwiches',
-            'businessType': 'cafe',
-            'is_active': true,
-          },
-        ]);
-        break;
-
-      case 'bakery':
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-bakery-bread-001',
-            'name': 'Bread',
-            'name_ar': 'الخبز',
-            'description': 'Fresh bread and rolls',
-            'businessType': 'bakery',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-bakery-cakes-002',
-            'name': 'Cakes',
-            'name_ar': 'الكيك',
-            'description': 'Cakes and celebration desserts',
-            'businessType': 'bakery',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-bakery-pastries-003',
-            'name': 'Pastries',
-            'name_ar': 'المعجنات',
-            'description': 'Sweet and savory pastries',
-            'businessType': 'bakery',
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-bakery-cookies-004',
-            'name': 'Cookies',
-            'name_ar': 'البسكويت',
-            'description': 'Cookies and biscuits',
-            'businessType': 'bakery',
-            'is_active': true,
-          },
-        ]);
-        break;
-
-      default:
-        // Default categories for unsupported business types
-        fallbackCategories.addAll([
-          {
-            'categoryId': 'fb-general-001',
-            'name': 'General Items',
-            'name_ar': 'أصناف عامة',
-            'description': 'General product category',
-            'businessType': businessType,
-            'is_active': true,
-          },
-          {
-            'categoryId': 'fb-popular-002',
-            'name': 'Popular Items',
-            'name_ar': 'أصناف شائعة',
-            'description': 'Popular and featured items',
-            'businessType': businessType,
-            'is_active': true,
-          },
-        ]);
-    }
-
-    AppLogger.info(
-        'ProductService: Generated ${fallbackCategories.length} fallback categories');
-    return fallbackCategories;
-  }
 
   /// Get all categories
   static Future<Map<String, dynamic>> getAllCategories() async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/categories'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      );
+      final businessId = await _getBusinessId();
+      final response = await _resilientGet(Uri.parse('$baseUrl/categories').replace(
+        queryParameters: {if (businessId != null) 'businessId': businessId}));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);

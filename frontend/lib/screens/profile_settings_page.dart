@@ -1,20 +1,19 @@
+import 'branch_staff_screen.dart';
+import 'person_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import './account_settings_page.dart';
 import './pos_settings_page.dart';
 import './working_hours_settings_screen.dart';
 import './about_app_screen.dart';
-import './auth/auth_screen.dart';
+import '../services/auth_navigation.dart';
 import '../widgets/language_settings_bottom_drawer.dart';
-import '../widgets/location_settings_full_bottom_drawer.dart';
-import '../widgets/gps_settings_bottom_drawer.dart';
 import '../l10n/app_localizations.dart';
 import '../models/business.dart';
 import '../models/order.dart';
 import '../services/app_auth_service.dart';
 import '../services/app_state.dart';
 import '../providers/session_provider.dart';
-import '../providers/business_provider.dart';
 import '../providers/auth_provider_riverpod.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
@@ -83,22 +82,6 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
     }
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   Widget _buildModernSettingsCard({
     required IconData icon,
     required String title,
@@ -107,7 +90,7 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -133,7 +116,8 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                   padding: EdgeInsets.all(AppSpacing.xs),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                   ),
                   child: Icon(
                     icon,
@@ -167,7 +151,8 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                   padding: EdgeInsets.all(AppSpacing.xs),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                   ),
                   child: Icon(
                     Icons.arrow_forward_ios_rounded,
@@ -223,40 +208,16 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
           ),
         );
 
-        // CRITICAL FIX: Sign out from AppAuthService FIRST (clears tokens & session)
-        await ref.read(authProviderRiverpod.notifier).signOut();
-        
-        // Clear all Riverpod providers to reset cached state
-        ref.invalidate(sessionProvider);
-        ref.invalidate(businessProvider);
-        
-        // Clear app state (online status, etc.)
-        final appState = AppState();
-        appState.logout();
-
+        // Capture the root navigator before session clearing can dispose this page.
+        final rootNavigator = Navigator.of(context, rootNavigator: true);
+        final authNotifier = ref.read(authProviderRiverpod.notifier);
+        final signOut = authNotifier.signOut();
+        clearProtectedRoutes(rootNavigator);
+        await signOut;
+        AppState().logout();
+        clearProtectedRoutes(rootNavigator);
         if (mounted) {
-          // Hide loading snackbar
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          
-          // Navigate to auth screen and clear navigation stack
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const AuthScreen()),
-            (route) => false,
-          );
-          
-          // Show success message after navigation
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Logged out successfully'),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-          });
         }
       } catch (e) {
         if (mounted) {
@@ -275,29 +236,50 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
         child: ListView(
           padding: EdgeInsets.all(AppSpacing.lg),
           children: [
-              // Settings Cards with Modern Design
             _buildModernSettingsCard(
-                icon: Icons.account_circle_rounded,
-                title: loc.accountSettings,
-                subtitle: loc.manageYourPersonalInformation,
-              color: theme.colorScheme.secondary,
-                onTap: () {
-                  Navigator.push(
+                icon: Icons.person_outline,
+                title: 'بياناتي الشخصية',
+                subtitle: 'اسمي وبريد التواصل وهاتف الدخول',
+                color: theme.colorScheme.secondary,
+                onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) =>
-                          AccountSettingsPage(business: widget.business),
-                    ),
-                  );
-                },
-              ),
+                        builder: (_) => const PersonProfileScreen()))),
+            const SizedBox(height: 12),
+            _buildModernSettingsCard(
+                icon: Icons.groups_outlined,
+                title: 'الموظفون والصلاحيات',
+                subtitle: 'الدعوات وأدوار موظفي هذا الفرع',
+                color: theme.colorScheme.secondary,
+                onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => BranchStaffScreen(
+                            businessId: widget.business.id)))),
+            const SizedBox(height: 12),
+            // Settings Cards with Modern Design
+            _buildModernSettingsCard(
+              icon: Icons.account_circle_rounded,
+              title: 'بيانات النشاط',
+              subtitle: 'الصورة والاسم والعنوان وطلبات التعديل',
+              color: theme.colorScheme.secondary,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        AccountSettingsPage(business: widget.business),
+                  ),
+                );
+              },
+            ),
             SizedBox(height: AppSpacing.sm),
             _buildModernSettingsCard(
               icon: Icons.language_rounded,
@@ -309,63 +291,37 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
               },
             ),
             const SizedBox(height: 12),
-              _buildModernSettingsCard(
-                icon: Icons.point_of_sale_rounded,
-                title: loc.posSettings,
-                subtitle: loc.configurePointOfSaleIntegration,
+            _buildModernSettingsCard(
+              icon: Icons.point_of_sale_rounded,
+              title: loc.posSettings,
+              subtitle: loc.configurePointOfSaleIntegration,
               color: theme.colorScheme.secondary,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          PosSettingsPage(business: widget.business),
-                    ),
-                  );
-                },
-              ),
-            const SizedBox(height: 12),
-              _buildModernSettingsCard(
-                icon: Icons.location_on_rounded,
-                title: AppLocalizations.of(context)!.locationSettings,
-                subtitle: loc.manageBusinessLocationAndGpsCoordinates,
-              color: theme.colorScheme.primary,
-                onTap: () {
-                LocationSettingsFullBottomDrawer.show(
-                  context: context,
-                  business: widget.business,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        PosSettingsPage(business: widget.business),
+                  ),
                 );
               },
             ),
             const SizedBox(height: 12),
             _buildModernSettingsCard(
-              icon: Icons.gps_fixed_rounded,
-              title: 'GPS Settings',
-              subtitle: 'Manage GPS coordinates and location tracking',
+              icon: Icons.access_time_rounded,
+              title: AppLocalizations.of(context)!.workingHoursSettings,
+              subtitle: loc.setUpOpeningAndClosingHoursForYourBusiness,
               color: theme.colorScheme.secondary,
               onTap: () {
-                GpsSettingsBottomDrawer.show(
-                  context: context,
-                  business: widget.business,
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        WorkingHoursSettingsScreen(business: widget.business),
+                  ),
                 );
               },
             ),
-            const SizedBox(height: 12),
-              _buildModernSettingsCard(
-                icon: Icons.access_time_rounded,
-                title: AppLocalizations.of(context)!.workingHoursSettings,
-                subtitle: loc.setUpOpeningAndClosingHoursForYourBusiness,
-              color: theme.colorScheme.secondary,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          WorkingHoursSettingsScreen(business: widget.business),
-                    ),
-                  );
-                },
-              ),
             const SizedBox(height: 12),
             _buildModernSettingsCard(
               icon: Icons.info_outline_rounded,
@@ -383,12 +339,12 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
             ),
             const SizedBox(height: 20),
 
-              // Material 3 Logout Button
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
+            // Material 3 Logout Button
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
                 color: theme.colorScheme.primary,
-                  borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
                     color: theme.colorScheme.primary.withValues(alpha: 0.15),
@@ -396,37 +352,37 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                     offset: const Offset(0, 2),
                   ),
                 ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _signOut,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _signOut,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
                         Icon(
-                            Icons.logout_rounded,
+                          Icons.logout_rounded,
                           color: WhizzColors.secondary,
-                            size: 22,
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            loc.logout,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          loc.logout,
                           style: TextStyle(
                             color: WhizzColors.secondary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
+            ),
           ],
         ),
       ),

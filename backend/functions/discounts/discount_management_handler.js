@@ -374,7 +374,14 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
             return existingDiscount;
         }
 
-        let updateExpression = 'SET updated_at = :timestamp';
+        // Use expression attribute names for every field: bare names like
+        // "status" (and potentially "type"/"value") collide with DynamoDB
+        // reserved keywords and make every update fail with a
+        // ValidationException.
+        let updateExpression = 'SET #updated_at = :timestamp';
+        const expressionAttributeNames = {
+            '#updated_at': 'updated_at'
+        };
         const expressionAttributeValues = {
             ':timestamp': new Date().toISOString()
         };
@@ -411,59 +418,73 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
         }
 
         if (updateData.title !== undefined) {
-            updateExpression += ', title = :title';
+            updateExpression += ', #title = :title';
+            expressionAttributeNames['#title'] = 'title';
             expressionAttributeValues[':title'] = updateData.title;
         }
         if (updateData.description !== undefined) {
-            updateExpression += ', description = :description';
+            updateExpression += ', #description = :description';
+            expressionAttributeNames['#description'] = 'description';
             expressionAttributeValues[':description'] = updateData.description;
         }
         if (updateData.value !== undefined) {
-            updateExpression += ', value = :value';
+            updateExpression += ', #value = :value';
+            expressionAttributeNames['#value'] = 'value';
             expressionAttributeValues[':value'] = parseFloat(updateData.value);
         }
         if (updateData.type !== undefined) {
-            updateExpression += ', type = :type';
+            updateExpression += ', #type = :type';
+            expressionAttributeNames['#type'] = 'type';
             expressionAttributeValues[':type'] = updateData.type;
         }
         if (updateData.applicability !== undefined) {
-            updateExpression += ', applicability = :applicability';
+            updateExpression += ', #applicability = :applicability';
+            expressionAttributeNames['#applicability'] = 'applicability';
             expressionAttributeValues[':applicability'] = updateData.applicability;
         }
         if (updateData.applicableItemIds !== undefined) {
-            updateExpression += ', applicable_item_ids = :applicable_item_ids';
+            updateExpression += ', #applicable_item_ids = :applicable_item_ids';
+            expressionAttributeNames['#applicable_item_ids'] = 'applicable_item_ids';
             expressionAttributeValues[':applicable_item_ids'] = updateData.applicableItemIds;
         }
         if (updateData.applicableCategoryIds !== undefined) {
-            updateExpression += ', applicable_category_ids = :applicable_category_ids';
+            updateExpression += ', #applicable_category_ids = :applicable_category_ids';
+            expressionAttributeNames['#applicable_category_ids'] = 'applicable_category_ids';
             expressionAttributeValues[':applicable_category_ids'] = updateData.applicableCategoryIds;
         }
         if (updateData.minimumOrderAmount !== undefined) {
-            updateExpression += ', minimum_order_amount = :minimum_order_amount';
+            updateExpression += ', #minimum_order_amount = :minimum_order_amount';
+            expressionAttributeNames['#minimum_order_amount'] = 'minimum_order_amount';
             expressionAttributeValues[':minimum_order_amount'] = parseFloat(updateData.minimumOrderAmount);
         }
         if (updateData.validFrom !== undefined) {
-            updateExpression += ', valid_from = :valid_from';
+            updateExpression += ', #valid_from = :valid_from';
+            expressionAttributeNames['#valid_from'] = 'valid_from';
             expressionAttributeValues[':valid_from'] = updateData.validFrom;
         }
         if (updateData.validTo !== undefined) {
-            updateExpression += ', valid_to = :valid_to';
+            updateExpression += ', #valid_to = :valid_to';
+            expressionAttributeNames['#valid_to'] = 'valid_to';
             expressionAttributeValues[':valid_to'] = updateData.validTo;
         }
         if (updateData.usageLimit !== undefined) {
-            updateExpression += ', usage_limit = :usage_limit';
+            updateExpression += ', #usage_limit = :usage_limit';
+            expressionAttributeNames['#usage_limit'] = 'usage_limit';
             expressionAttributeValues[':usage_limit'] = updateData.usageLimit;
         }
         if (updateData.status !== undefined) {
-            updateExpression += ', status = :status';
+            updateExpression += ', #status = :status';
+            expressionAttributeNames['#status'] = 'status';
             expressionAttributeValues[':status'] = updateData.status;
         }
         if (updateData.conditionalRule !== undefined) {
-            updateExpression += ', conditional_rule = :conditional_rule';
+            updateExpression += ', #conditional_rule = :conditional_rule';
+            expressionAttributeNames['#conditional_rule'] = 'conditional_rule';
             expressionAttributeValues[':conditional_rule'] = updateData.conditionalRule;
         }
         if (updateData.conditionalParameters !== undefined) {
-            updateExpression += ', conditional_parameters = :conditional_parameters';
+            updateExpression += ', #conditional_parameters = :conditional_parameters';
+            expressionAttributeNames['#conditional_parameters'] = 'conditional_parameters';
             expressionAttributeValues[':conditional_parameters'] = updateData.conditionalParameters;
         }
 
@@ -473,6 +494,7 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
                 discountId: discountId
             },
             UpdateExpression: updateExpression,
+            ExpressionAttributeNames: expressionAttributeNames,
             ExpressionAttributeValues: expressionAttributeValues,
             ReturnValues: 'ALL_NEW'
         };

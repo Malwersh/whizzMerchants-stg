@@ -1,3 +1,7 @@
+import 'person_profile_screen.dart';
+import '../services/person_onboarding_service.dart';
+import 'merchant_business_changes_screen.dart';
+import '../widgets/location_settings_full_bottom_drawer.dart';
 import 'wallet_transfer_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,12 +38,23 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   File? _image;
   final ImagePicker _picker = ImagePicker();
 
+  final Map<String,String> _typeLabels={};
+  Future<void> _loadTypeLabels()async{
+    try{final r=await PersonOnboardingService().call('onboarding-settings?regionId=${Uri.encodeComponent(widget.business.regionId??'')}',authenticated:false);if(mounted)setState((){for(final t in (r['types']??[]) as List){if(t['id'] is String&&t['labelAr'] is String)_typeLabels[t['id']]=t['labelAr'];}});}catch(_){}
+  }
+  String _typeLabel(Business b)=>_typeLabels[b.businessTypeId]??b.businessTypeLabelAr??(b.businessTypeId!=null?({'RESTAURANT':'مطعم','MARKET':'سوق','STORE':'متجر'})[b.businessTypeId]??'نوع النشاط غير متاح':({BusinessType.restaurant:'مطعم',BusinessType.cloudKitchen:'مطبخ سحابي',BusinessType.pharmacy:'صيدلية',BusinessType.store:'متجر'})[b.businessType]??'غير محدد');
+
+  Future<void> _editPerson() async {
+    await Navigator.push(context,MaterialPageRoute(builder:(_)=>const PersonProfileScreen()));
+  }
+
   bool _isEditing = false;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
+    _loadTypeLabels();
     // Initialize controllers with empty text - will be populated after loading user data
     _businessNameController = TextEditingController();
     _ownerNameController = TextEditingController();
@@ -60,6 +75,11 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
 
     // Load user data after authentication is verified
     _loadUserData();
+  }
+
+  Future<void> _editBranchPhone(Business business) async {
+    await Navigator.push(context,MaterialPageRoute(builder:(_)=>PersonProfileScreen(businessId:business.id)));
+    if(mounted) ref.read(businessRefreshProvider)();
   }
 
   Future<void> _pickImage() async {
@@ -165,7 +185,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     });
 
     try {
-      final result = await ImageUploadService.uploadBusinessPhoto(_image!);
+      final selectedBusiness = ref.read(businessProvider).value ?? widget.business;
+      final result = await ImageUploadService.uploadBusinessPhoto(_image!,
+          businessId: selectedBusiness.id);
 
       if (result['success']) {
         final newImageUrl = result['imageUrl'];
@@ -266,12 +288,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
 
       // Prepare update data
       final updateData = {
-        'businessName': _businessNameController.text.trim(),
-        'ownerName': _ownerNameController.text.trim(),
-        'address': _addressController.text.trim(),
         'description': _descriptionController.text.trim(),
         'website': _websiteController.text.trim(),
-        'phone': _phoneController.text.trim(),
       };
 
       // Update business profile via API
@@ -279,12 +297,12 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
 
       // Update the business object locally
       business.updateProfile(
-        name: _businessNameController.text.trim(),
-        ownerName: _ownerNameController.text.trim(),
-        address: _addressController.text.trim(),
+        name: business.name,
+        ownerName: business.ownerName,
+        address: business.address,
         description: _descriptionController.text.trim(),
         website: _websiteController.text.trim(),
-        phone: _phoneController.text.trim(),
+        phone: business.phone,
       );
 
       // Refresh business provider to reflect changes
@@ -476,7 +494,6 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final businessAsyncValue = ref.watch(businessProvider);
     final isMobile = ResponsiveHelper.isMobile(context);
     final isTablet = ResponsiveHelper.isTablet(context);
     final isDesktop = ResponsiveHelper.isDesktop(context);
@@ -594,17 +611,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           ],
         ),
       ),
-      floatingActionButton: businessAsyncValue.maybeWhen(
-        data: (business) => business != null
-            ? FloatingActionButton(
-                onPressed: _pickImage,
-                backgroundColor: WhizzColors.primary,
-                elevation: 8,
-                child: Icon(Icons.camera_alt, color: WhizzColors.secondary),
-              )
-            : null,
-        orElse: () => null,
-      ),
+
     );
   }
 
@@ -644,7 +651,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  loc.accountSettings,
+                  'بيانات النشاط',
                   style: TextStyle(
                     fontSize:
                         ResponsiveHelper.getResponsiveFontSize(context, 24),
@@ -840,7 +847,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         const SizedBox(height: 20),
 
         // Personal Information Section
-        _buildSectionHeader(l10n.personalInformation, Icons.person_rounded),
+        _buildSectionHeader('تواصل الفرع', Icons.phone_outlined),
         const SizedBox(height: 12),
         _buildPersonalInfoCardWithBusiness(l10n, theme, business),
 
@@ -854,7 +861,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         const SizedBox(height: 20),
 
         // Account Status Section
-        _buildSectionHeader(l10n.accountStatus, Icons.verified_user_rounded),
+        _buildSectionHeader('حالة النشاط', Icons.verified_user_rounded),
         const SizedBox(height: 12),
         _buildAccountStatusCardWithBusiness(l10n, theme, business),
 
@@ -945,7 +952,10 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         children: [
           Row(
             children: [
-              _buildCircularBusinessPhoto(business.businessPhotoUrl),
+              Column(children:[
+                _buildCircularBusinessPhoto(business.businessPhotoUrl),
+                TextButton.icon(onPressed:_isSaving?null:_pickImage,icon:const Icon(Icons.camera_alt_outlined),label:const Text('تعديل الصورة')),
+              ]),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -982,7 +992,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                         ],
                       ),
                       child: Text(
-                        business.businessType.name.toUpperCase(),
+                        _typeLabel(business),
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -996,56 +1006,6 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatChip(Icons.email, business.email),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildStatChip(
-                    Icons.phone, business.phone ?? l10n.notProvided),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(
-        color: WhizzColors.grey50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: WhizzColors.secondary.withValues(alpha: 0.3),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: WhizzColors.secondary,
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: WhizzColors.textSecondary,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ),
         ],
       ),
     );
@@ -1053,48 +1013,13 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
 
   Widget _buildPersonalInfoCardWithBusiness(
       AppLocalizations l10n, ThemeData theme, Business business) {
-    if (_isEditing) {
-      return _buildModernCard([
-        _buildEditableField(
-          l10n.ownerName,
-          _ownerNameController,
-          Icons.person,
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 10),
-          height: 1,
-          color: WhizzColors.secondary.withValues(alpha: 0.2),
-        ),
-        _buildInfoRow(l10n.emailAddress, business.email, Icons.email),
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 10),
-          height: 1,
-          color: WhizzColors.secondary.withValues(alpha: 0.2),
-        ),
-        _buildEditableField(
-          l10n.phoneNumber,
-          _phoneController,
-          Icons.phone,
-        ),
-      ]);
-    }
-
     return _buildModernCard([
-      _buildInfoRow(
-          l10n.ownerName, business.ownerName ?? l10n.notProvided, Icons.person),
-      Container(
-        margin: const EdgeInsets.symmetric(vertical: 10),
-        height: 1,
-        color: WhizzColors.secondary.withValues(alpha: 0.2),
-      ),
-      _buildInfoRow(l10n.emailAddress, business.email, Icons.email),
-      Container(
-        margin: const EdgeInsets.symmetric(vertical: 10),
-        height: 1,
-        color: WhizzColors.secondary.withValues(alpha: 0.2),
-      ),
-      _buildInfoRow(
-          l10n.phoneNumber, business.phone ?? l10n.notProvided, Icons.phone),
+      _buildInfoRow('هاتف تواصل الفرع', business.phone ?? l10n.notProvided, Icons.phone),
+      ListTile(title:const Text('تغيير هاتف الفرع والتحقق منه'),leading:const Icon(Icons.phone_outlined),onTap:()=>_editBranchPhone(business)),
+      const Divider(),
+      ListTile(title:const Text('بياناتي الشخصية'),
+        subtitle:const Text('اسمي وبريد التواصل وهاتف دخولي'),
+        leading:const Icon(Icons.person_outline), trailing:const Icon(Icons.chevron_left),onTap:_editPerson),
     ]);
   }
 
@@ -1102,25 +1027,21 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       AppLocalizations l10n, ThemeData theme, Business business) {
     if (_isEditing) {
       return _buildModernCard([
-        _buildEditableField(
-          l10n.businessName,
-          _businessNameController,
-          Icons.business,
-        ),
+        _buildInfoRow(l10n.businessName, business.name, Icons.business),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 10),
           height: 1,
           color: WhizzColors.secondary.withValues(alpha: 0.2),
         ),
         _buildInfoRow(
-            l10n.businessType, business.businessType.name, Icons.category),
+            l10n.businessType, _typeLabel(business), Icons.category),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 10),
           height: 1,
           color: WhizzColors.secondary.withValues(alpha: 0.2),
         ),
         _buildEditableField(
-          l10n.description,
+          'الوصف',
           _descriptionController,
           Icons.description,
           maxLines: 3,
@@ -1140,16 +1061,13 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           height: 1,
           color: WhizzColors.secondary.withValues(alpha: 0.2),
         ),
-        _buildEditableField(
-          l10n.addressLabel,
-          _addressController,
-          Icons.location_on,
-          maxLines: 3,
-        ),
+        _buildInfoRow('العنوان', _formatAddress(business.address), Icons.location_on),
       ]);
     }
 
     return _buildModernCard([
+      ExpansionTile(leading:const Icon(Icons.edit_note),title:const Text('تعديل الاسم ومتابعة الطلبات'),subtitle:const Text('الاسم والموقع يتغيران بعد الموافقة'),children:[MerchantBusinessChangesScreen(businessId:business.id,embedded:true)]),
+      ListTile(leading:const Icon(Icons.location_on_outlined),title:const Text('تعديل العنوان والموقع'),onTap:()=>LocationSettingsFullBottomDrawer.show(context:context,business:business)),
       _buildInfoRow(l10n.businessName, business.name, Icons.business),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
@@ -1157,13 +1075,13 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
       _buildInfoRow(
-          l10n.businessType, business.businessType.name, Icons.category),
+          l10n.businessType, _typeLabel(business), Icons.category),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         height: 1,
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
-      _buildInfoRow(l10n.description, business.description ?? l10n.notProvided,
+      _buildInfoRow('الوصف', business.description ?? l10n.notProvided,
           Icons.description,
           isMultiline: true),
       Container(
@@ -1178,8 +1096,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         height: 1,
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
+      _buildInfoRow('البلد والمحافظة والقضاء والمنطقة', [business.country,business.city,business.district,business.regionName].whereType<String>().where((s)=>s.isNotEmpty).join(' ← '), Icons.map_outlined, isMultiline:true),
       _buildInfoRow(
-          l10n.addressLabel,
+          'العنوان',
           _formatAddress(business.address).isEmpty
               ? l10n.notProvided
               : _formatAddress(business.address),
@@ -1191,26 +1110,10 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   Widget _buildAccountStatusCardWithBusiness(
       AppLocalizations l10n, ThemeData theme, Business business) {
     return _buildModernCard([
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatusIndicator(
-            l10n.active,
-            business.status == 'approved',
-            Icons.check_circle,
-            business.status == 'approved' ? Colors.green : Colors.orange,
-          ),
-          _buildStatusIndicator(
-            l10n.verified,
-            business.status == 'approved',
-            Icons.verified,
-            business.status == 'approved'
-                ? const Color(0xFF007fff)
-                : Colors.grey,
-          ),
-        ],
-      ),
-    ]); // End of previous method
+      _buildInfoRow('مراجعة بيانات النشاط', business.status=='approved'?'معتمد':({'pending':'قيد المراجعة','rejected':'مرفوض','suspended':'معلق'})[business.status]??business.status, Icons.fact_check_outlined),
+      _buildInfoRow('إتاحة النشاط للظهور', business.isActive==null?'غير متاحة':business.isActive==true&&business.platformSuspended!=true?'مفعّل':'غير مفعّل', Icons.visibility_outlined),
+      _buildInfoRow('إعداد استقبال الطلبات', business.acceptingOrders==null?'غير متاح':business.acceptingOrders==true&&business.platformSuspended!=true?'مسموح — حسب الساعات والأهلية':'متوقف', Icons.receipt_long_outlined),
+    ]);
   }
 
   Widget _buildInfoRow(String label, String value, IconData icon,
@@ -1349,28 +1252,6 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     );
   }
 
-  Widget _buildStatusIndicator(
-      String label, bool isActive, IconData icon, Color color) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          icon,
-          color: isActive ? color : Colors.grey,
-          size: 18,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive ? color : Colors.grey,
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildEditableField(
       String label, TextEditingController controller, IconData icon,

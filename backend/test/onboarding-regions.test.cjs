@@ -1,0 +1,6 @@
+const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
+const moduleFixture={exports:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/../functions/auth/onboarding_regions.js','utf8'),{module:moduleFixture,require:()=>({})});const api=moduleFixture.exports;
+const base=[0,1,2,3].map(level=>({regionId:'r'+level,level,name_ar:'Area'+level,is_active:true,...(level?{parent_id:'r'+(level-1)}:{})}));
+test('reference hierarchy contains only active complete ancestry',()=>{assert.equal(api.hierarchy(base).length,4);assert.equal(api.hierarchy(base.map(r=>r.level===1?{...r,is_active:false}:r)).length,1);assert.equal(api.hierarchy(base,[{regionId:'r2',effective_is_active:0}]).length,2);});
+test('cross parent or inactive selection cannot be submitted',()=>{assert.equal(api.path(api.hierarchy(base),['r0','r1','r2','r3']).regionId,'r3');assert.throws(()=>api.path(api.hierarchy(base),['r0','r2','r1','r3']),/REGION_UNAVAILABLE/);});
+test('GPS must lie within region polygon and outside its holes',()=>{const g={type:'Polygon',coordinates:[[[0,0],[10,0],[10,10],[0,10],[0,0]],[[4,4],[6,4],[6,6],[4,6],[4,4]]]};assert.equal(api.contains(g,2,2),true);assert.equal(api.contains(g,5,5),false);assert.equal(api.contains(g,20,20),false);assert.throws(()=>api.contains(g,'2',2),/INVALID_LOCATION/);});

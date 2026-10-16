@@ -27,7 +27,7 @@ const docClient = merchantLifecycleClient(lifecycleRawDb);
 
 const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 
@@ -41,6 +41,8 @@ function createResponse(statusCode, body) {
 }
 
 async function getBusinessId(event) {
+    const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    if(actor?.deviceGuards)return actor.businessId;
     try {
         const authHeader = event.headers?.Authorization || event.headers?.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -199,6 +201,13 @@ async function handleCreateProduct(event) {
                 success: false,
                 message: 'name and categoryId are required (or pick a global product)'
             });
+        }
+
+        const { Item: category } = await docClient.send(new GetCommand({
+            TableName: CATEGORIES_TABLE, Key: { categoryId: finalCategoryId }, ConsistentRead: true,
+        }));
+        if (!category || category.isActive === false || category.is_active === false) {
+            return createResponse(400, { success: false, message: 'اختر قسماً متاحاً من القائمة الحالية.' });
         }
 
         // 2) New product: dedupe by barcode, else add it to the catalog for others to reuse.
@@ -372,6 +381,15 @@ async function handleUpdateProduct(event) {
     const { productId } = event.pathParameters;
     const updates = JSON.parse(event.body);
 
+    if (Object.hasOwn(updates, 'categoryId')) {
+        const { Item: category } = await docClient.send(new GetCommand({
+            TableName: CATEGORIES_TABLE, Key: { categoryId: updates.categoryId }, ConsistentRead: true,
+        }));
+        if (!category || category.isActive === false || category.is_active === false) {
+            return createResponse(400, { success: false, message: 'اختر قسماً متاحاً من القائمة الحالية.' });
+        }
+    }
+
     // Ensure businessId and productId are not being changed
     delete updates.businessId;
     delete updates.id;
@@ -442,7 +460,9 @@ async function handleDeleteProduct(event) {
 async function handleGetCategories(event) {
     try {
         const { Items } = await docClient.send(new ScanCommand({ TableName: CATEGORIES_TABLE }));
-        return createResponse(200, { success: true, categories: Items || [] });
+        const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+        const categories=actor?.deviceGuards?(Items||[]).filter(c=>c.isActive!==false&&c.is_active!==false&&(!c.businessId||c.businessId===actor.businessId)).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','isActive','is_active'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]))):Items||[];
+        return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories:', error);
         return createResponse(500, { success: false, message: 'Failed to get categories', error: error.message });
@@ -489,6 +509,11 @@ module.exports.handler = async (event) => {
     }
 
     try {
+    const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    if(actor?.deviceGuards&&['POST','PUT','DELETE'].includes(httpMethod)){
+        const result=await require('../shared/branch-device-menu').mutate(lifecycleRawDb,actor,event);
+        return {...result,headers};
+    }
     // Route products endpoints
         if (path.startsWith('/products/global-search')) {
             return handleGlobalSearch(event);
@@ -516,9 +541,17 @@ module.exports.handler = async (event) => {
 
         return createResponse(404, { success: false, message: 'Route Not Found in Product Handler' });
     } catch (error) {
+        if(error.status)return createResponse(error.status,{success:false,code:error.message});
         console.error('Unhandled error in product handler:', error);
         return createResponse(500, { success: false, message: 'Internal server error' });
     }
 };
 
-module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});
+const protectedProductHandler = merchantHandler(module.exports.handler,{db:lifecycleRawDb,deviceMenu:true});
+module.exports.handler = (event, context) => {
+    // Reference reads still verify the caller and the explicitly selected branch.
+    if (event.httpMethod === 'GET' && event.path?.startsWith('/categories') && event.queryStringParameters?.businessId) {
+        event = {...event, body: JSON.stringify({businessId: event.queryStringParameters.businessId})};
+    }
+    return protectedProductHandler(event, context);
+};

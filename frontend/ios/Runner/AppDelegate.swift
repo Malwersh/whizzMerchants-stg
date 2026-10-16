@@ -1,16 +1,34 @@
 import UIKit
 import Flutter
+import GoogleMaps
 import FirebaseCore
 import FirebaseMessaging
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
   private var fcmMethodChannel: FlutterMethodChannel?
+  private var statementExportChannel: FlutterMethodChannel?
+  private var statementExportResult: FlutterResult?
+  private var statementExportDirectory: URL?
+
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Read the existing bundled configuration without embedding keys in source.
+    let mapsEnvURLs = [
+      Bundle.main.bundleURL.appendingPathComponent("Frameworks/App.framework/flutter_assets/.env"),
+      Bundle.main.bundleURL.appendingPathComponent("flutter_assets/.env")
+    ]
+    for url in mapsEnvURLs {
+      if let contents = try? String(contentsOf: url, encoding: .utf8),
+         let line = contents.components(separatedBy: .newlines).first(where: { $0.hasPrefix("GOOGLE_MAPS_API_KEY=") }) {
+        let key = String(line.dropFirst("GOOGLE_MAPS_API_KEY=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty { GMSServices.provideAPIKey(key) }
+        break
+      }
+    }
     // Register plugins (Firebase will be auto-configured by plugin)
     GeneratedPluginRegistrant.register(with: self)
     print("✅ Flutter plugins registered")
@@ -25,6 +43,7 @@ import FirebaseMessaging
         return
       }
 
+      self.configureStatementExport(controller)
       self.fcmMethodChannel = FlutterMethodChannel(
         name: "com.whizz.merchants/fcm",
         binaryMessenger: controller.binaryMessenger
@@ -105,6 +124,68 @@ import FirebaseMessaging
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
   
+  private var statementExportsRoot: URL {
+    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("MerchantStatementExports", isDirectory: true)
+  }
+
+  private func configureStatementExport(_ controller: FlutterViewController) {
+    // Remove remnants from a previous process before opening any new export.
+    try? FileManager.default.removeItem(at: statementExportsRoot)
+    statementExportChannel = FlutterMethodChannel(
+      name: "com.whizz.merchants/statement-export", binaryMessenger: controller.binaryMessenger)
+    statementExportChannel?.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "saveCsv" else { result(FlutterMethodNotImplemented); return }
+      guard let self = self else { result(FlutterError(code: "EXPORT_UNAVAILABLE", message: nil, details: nil)); return }
+      guard self.statementExportResult == nil else { result(FlutterError(code: "EXPORT_BUSY", message: nil, details: nil)); return }
+      guard UIApplication.shared.applicationState == .active,
+        controller.presentedViewController == nil,
+        let args = call.arguments as? [String: Any],
+        let filename = args["filename"] as? String,
+        filename.rangeOfCharacter(from: .newlines) == nil,
+        filename.range(of: #"^branch-(statement|sales-report)-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv$"#, options: .regularExpression) != nil,
+        let typedBytes = args["bytes"] as? FlutterStandardTypedData,
+        case let bytes = typedBytes.data,
+        !bytes.isEmpty, bytes.count <= 2 * 1024 * 1024
+      else { result(FlutterError(code: "INVALID_EXPORT", message: nil, details: nil)); return }
+      let directory = self.statementExportsRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+      do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+          attributes: [.protectionKey: FileProtectionType.complete])
+        var privateDirectory = directory
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        try privateDirectory.setResourceValues(values)
+        let file = directory.appendingPathComponent(filename)
+        try bytes.write(to: file, options: [.atomic, .completeFileProtection])
+        let picker = UIDocumentPickerViewController(forExporting: [file], asCopy: true)
+        picker.delegate = self
+        self.statementExportDirectory = directory
+        self.statementExportResult = result
+        controller.present(picker, animated: true)
+        picker.presentationController?.delegate = self
+      } catch {
+        try? FileManager.default.removeItem(at: directory)
+        result(FlutterError(code: "EXPORT_FAILED", message: "تعذر حفظ الكشف", details: nil))
+      }
+    }
+  }
+
+  private func finishStatementExport(_ saved: Bool) {
+    let completion = statementExportResult
+    statementExportResult = nil
+    if let directory = statementExportDirectory { try? FileManager.default.removeItem(at: directory) }
+    statementExportDirectory = nil
+    completion?(saved)
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    finishStatementExport(!urls.isEmpty)
+  }
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finishStatementExport(false) }
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    if presentationController.presentedViewController is UIDocumentPickerViewController { finishStatementExport(false) }
+  }
+
   // Request notification permissions
   private func requestNotificationPermissions(result: @escaping FlutterResult) {
     if #available(iOS 10.0, *) {

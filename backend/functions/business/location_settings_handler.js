@@ -1,6 +1,7 @@
+const locationContract=require('./business_location_contract');
 const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const jwt = require('jsonwebtoken');
 
@@ -16,7 +17,7 @@ const BUSINESS_WORKING_HOURS_TABLE = process.env.BUSINESS_WORKING_HOURS_TABLE ||
 // CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
 };
 
@@ -61,6 +62,8 @@ exports.handler = async (event) => {
     const accessToken = authHeader.substring(7);
     let userId;
     
+    const deviceActor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    if(!deviceActor?.deviceGuards) {
     try {
       // Validate access token with Cognito (same as unified_auth_handler)
       const cognitoClient = new CognitoIdentityProviderClient({ 
@@ -91,7 +94,8 @@ exports.handler = async (event) => {
       }
     }
 
-    if (!userId) {
+    }
+    if (!userId && !deviceActor?.deviceGuards) {
       return {
         statusCode: 401,
         headers: corsHeaders,
@@ -112,7 +116,7 @@ exports.handler = async (event) => {
     console.log(`👤 User ID: ${userId}, 🏢 Business ID: ${businessId}`);
 
     // Verify user has access to this business
-    const hasAccess = await verifyBusinessAccess(userId, businessId);
+    const hasAccess = deviceActor?.deviceGuards ? deviceActor.businessId===businessId : await verifyBusinessAccess(userId, businessId);
     if (!hasAccess) {
       return {
         statusCode: 403,
@@ -219,7 +223,8 @@ async function handleGetLocationSettings(businessId) {
     const params = {
       TableName: BUSINESSES_TABLE,
       Key: { businessId: businessId },
-      ProjectionExpression: 'latitude, longitude, address, city, district, street, country, address_components'
+      ConsistentRead: true,
+      ProjectionExpression: 'latitude, longitude, address, city, district, street, country, address_components, regionId, regionPath, regionNames, updatedAt'
     };
 
     const result = await dynamodb.send(new GetCommand(params));
@@ -238,15 +243,7 @@ async function handleGetLocationSettings(businessId) {
     const business = result.Item;
     
     // Extract location settings with individual address components
-    const settings = {
-      latitude: business.latitude || null,
-      longitude: business.longitude || null,
-      address: business.address || null,
-      city: business.city || null,
-      district: business.district || null,
-      street: business.street || null,
-      country: business.country || null
-    };
+    const settings = locationContract.read(business);
 
     // Handle address_components if they exist
     if (business.address_components) {
@@ -310,8 +307,25 @@ async function handleUpdateLocationSettings(businessId, requestBody) {
     }
 
     // requestBody is already parsed by the main handler, no need to JSON.parse again
-    const settings = requestBody;
-    console.log('📍 Updating location settings:', settings);
+    const current=(await dynamodb.send(new GetCommand({TableName:BUSINESSES_TABLE,Key:{businessId},ConsistentRead:true}))).Item;
+    if(!current)return {statusCode:404,headers:corsHeaders,body:JSON.stringify({success:false,message:'Business not found'})};
+    const settings=locationContract.patch(current,requestBody);
+    const existing=locationContract.read(current);
+    const unverifiedLabels=requestBody.regionPath===undefined&&['country','city','district'].some(k=>requestBody[k]!==undefined&&requestBody[k].trim()!==existing[k]);
+    const moves=unverifiedLabels||(settings.latitude!==undefined&&settings.latitude!==existing.latitude)||(settings.longitude!==undefined&&settings.longitude!==existing.longitude)||(requestBody.regionPath!==undefined&&JSON.stringify(requestBody.regionPath)!==JSON.stringify(current.regionPath??[]));
+    if(moves)return {statusCode:409,headers:corsHeaders,body:JSON.stringify({success:false,code:'CHANGE_REVIEW_REQUIRED',message:'نقل الموقع يحتاج طلب مراجعة.'})};
+    let regionChecks=[];
+    if(requestBody.locationVersion!==undefined && requestBody.locationVersion!==(current.updatedAt??null))throw Object.assign(Error('LOCATION_VERSION_CONFLICT'),{status:409});
+    if(requestBody.regionPath!==undefined || (current.onboardingSchemaVersion===2 && settings.latitude!==undefined)){
+      const regions=require('../auth/onboarding_regions');
+      const saved=locationContract.read(current);
+      const selection=await regions.validate(dynamodb,requestBody.regionPath??current.regionPath,settings.latitude??saved.latitude,settings.longitude??saved.longitude);
+      regionChecks=selection.checks;
+      Object.assign(settings,{regionPath:selection.regionPath,regionNames:selection.regionNames,regionId:selection.regionId,countryId:selection.countryId,governorateId:selection.governorateId,districtId:selection.districtId,neighborhoodId:selection.regionId,country:selection.regionNames[0],city:selection.regionNames[1],district:selection.regionNames[2]});
+      const previousAddress=current.address&&typeof current.address==='object'?current.address:{fullAddress:typeof current.address==='string'?current.address:''};
+      const newAddress=settings.address&&typeof settings.address==='object'?settings.address:{...previousAddress,fullAddress:settings.address??previousAddress.fullAddress};
+      settings.address={...newAddress,country:settings.country,city:settings.city,district:settings.district,region:selection.regionNames[3],latitude:settings.latitude??saved.latitude,longitude:settings.longitude??saved.longitude};
+    }
 
     // Validate location data
     if (settings.latitude !== null && settings.latitude !== undefined) {
@@ -351,7 +365,7 @@ async function handleUpdateLocationSettings(businessId, requestBody) {
     };
 
     // Add each field if provided
-    const locationFields = ['latitude', 'longitude', 'address', 'city', 'district', 'street', 'country'];
+    const locationFields = ['latitude', 'longitude', 'address', 'city', 'district', 'street', 'country', 'regionId', 'regionPath', 'regionNames', 'countryId', 'governorateId', 'districtId', 'neighborhoodId'];
     locationFields.forEach(field => {
       if (settings[field] !== undefined) {
         updateExpression += `, ${field} = :${field}`;
@@ -370,10 +384,19 @@ async function handleUpdateLocationSettings(businessId, requestBody) {
       Key: { businessId: businessId },
       UpdateExpression: updateExpression,
       ExpressionAttributeValues: expressionAttributeValues,
-      ReturnValues: 'ALL_NEW'
+      ReturnValues: 'ALL_NEW',
+      ConditionExpression: 'attribute_exists(businessId) AND '+(current.address===undefined?'attribute_not_exists(#oldAddress)':'#oldAddress=:oldAddress'),
+      ExpressionAttributeNames: {'#oldAddress':'address'}
     };
-
-    const result = await dynamodb.send(new UpdateCommand(params));
+    if(current.address!==undefined)params.ExpressionAttributeValues[':oldAddress']=current.address;
+    if(current.regionId){params.ConditionExpression+=' AND regionId=:oldRegion';params.ExpressionAttributeValues[':oldRegion']=current.regionId;}
+    if(current.updatedAt){params.ConditionExpression+=' AND updatedAt=:oldUpdatedAt';params.ExpressionAttributeValues[':oldUpdatedAt']=current.updatedAt;}
+    let result;
+    if(regionChecks.length){
+      const {ReturnValues,...update}=params;
+      await dynamodb.send(new TransactWriteCommand({TransactItems:[...regionChecks,{Update:update}]}));
+      result={Attributes:{...current,...settings,updatedAt:expressionAttributeValues[':updatedAt']}};
+    }else result=await dynamodb.send(new UpdateCommand(params));
 
     console.log('✅ Location settings updated successfully');
 
@@ -383,22 +406,14 @@ async function handleUpdateLocationSettings(businessId, requestBody) {
       body: JSON.stringify({
         success: true,
         message: 'Location settings updated successfully',
-        settings: {
-          latitude: result.Attributes.latitude,
-          longitude: result.Attributes.longitude,
-          address: result.Attributes.address,
-          city: result.Attributes.city,
-          district: result.Attributes.district,
-          street: result.Attributes.street,
-          country: result.Attributes.country
-        }
+        settings: locationContract.read(result.Attributes)
       })
     };
 
   } catch (error) {
     console.error('❌ Error updating location settings:', error);
     return {
-      statusCode: 500,
+      statusCode: error.status || (error.name === 'ConditionalCheckFailedException' || error.name === 'TransactionCanceledException' ? 409 : 500),
       headers: corsHeaders,
       body: JSON.stringify({
         success: false,
@@ -590,7 +605,7 @@ async function handleUpdateWorkingHours(businessId, requestBody) {
     // Save each day to the separate working hours table
     const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     
-    const updatePromises = weekdays.map(async (day) => {
+    const updates = weekdays.map((day) => {
       // Get data for this day from request (handle both cases: 'monday' and 'Monday')
       const lowerDay = day.toLowerCase();
       const dayData = workingHours[lowerDay] || workingHours[day] || {};
@@ -624,29 +639,23 @@ async function handleUpdateWorkingHours(businessId, requestBody) {
       
       console.log(`📝 Saving ${day}: isClosed=${isClosed}, opening="${opening}", closing="${closing}"`);
       
-      try {
-        const result = await dynamodb.send(new PutCommand({
-          TableName: BUSINESS_WORKING_HOURS_TABLE,
-          Item: {
-            businessId: businessId,
-            weekday: day,
-            opening: opening,
-            closing: closing,
-            isClosed: isClosed,
-            updatedAt: new Date().toISOString()
-          }
-        }));
-        
-        console.log(`✅ Updated ${day} for business ${businessId}`);
-        return result;
-      } catch (error) {
-        console.error(`❌ Error updating ${day} for business ${businessId}:`, error);
-        throw error;
-      }
+      return {Put: {
+        TableName: BUSINESS_WORKING_HOURS_TABLE,
+        Item: {
+          businessId,
+          weekday: day,
+          opening,
+          closing,
+          isClosed,
+          updatedAt: new Date().toISOString()
+        }
+      }};
     });
-    
-    await Promise.all(updatePromises);
-    
+
+    // The lifecycle client adds the ownership and deletion checks once for
+    // this entire schedule, avoiding seven competing fenced transactions.
+    await dynamodb.send(new TransactWriteCommand({TransactItems: updates}));
+
     console.log(`✅ Successfully updated all working hours for business ${businessId}`);
     
     return {
@@ -672,4 +681,4 @@ async function handleUpdateWorkingHours(businessId, requestBody) {
   }
 }
 
-module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb,deviceHours:true});

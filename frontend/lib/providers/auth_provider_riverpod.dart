@@ -36,7 +36,11 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier() : super(const AuthState());
+  AuthNotifier({Future<void> Function()? signOutAction})
+      : _signOutAction = signOutAction ?? AppAuthService.signOut,
+        super(const AuthState());
+
+  final Future<void> Function() _signOutAction;
   
   final CognitoAuthService _cognitoService = CognitoAuthService();
 
@@ -83,8 +87,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
   
   Future<void> signOut() async {
+    // Leave protected UI before clearing the branch/session it reads.
+    state = const AuthState(
+      status: AuthStatus.unauthenticated,
+      isLoading: true,
+    );
     try {
-      await AppAuthService.signOut();
+      await _signOutAction();
     } catch (e) {}
     state = const AuthState(status: AuthStatus.unauthenticated);
   }

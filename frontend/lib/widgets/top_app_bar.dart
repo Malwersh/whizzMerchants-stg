@@ -59,6 +59,11 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
           if (isLoading) const LinearProgressIndicator(minHeight:2),
           SizedBox(height:60,child:SingleChildScrollView(scrollDirection:Axis.horizontal,
             child:Row(mainAxisAlignment:MainAxisAlignment.center,children: [
+        IconButton(
+          tooltip: 'مطاعمي وأنشطتي',
+          icon: const Icon(Icons.storefront_outlined, color: WhizzColors.secondary),
+          onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+        ),
         if (businessId != null && businessId!.isNotEmpty)
           IconButton(tooltip:'الإشعارات',icon:const Icon(Icons.notifications_none_rounded,color:WhizzColors.secondary),
             onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>MerchantNotificationsScreen(businessId:businessId!)))),

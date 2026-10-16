@@ -53,3 +53,10 @@ firebase-admin-key.json
 
 # Android generated project build output
 frontend/android/build/
+
+# Dependencies installed inside individual Lambda functions
+**/node_modules/
+
+# Python build cache
+**/__pycache__/
+*.pyc
