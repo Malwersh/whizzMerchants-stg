@@ -53,7 +53,7 @@ function createResponse(statusCode, body) {
         headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Staff-Session,X-Api-Key,X-Amz-Security-Token',
             'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
         },
         body: JSON.stringify(body)
@@ -70,12 +70,17 @@ function resolveCustomerId(order) {
     return order?.customerId || order?.userId;
 }
 
+function financialOrderAssignment(order) {
+    return order.financialAcceptance ? {offerId:order.financialAcceptance.offerId,attempt:order.assignmentAttemptCounter,returnId:order.returnCaseId||null,returnStatus:order.returnStatus||null} : null;
+}
+
 // Helper: normalize order shape for frontend (adds id alias + businessId)
 function normalizeOrderForFrontend(order) {
     if (!order) return order;
     const businessId = resolveBusinessId(order);
     const id = order.orderId || order.id;
-    return { ...order, id, orderId: id, businessId };
+    const {financialSnapshot,commercialPricing,financialAcceptance,...view}=order;
+    return { ...view, financialAssignment:financialOrderAssignment(order),id, orderId: id, businessId };
 }
 
 /**
@@ -117,6 +122,7 @@ async function isBusinessOnline(businessId) {
  * Following the ecosystem architecture plan
  */
 exports.handler = async (event) => {
+    if(event.httpMethod==='OPTIONS')return createResponse(204,{});
     console.log('Merchant Order Handler - Event:', {method:event.httpMethod,path:event.path});
 
     const { httpMethod, path, pathParameters, headers, body } = event;
@@ -231,7 +237,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
         let statusesToQuery = [];
         if (!status) {
             // If no status specified, get all common active order statuses
-            statusesToQuery = ['pending', 'confirmed', 'preparing', 'ready', 'ready_for_pickup', 'on_the_way', 'delivered'];
+            statusesToQuery = ['pending', 'confirmed', 'preparing', 'ready', 'ready_for_pickup', 'assigned', 'heading_to_store', 'arrived_at_store', 'picked_up', 'heading_to_customer', 'arrived_at_customer', 'returning', 'return_arrived', 'on_the_way', 'delivered'];
         } else if (status === 'expired' || status === 'cancelled') {
             // For expired/cancelled, query all cancellation types
             statusesToQuery = ['cancelled', 'canceled_by_user', 'canceled_by_store', 'canceled_by_system', 'expired'];
@@ -410,8 +416,8 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             
             // Extract pricing data from the correct database structure
             const pricing = order.pricing || {};
-            const totalAmount = pricing.total || 0;
-            const deliveryFee = pricing.deliveryFee || 0;
+            const totalAmount = pricing.total != null ? Number(pricing.total) / 1000 : Number(order.totalAmount ?? order.total ?? 0);
+            const deliveryFee = pricing.deliveryFee != null ? Number(pricing.deliveryFee) / 1000 : Number(order.deliveryFee ?? order.delivery_fee ?? 0);
             
             // ⚡ DEBUG: Log the raw pricing data from database
             console.log('🔍 Raw order data from DB:', {
@@ -447,6 +453,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             });
             
             return {
+                financialAssignment: financialOrderAssignment(order),
                 id: order.orderId, // alias for frontend models expecting `id`
                 orderId: order.orderId,
                 orderNumber: orderNumber,
@@ -1383,7 +1390,7 @@ async function notifyCentralPlatform(order, status) {
             orderNumber: order.orderNumber || order.orderId,
             businessId,
             status,
-            total: (order.pricing && order.pricing.total) || order.total || 0,
+            total: order.pricing?.total != null ? Number(order.pricing.total) / 1000 : Number(order.total ?? order.totalAmount ?? 0),
             timestamp: new Date().toISOString()
         };
         console.log('📤 Notifying Central Platform:', notification);
@@ -1728,7 +1735,7 @@ async function handleTimeoutLog(orderId, requestData) {
 }
 
 const originalMerchantHandler=module.exports.handler;
-const authenticatedMerchantHandler=merchantHandler(originalMerchantHandler,{db:lifecycleRawDb});
+const authenticatedMerchantHandler=merchantHandler(originalMerchantHandler,{db:lifecycleRawDb,deviceOrders:true});
 module.exports.handler=async(event,context)=>{
  if(event.path?.includes('/webhooks/orders')&&event.httpMethod==='POST'){
   const expected=process.env.MERCHANT_WEBHOOK_INTERNAL_KEY;

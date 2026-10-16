@@ -40,7 +40,8 @@ function merchantLifecycleClient(raw){
    if(!catalog||!JSON.stringify(catalog).includes(match[0]))throw Error('CROSS_BUSINESS_ASSET_REFERENCE');
   }
   let businessWrite=false;
-  const fences=[
+  const auditItems=[];
+  const fences=actor.deviceGuards || [
    {ConditionCheck:{TableName:'staging-AccountDeletion',Key:{pk:'ACCOUNT_LIFECYCLE#MERCHANT#'+actor.sub,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
    {ConditionCheck:{TableName:'staging-AccountDeletion',Key:{pk:'BUSINESS_LIFECYCLE#MERCHANT#'+actor.businessId,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
    {ConditionCheck:{TableName:'WhizzMerchants_Businesses',Key:{businessId:actor.businessId},ConditionExpression:'ownerId = :sub AND cognitoUserId = :sub AND attribute_not_exists(deletionRequestId)',ExpressionAttributeValues:{':sub':actor.sub}}}
@@ -48,10 +49,31 @@ function merchantLifecycleClient(raw){
   const items=name==='TransactWriteCommand'?command.input.TransactItems:[{[name.slice(0,-7)]:{...command.input}}];
   for(const item of items){
    const operation=item.Put||item.Update||item.Delete||item.ConditionCheck;
+   if(actor.deviceGuards && !['WizzOrders','WhizzMerchants_Products','WhizzMerchants_BusinessWorkingHours'].includes(operation?.TableName))throw Error('DEVICE_WRITE_SCOPE_INVALID');
+   if(actor.deviceGuards && operation?.TableName==='WhizzMerchants_Products'){
+    if(!item.Update)throw Error('DEVICE_WRITE_SCOPE_INVALID');
+    operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'businessId=:deviceBranch';
+    operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':deviceBranch':actor.businessId};
+   }
+   if(actor.deviceGuards && operation?.TableName==='WhizzMerchants_BusinessWorkingHours' && (item.Put?.Item.businessId||operation.Key?.businessId)!==actor.businessId)throw Error('DEVICE_WRITE_SCOPE_INVALID');
    if(operation?.TableName==='WizzOrders'){
     const record=item.Put?.Item||(await raw.send(new GetCommand({TableName:operation.TableName,Key:operation.Key,ConsistentRead:true}))).Item;
     const field=record?.businessId?'businessId':record?.storeId?'storeId':record?.merchantId?'merchantId':null;
     if(!field||record[field]!==actor.businessId)throw Error('ORDER_BUSINESS_SCOPE_INVALID');
+    if(actor.deviceGuards&&item.Put)throw Error('DEVICE_ORDER_CREATE_FORBIDDEN');
+    if(actor.deviceOrder){
+     if(record.orderId!==actor.deviceOrder.id && operation.Key?.PK!=='ORDER#'+actor.deviceOrder.id)throw Error('ORDER_BUSINESS_SCOPE_INVALID');
+     if(!item.Update || !['confirmed','rejected','preparing','ready'].includes(actor.deviceOrder.targetStatus) || operation.ExpressionAttributeValues?.[':status']!==actor.deviceOrder.targetStatus)throw Error('DEVICE_ORDER_ACTION_INVALID');
+     if(item.Update){
+      const now=new Date().toISOString(),id=require('node:crypto').randomUUID();
+      auditItems.push({Put:{TableName:'staging-MerchantPlatform',Item:{pk:'BRANCH#'+actor.businessId,sk:'STAFF_AUDIT#OPERATIONS#'+now+'#'+id,ownerId:actor.ownerId,businessId:actor.businessId,actorId:actor.sub,actorName:actor.actorName||'',roleName:actor.roleName||'',deviceId:actor.deviceId,sessionId:actor.sessionId,permissionVersion:actor.permissionVersion,policyVersion:actor.policyVersion||0,action:'ORDER_STATUS_CHANGED',entityId:actor.deviceOrder.id,result:'SUCCEEDED',createdAt:now,before:{status:actor.deviceOrder.expectedStatus},after:{status:actor.deviceOrder.targetStatus}},ConditionExpression:'attribute_not_exists(pk)'}});
+      operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#deviceExpectedStatus=:deviceExpectedStatus';
+      operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#deviceExpectedStatus':'status'};
+      operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':deviceExpectedStatus':actor.deviceOrder.expectedStatus};
+      operation.UpdateExpression+=', lastStaffActorId=:deviceActorId';
+      operation.ExpressionAttributeValues[':deviceActorId']=actor.sub;
+     }
+    }
     if(!item.Put){
      operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#lifecycleOrderBusiness=:lifecycleOrderBusiness';
      operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#lifecycleOrderBusiness':field};
@@ -63,14 +85,15 @@ function merchantLifecycleClient(raw){
     businessWrite=true;
     operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#lifecycleOwner = :lifecycleSubject AND #lifecycleCognito = :lifecycleSubject AND attribute_not_exists(#lifecycleDeletion)';
     operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#lifecycleOwner':'ownerId','#lifecycleCognito':'cognitoUserId','#lifecycleDeletion':'deletionRequestId'};
-    operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':lifecycleSubject':actor.sub};
+    operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':lifecycleSubject':actor.ownerId||actor.sub};
    }
   }
+  if(actor.deviceGuards && items.some(x=>(x.Put||x.Update||x.Delete||x.ConditionCheck)?.TableName==='WhizzMerchants_BusinessWorkingHours'))auditItems.push(...await require('./branch-device-hours-audit').prepare(raw,actor,items));
   if(name!=='TransactWriteCommand'){
    if(command.input.ReturnValues&&!['NONE','ALL_NEW'].includes(command.input.ReturnValues))throw Error('UNSUPPORTED_GUARDED_RETURN_VALUES');
    delete items[0][name.slice(0,-7)].ReturnValues;
   }
-  const result=await raw.send(new TransactWriteCommand({TransactItems:[...(businessWrite?fences.slice(0,2):fences),...items]}));
+  const result=await raw.send(new TransactWriteCommand({TransactItems:[...(businessWrite?fences.slice(0,2):fences),...items,...auditItems]}));
   if(command.input.ReturnValues==='ALL_NEW'){
    const read=await raw.send(new GetCommand({TableName:command.input.TableName,Key:command.input.Key,ConsistentRead:true}));
    return {...result,Attributes:read.Item};
@@ -78,13 +101,22 @@ function merchantLifecycleClient(raw){
   return result;
  }};
 }
-function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({region:'us-east-1'})}){
+function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({region:'us-east-1'}),deviceOrders=false,deviceMenu=false,deviceHours=false}){
  return async(event,context)=>{
   if(event.httpMethod==='OPTIONS')return handler(event,context);
   const headers={'Content-Type':'application/json','Access-Control-Allow-Origin':'*'};
   try{
    const token=/^Bearer (\S+)$/.exec(event.headers?.Authorization||event.headers?.authorization||'')?.[1];
    if(!token)throw Error('UNAUTHORIZED');
+   if((deviceOrders||deviceMenu||deviceHours) && event.path?.startsWith('/branch-device/')) {
+    const access=require('./branch-device-access');
+    const actor=deviceOrders?await access.orders(db,event):await access.operations(db,event,deviceMenu?'menu':'hours');
+    const path=event.path.slice('/branch-device'.length);
+    const delegated={...event,path,resource:event.resource?.replace('/branch-device',''),body:JSON.stringify({...JSON.parse(event.body||'{}'),businessId:actor.businessId})};
+    const result=await scope.run(actor,()=>handler(delegated,context));
+    await require('../auth/branch_devices').tx(db,actor.deviceGuards);
+    return deviceOrders?access.projectOrders(result,actor):result;
+   }
    const {user,claims}=await liveMerchantIdentity(cognito,token);
    const sub=(user.UserAttributes||[]).find(a=>a.Name==='sub')?.Value;
    // GetUser authenticates before any claim is used as an authority.
@@ -103,7 +135,7 @@ function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({
   }catch(e){
    const unauthorized=['UNAUTHORIZED','NotAuthorizedException','UserNotFoundException','InvalidParameterException'].includes(e.code||e.name)||e.message==='UNAUTHORIZED';
    const forbidden=['OWNER_REQUIRED','ACCOUNT_CLOSING'].includes(e.message);
-   return {statusCode:unauthorized?401:forbidden?403:503,headers,body:JSON.stringify({code:unauthorized?'UNAUTHORIZED':forbidden?e.message:'AUTH_UNAVAILABLE',message:unauthorized?'يرجى تسجيل الدخول':forbidden?'لا يمكن تنفيذ العملية على هذا المطعم':'تعذر التحقق؛ أعد المحاولة'})};
+   return {statusCode:e.status||(unauthorized?401:forbidden?403:503),headers,body:JSON.stringify({code:e.status?e.message:unauthorized?'UNAUTHORIZED':forbidden?e.message:'AUTH_UNAVAILABLE',message:unauthorized?'يرجى تسجيل الدخول':forbidden?'لا يمكن تنفيذ العملية على هذا المطعم':'تعذر التحقق؛ أعد المحاولة'})};
   }
  };
 }

@@ -5,23 +5,25 @@ enum OrderStatus {
   pending,
   confirmed,
   preparing,
-  ready,  // deprecated - استخدم readyForPickup بدلاً منها
-  readyForPickup,  // ✅ الحالة الصحيحة لنظام الموجات
-  reassigning,     // 🔄 جاري البحث عن سائق بديل (بعد unassignment)
+  ready, // deprecated - استخدم readyForPickup بدلاً منها
+  readyForPickup, // ✅ الحالة الصحيحة لنظام الموجات
+  reassigning, // 🔄 جاري البحث عن سائق بديل (بعد unassignment)
   // 🚗 حالات السائق - Driver delivery states
-  assigned,            // تم تعيين سائق
-  headingToStore,      // السائق في الطريق للمطعم
-  arrivedAtStore,      // السائق وصل للمطعم
-  pickedUp,            // تم استلام الطلب من المطعم
-  headingToCustomer,   // في الطريق للعميل
-  arrivedAtCustomer,   // وصل إلى الزبون
+  assigned, // تم تعيين سائق
+  headingToStore, // السائق في الطريق للمطعم
+  arrivedAtStore, // السائق وصل للمطعم
+  pickedUp, // تم استلام الطلب من المطعم
+  headingToCustomer, // في الطريق للعميل
+  arrivedAtCustomer, // وصل إلى الزبون
   // حالات إتمام الطلب
   completed,
   cancelled,
   expired,
-  onTheWay,  // deprecated - استخدم headingToCustomer
+  onTheWay, // deprecated - استخدم headingToCustomer
   delivered,
   returned,
+  returning,
+  returnArrived,
 }
 
 class OrderItem {
@@ -46,8 +48,13 @@ class OrderItem {
   factory OrderItem.fromJson(Map<String, dynamic> json) {
     return OrderItem(
       id: json['id'] ?? json['itemId'] ?? json['skuId'] ?? json['dishId'] ?? '',
-      name: json['name'] ?? json['dishName'] ?? json['productName'] ?? 'عنصر غير محدد',
-      price: _parsePrice(json['price'] ?? json['unitPrice'] ?? 0),
+      name: json['name'] ??
+          json['dishName'] ??
+          json['productName'] ??
+          'عنصر غير محدد',
+      price: json['price'] != null
+          ? _parsePrice(json['price'])
+          : _parsePrice(json['unitPrice']) / 1000,
       quantity: json['quantity'] ?? 1,
       notes: json['notes'] ?? json['specialInstructions'],
     );
@@ -55,7 +62,7 @@ class OrderItem {
 
   static double _parsePrice(dynamic price) {
     if (price == null) return 0.0;
-    
+
     double amount = 0.0;
     if (price is double) {
       amount = price;
@@ -64,7 +71,7 @@ class OrderItem {
     } else if (price is String) {
       amount = double.tryParse(price) ?? 0.0;
     }
-    
+
     // No conversion needed - prices are already in IQD format
     // The database stores prices as IQD (e.g., 5000 IQD)
     return amount;
@@ -84,6 +91,7 @@ class OrderItem {
 }
 
 class Order {
+  final Map<String,dynamic>? financialAssignment;
   String id;
   String businessId;
   String customerId;
@@ -97,19 +105,20 @@ class Order {
   DateTime createdAt;
   DateTime? updatedAt;
   String? notes;
-  String? orderNumber;  // Add order number
-  double deliveryFee;   // Add delivery fee
-  
+  String? orderNumber; // Add order number
+  double deliveryFee; // Add delivery fee
+
   // 🚗 معلومات السائق (عند التعيين)
-  String? driverId;              // معرف السائق
-  String? driverName;            // اسم السائق
-  String? driverPhone;           // رقم هاتف السائق
-  String? vehicleType;           // نوع المركبة
-  String? vehiclePlate;          // رقم اللوحة
-  DateTime? driverAssignedAt;    // وقت تعيين السائق
-  DateTime? pickedUpAt;          // وقت استلام السائق للطلب
+  String? driverId; // معرف السائق
+  String? driverName; // اسم السائق
+  String? driverPhone; // رقم هاتف السائق
+  String? vehicleType; // نوع المركبة
+  String? vehiclePlate; // رقم اللوحة
+  DateTime? driverAssignedAt; // وقت تعيين السائق
+  DateTime? pickedUpAt; // وقت استلام السائق للطلب
 
   Order({
+    this.financialAssignment,
     required this.id,
     required this.businessId,
     required this.customerId,
@@ -154,31 +163,33 @@ class Order {
 
     AppLogger.debug('Order.fromJson - orderId field: ${json['orderId']}');
 
-    
     final orderId = json['orderId'] ?? json['id'] ?? '';
     AppLogger.debug('Order.fromJson - Final orderId: $orderId');
 
-    
     if (orderId.isEmpty) {
       AppLogger.warning('WARNING: Order ID is empty! Full JSON: $json');
-
     }
-    
+
     return Order(
       id: orderId,
+      financialAssignment: json['financialAssignment'] is Map ? Map<String,dynamic>.unmodifiable(json['financialAssignment']) : null,
       businessId: json['businessId'] ?? json['storeId'] ?? '',
-      customerId: json['customerId'] ?? json['userId'] ?? json['customer_id'] ?? 'unknown',
+      customerId: json['customerId'] ??
+          json['userId'] ??
+          json['customer_id'] ??
+          'unknown',
       customerName: json['customerName'] ?? 'عميل غير محدد',
       customerPhone: json['customerPhone'],
       customerAddress: json['customerAddress'],
-      deliveryAddress: json['deliveryAddress'] != null 
-          ? DeliveryAddress.fromJson(json['deliveryAddress']) 
+      deliveryAddress: json['deliveryAddress'] != null
+          ? DeliveryAddress.fromJson(json['deliveryAddress'])
           : null,
       items: _parseItems(json['items']),
       totalAmount: _parseTotalAmount(json),
       status: _parseOrderStatus(json['status'] ?? 'pending'),
       createdAt: _parseDateTime(json['createdAt']) ?? DateTime.now(),
-      updatedAt: json['updatedAt'] != null ? _parseDateTime(json['updatedAt']) : null,
+      updatedAt:
+          json['updatedAt'] != null ? _parseDateTime(json['updatedAt']) : null,
       notes: json['notes'],
       orderNumber: json['orderNumber'] ?? json['orderNumber_gsi'],
       deliveryFee: _parseDeliveryFee(json),
@@ -187,14 +198,23 @@ class Order {
       driverName: json['driverName'] ?? json['driver_name'],
       driverPhone: json['driverPhone'] ?? json['driver_phone'],
       vehicleType: json['vehicleType'] ?? json['vehicle_type'],
-      vehiclePlate: json['vehiclePlate'] ?? json['vehicle_plate'] ?? json['licenseNumber'] ?? json['license_number'],
+      vehiclePlate: json['vehiclePlate'] ??
+          json['vehicle_plate'] ??
+          json['licenseNumber'] ??
+          json['license_number'],
       driverAssignedAt: json['driverAssignedAt'] != null
           ? _parseDateTime(json['driverAssignedAt'])
           : null,
       pickedUpAt: json['pickedUpAt'] != null
           ? _parseDateTime(json['pickedUpAt'])
           : null,
-    )..logDriverInfo();  // Add logging after creation
+    )..logDriverInfo(); // Add logging after creation
+  }
+
+  // WizzOrders pricing uses thousandths of IQD; API display fields use IQD.
+  static double? _minorToIqd(dynamic value) {
+    final amount = value is num ? value.toDouble() : double.tryParse('$value');
+    return amount != null && amount.isFinite ? amount / 1000 : null;
   }
 
   static double _parseDeliveryFee(Map<String, dynamic> json) {
@@ -202,10 +222,10 @@ class Order {
     final candidates = [
       json['deliveryFee'],
       json['delivery_fee'],
-      json['pricing']?['deliveryFee'],
-      json['pricing']?['delivery_fee'],
+      _minorToIqd(json['pricing']?['deliveryFee']),
+      _minorToIqd(json['pricing']?['delivery_fee']),
     ];
-    
+
     for (final candidate in candidates) {
       if (candidate != null) {
         if (candidate is double) return candidate;
@@ -222,7 +242,7 @@ class Order {
   static List<OrderItem> _parseItems(dynamic itemsData) {
     if (itemsData == null) return [];
     if (itemsData is! List) return [];
-    
+
     try {
       return itemsData
           .map((item) => OrderItem.fromJson(item as Map<String, dynamic>))
@@ -239,10 +259,10 @@ class Order {
     final candidates = [
       json['totalAmount'],
       json['total'],
-      json['pricing']?['total'],
+      _minorToIqd(json['pricing']?['total']),
       json['amount'],
     ];
-    
+
     for (final candidate in candidates) {
       if (candidate != null) {
         double amount = 0.0;
@@ -254,9 +274,9 @@ class Order {
           final parsed = double.tryParse(candidate);
           amount = parsed ?? 0.0;
         }
-        
+
         // No conversion needed - amounts are already in IQD format
-        // The database stores amounts as IQD (e.g., 5010 IQD)
+        // Direct API fields and the converted pricing fallback are IQD.
         return amount;
       }
     }
@@ -287,29 +307,29 @@ class Order {
       case 'preparing':
         return OrderStatus.preparing;
       case 'ready':
-        return OrderStatus.ready;  // backward compatibility
+        return OrderStatus.ready; // backward compatibility
       case 'ready_for_pickup':
       case 'readyforpickup':
-        return OrderStatus.readyForPickup;  // ✅ الحالة الصحيحة
-      case 'reassigning':  // 🔄 جاري البحث عن سائق بديل
+        return OrderStatus.readyForPickup; // ✅ الحالة الصحيحة
+      case 'reassigning': // 🔄 جاري البحث عن سائق بديل
         return OrderStatus.reassigning;
       // 🚗 حالات السائق - Driver states
-      case 'assigned':                   // تم تعيين سائق
+      case 'assigned': // تم تعيين سائق
         return OrderStatus.assigned;
-      case 'heading_to_store':           // السائق في طريقه للمطعم
+      case 'heading_to_store': // السائق في طريقه للمطعم
         return OrderStatus.headingToStore;
-      case 'arrived_at_store':           // السائق وصل للمطعم
+      case 'arrived_at_store': // السائق وصل للمطعم
       case 'arrive_at_store':
         return OrderStatus.arrivedAtStore;
-      case 'picked_up':                  // السائق استلم الطلب
+      case 'picked_up': // السائق استلم الطلب
       case 'pickup_order':
         return OrderStatus.pickedUp;
-      case 'heading_to_customer':        // في طريقه للعميل
+      case 'heading_to_customer': // في طريقه للعميل
       case 'start_heading_to_customer':
       case 'ontheway':
       case 'on_the_way':
         return OrderStatus.headingToCustomer;
-      case 'arrived_at_customer':        // وصل للزبون
+      case 'arrived_at_customer': // وصل للزبون
       case 'arrive_at_customer':
         return OrderStatus.arrivedAtCustomer;
       case 'delivered':
@@ -319,12 +339,16 @@ class Order {
       case 'cancelled':
       case 'canceled':
       case 'canceled_by_user':
-      case 'canceled_by_customer':  // ✅ من OrderService
-      case 'canceled_by_restaurant':  // ✅ من OrderService
+      case 'canceled_by_customer': // ✅ من OrderService
+      case 'canceled_by_restaurant': // ✅ من OrderService
       case 'canceled_by_merchant':
-      case 'canceled_by_store': 
+      case 'canceled_by_store':
       case 'canceled_by_system':
         return OrderStatus.cancelled;
+      case 'returning':
+        return OrderStatus.returning;
+      case 'return_arrived':
+        return OrderStatus.returnArrived;
       case 'returned':
         return OrderStatus.returned;
       case 'expired':
@@ -340,16 +364,17 @@ class Order {
     if (status == OrderStatus.readyForPickup) {
       statusString = 'ready_for_pickup';
     }
-    
+
     return {
       'id': id,
+      if(financialAssignment!=null) 'financialAssignment': financialAssignment,
       'businessId': businessId,
       'customerName': customerName,
       'customerPhone': customerPhone,
       'customerAddress': customerAddress,
       'items': items.map((item) => item.toJson()).toList(),
       'totalAmount': totalAmount,
-      'status': statusString,  // ✅ استخدام statusString المحول
+      'status': statusString, // ✅ استخدام statusString المحول
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'notes': notes,
@@ -383,6 +408,7 @@ class Order {
   }) {
     return Order(
       id: id ?? this.id,
+      financialAssignment: financialAssignment,
       businessId: businessId ?? this.businessId,
       customerId: customerId ?? this.customerId,
       customerName: customerName ?? this.customerName,

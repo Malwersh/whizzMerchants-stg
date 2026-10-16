@@ -36,7 +36,7 @@ class ImageUploadService {
 
   /// Upload business photo and return the URL
   static Future<Map<String, dynamic>> uploadBusinessPhoto(
-      File imageFile, {bool isRegistration = false}) async {
+      File imageFile, {bool isRegistration = false, String? businessId}) async {
     try {
       String? token;
       Map<String, String> headers = {
@@ -77,6 +77,7 @@ class ImageUploadService {
       // Create JSON request body
       final requestBody = {
         'image': base64Image,
+        if (businessId != null) 'businessId': businessId,
         'filename': fileName,
       };
 

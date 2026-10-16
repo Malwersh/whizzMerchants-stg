@@ -11,7 +11,7 @@ const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 
@@ -91,6 +91,14 @@ async function findRegionByCoordinates(latitude, longitude) {
 }
 
 module.exports.handler = async (event) => {
+    if (event.type === 'TOKEN') return require('./branch_devices').authorizer(dynamodb,event);
+    if (event.path === '/branch-device' && event.httpMethod !== 'OPTIONS') {
+        try {
+            const input = JSON.parse(event.body || '{}');
+            if (!input || Array.isArray(input) || typeof input !== 'object') throw Object.assign(Error('INVALID_JSON'),{status:400});
+            return createResponse(200,await require('./branch_devices').runtime(dynamodb,event,input));
+        } catch(error) { return createResponse(error.status || 503,{code:error.status?error.message:'DEVICE_UNAVAILABLE'}); }
+    }
     console.log('Auth request', { method: event.httpMethod, path: event.path });
     const { httpMethod, path } = event;
 
@@ -99,6 +107,25 @@ module.exports.handler = async (event) => {
     }
 
     try {
+        if(path==='/auth/onboarding-regions'&&httpMethod==='GET'){
+            try{return createResponse(200,await require('./onboarding_regions').list(dynamodb));}
+            catch(_){return createResponse(503,{success:false,code:'REGIONS_UNAVAILABLE',message:'تعذر تحميل المناطق. حاول مجددًا.'});}
+        }
+        if (['/auth/order-cancellation','/auth/order-returns','/auth/branch-devices','/auth/branch-staff','/auth/business-changes','/auth/person-registration','/auth/person-profile','/auth/branch-drafts','/auth/branch-drafts/submit','/auth/branch-drafts/config','/auth/branch-drafts/rebase','/auth/branch-assets'].includes(path)) {
+            try { return createResponse(200,await require('./person_onboarding').route({db:dynamodb,cognito:cognitoClient,authenticate:async request=>{
+                const token=(request.headers?.Authorization||request.headers?.authorization||'').replace(/^Bearer /,'');
+                if(!token)throw Object.assign(Error('UNAUTHORIZED'),{status:401});
+                const identity=await require('../shared/merchant-lifecycle').liveMerchantIdentity(cognitoClient,token);
+                const {claims,user}=identity;const sub=(user.UserAttributes||[]).find(a=>a.Name==='sub')?.Value;
+                if(claims.iss!=='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_gtCR3ndzT'||(claims.token_use==='access'?claims.client_id:claims.aud)!=='4qabvh11nmghmf9fmc6e6ludd2'||!sub||sub!==claims.sub)throw Object.assign(Error('UNAUTHORIZED'),{status:401});
+                return identity;
+            }},event)); }
+            catch(error){const unauthorized=['NotAuthorizedException','UserNotFoundException','UNAUTHORIZED'].includes(error.name)||error.message==='UNAUTHORIZED';return createResponse(error.status||(unauthorized?401:503),{success:false,code:error.status||unauthorized?error.message:'PERSON_ONBOARDING_UNAVAILABLE',message:'تعذر إكمال العملية. حاول مجددًا.'});}
+        }
+        if (path === '/auth/onboarding-settings' && httpMethod === 'GET') {
+            try { return createResponse(200, await require('./onboarding_settings').readSettings(dynamodb, {regionId: event.queryStringParameters?.regionId})); }
+            catch (_) { return createResponse(503, {success:false, code:'ONBOARDING_SETTINGS_UNAVAILABLE', message:'تعذر تحميل إعدادات إنشاء النشاط. حاول مجددًا.'}); }
+        }
         // Handle health check
         if (path === '/auth/health') {
             return createResponse(200, {
@@ -192,6 +219,10 @@ module.exports.handler = async (event) => {
                 });
             }
 
+            let registrationType;
+            try { registrationType = await require('./onboarding_settings').resolveType(dynamodb, {businessType, configVersion:body.configVersion, regionId:body.regionId || body.address?.regionId}); }
+            catch (e) { return createResponse(['BUSINESS_TYPE_UNAVAILABLE','CONFIG_CHANGED'].includes(e.message)?400:503, {success:false,code:e.message,message:'نوع النشاط غير متاح أو تغيرت القائمة. حدّث الخيارات قبل المتابعة.'}); }
+
             try {
                 // Format phone number to international format for Cognito
                 let formattedPhoneNumber = '+1234567890'; // Default fallback
@@ -271,7 +302,9 @@ module.exports.handler = async (event) => {
                 const businessData = {
                     businessId: businessId,
                     businessName: businessName,
-                    businessType: businessType || 'restaurant',
+                    businessType: registrationType.legacyType,
+                    businessTypeId: registrationType.id,
+                    onboardingConfigVersion: registrationType.configVersion,
                     ...(cleanEmail ? { email: cleanEmail } : {}),
                     ownerName: `${firstName} ${lastName}`,
                     phoneNumber: formattedPhoneNumber,

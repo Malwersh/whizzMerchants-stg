@@ -182,8 +182,9 @@ class ProductCategory {
   factory ProductCategory.fromJson(Map<String, dynamic> json) {
     return ProductCategory(
       id: json['id'] ?? json['categoryId'] ?? json['category_id'] ?? '',
-      name: json['name'] ??
+      name: json['name_ar'] ??
           json['categoryName'] ??
+          json['name'] ??
           json['categoryNameEn'] ??
           json['category_name'] ??
           '',

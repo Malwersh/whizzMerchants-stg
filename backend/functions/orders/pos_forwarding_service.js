@@ -25,7 +25,7 @@ function resolveBusinessId(order) {
 
 function resolveTotalAmount(order) {
   if (order.pricing && typeof order.pricing.total === 'number') {
-    return order.pricing.total;
+    return order.pricing.total / 1000;
   }
   if (typeof order.totalAmount === 'number') {
     return order.totalAmount;
@@ -38,7 +38,7 @@ function resolveTotalAmount(order) {
 
 function resolveDeliveryFee(order) {
   if (order.pricing && typeof order.pricing.deliveryFee === 'number') {
-    return order.pricing.deliveryFee;
+    return order.pricing.deliveryFee / 1000;
   }
   if (typeof order.deliveryFee === 'number') {
     return order.deliveryFee;

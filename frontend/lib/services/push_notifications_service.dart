@@ -1,3 +1,5 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'branch_device_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -22,7 +24,15 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   } catch (_) {
     // Ignore; Firebase may already be initialized.
   }
-  await MerchantNotificationInbox.recordPush(message.data,title:message.notification?.title,body:message.notification?.body,messageId:message.messageId).catchError((Object _) {});
+  if (message.data['action'] == 'new_order' && message.notification != null) {
+    await AudioNotificationService.markOrderSoundAnnounced(
+        message.data['orderId']?.toString());
+  }
+  await MerchantNotificationInbox.recordPush(message.data,
+          title: message.notification?.title,
+          body: message.notification?.body,
+          messageId: message.messageId)
+      .catchError((Object _) {});
   AppLogger.debug('📩 (bg) Push message received: ${message.messageId}');
 }
 
@@ -36,12 +46,11 @@ class PushNotificationsService {
   String? _lastRegisteredBusinessId;
   String? _lastRegisteredSubjectId;
   bool _registrationPending = false;
-  DateTime? _lastRegisterAttemptAt;
   String? _lastKnownBusinessId;
-  
+
   // Audio service for playing notification sounds
   final AudioNotificationService _audioService = AudioNotificationService();
-  
+
   // Callback for order refresh (set by app/order screen)
   void Function()? _onOrderRefreshCallback;
 
@@ -89,18 +98,27 @@ class PushNotificationsService {
         );
       }
 
+      final initial = await messaging.getInitialMessage();
+      if (initial?.data['action'] == 'new_order')
+        await AudioNotificationService.markOrderSoundAnnounced(
+            initial?.data['orderId']?.toString());
       // Handle foreground push notifications
       FirebaseMessaging.onMessage.listen((message) async {
-        await MerchantNotificationInbox.recordPush(message.data,title:message.notification?.title,body:message.notification?.body,messageId:message.messageId).catchError((Object _) {});
+        await MerchantNotificationInbox.recordPush(message.data,
+                title: message.notification?.title,
+                body: message.notification?.body,
+                messageId: message.messageId)
+            .catchError((Object _) {});
         AppLogger.debug('📩 (fg) Push message: ${message.messageId}');
         AppLogger.debug('📩 Push data: ${message.data}');
-        AppLogger.debug('📩 Push notification: ${message.notification?.title} - ${message.notification?.body}');
-        
+        AppLogger.debug(
+            '📩 Push notification: ${message.notification?.title} - ${message.notification?.body}');
+
         // Handle new_order action
         final action = message.data['action']?.toString() ?? '';
         if (action == 'new_order') {
           AppLogger.debug('🚨 NEW ORDER PUSH RECEIVED (foreground)');
-          
+
           // Play notification sound
           try {
             final orderId = message.data['orderId']?.toString();
@@ -111,7 +129,7 @@ class PushNotificationsService {
           } catch (e) {
             AppLogger.debug('⚠️ Failed to play sound: $e');
           }
-          
+
           // Trigger order refresh
           if (_onOrderRefreshCallback != null) {
             AppLogger.debug('🔄 Triggering order refresh after push...');
@@ -123,16 +141,24 @@ class PushNotificationsService {
       });
 
       FirebaseMessaging.onMessageOpenedApp.listen((message) async {
-        await MerchantNotificationInbox.recordPush(message.data,title:message.notification?.title,body:message.notification?.body,messageId:message.messageId).catchError((Object _) {});
+        if (message.data['action'] == 'new_order')
+          await AudioNotificationService.markOrderSoundAnnounced(
+              message.data['orderId']?.toString());
+        await MerchantNotificationInbox.recordPush(message.data,
+                title: message.notification?.title,
+                body: message.notification?.body,
+                messageId: message.messageId)
+            .catchError((Object _) {});
         AppLogger.debug('📩 (tap) Push message opened: ${message.messageId}');
         AppLogger.debug('📩 Push data: ${message.data}');
-        
+
         // Handle tap actions
         final action = message.data['action']?.toString() ?? '';
         if (action == 'new_order') {
-          AppLogger.debug('🚨 NEW ORDER PUSH TAPPED - Navigate to pending orders');
+          AppLogger.debug(
+              '🚨 NEW ORDER PUSH TAPPED - Navigate to pending orders');
           // Note: Navigation will be handled by app-level handler
-          
+
           // Also trigger refresh
           if (_onOrderRefreshCallback != null) {
             _onOrderRefreshCallback!();
@@ -144,8 +170,13 @@ class PushNotificationsService {
       // This is critical for debugging the "tap from closed" path.
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
-        await MerchantNotificationInbox.recordPush(initialMessage.data,title:initialMessage.notification?.title,body:initialMessage.notification?.body,messageId:initialMessage.messageId).catchError((Object _) {});
-        AppLogger.debug('📩 (coldstart) Initial push message: ${initialMessage.messageId}');
+        await MerchantNotificationInbox.recordPush(initialMessage.data,
+                title: initialMessage.notification?.title,
+                body: initialMessage.notification?.body,
+                messageId: initialMessage.messageId)
+            .catchError((Object _) {});
+        AppLogger.debug(
+            '📩 (coldstart) Initial push message: ${initialMessage.messageId}');
         try {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(
@@ -169,7 +200,8 @@ class PushNotificationsService {
       // Token refresh → re-register
       messaging.onTokenRefresh.listen((token) async {
         AppLogger.debug('🔁 FCM token refreshed');
-        await registerTokenIfPossible(forcedToken: token, businessId: _lastKnownBusinessId);
+        await registerTokenIfPossible(
+            forcedToken: token, businessId: _lastKnownBusinessId);
       });
 
       _initialized = true;
@@ -183,10 +215,12 @@ class PushNotificationsService {
   /// Set callback for order refresh (called when new order push arrives)
   void setOrderRefreshCallback(void Function()? callback) {
     _onOrderRefreshCallback = callback;
-    AppLogger.debug('🔔 Push notification order refresh callback ${callback != null ? "registered" : "cleared"}');
+    AppLogger.debug(
+        '🔔 Push notification order refresh callback ${callback != null ? "registered" : "cleared"}');
   }
 
-  Future<void> registerTokenIfPossible({String? forcedToken, String? businessId}) async {
+  Future<void> registerTokenIfPossible(
+      {String? forcedToken, String? businessId}) async {
     if (!_initialized) {
       await initialize();
     }
@@ -195,7 +229,6 @@ class PushNotificationsService {
     if (requestedBusiness != null && requestedBusiness.isNotEmpty) {
       _lastKnownBusinessId = requestedBusiness;
     }
-    final now = DateTime.now();
     if (_isRegistering) {
       _registrationPending = true;
       return;
@@ -203,18 +236,30 @@ class PushNotificationsService {
 
     try {
       _isRegistering = true;
-      _lastRegisterAttemptAt = now;
 
-      final token = (forcedToken ?? await FirebaseMessaging.instance.getToken())?.trim();
+      final token =
+          (forcedToken ?? await FirebaseMessaging.instance.getToken())?.trim();
       if (token == null || token.isEmpty) {
         AppLogger.debug('⚠️ FCM token not available yet');
         return;
       }
 
+      final paired = await const FlutterSecureStorage()
+          .read(key: 'merchant_paired_branch_device_v1');
+      if (paired != null) {
+        final device = Map<String, dynamic>.from(jsonDecode(paired));
+        await BranchDeviceService().call(device['deviceToken'], {
+          'action': 'register_push',
+          'pushToken': token,
+          'platform': Platform.isIOS ? 'ios' : 'android'
+        });
+        return;
+      }
       final authToken = await TokenRefreshService.getValidAccessToken();
       if (authToken == null || authToken.isEmpty) {
         // Not logged in (or session not ready) → skip for now.
-        AppLogger.debug('ℹ️ No auth token yet; skipping push token registration');
+        AppLogger.debug(
+            'ℹ️ No auth token yet; skipping push token registration');
         return;
       }
 
@@ -242,7 +287,8 @@ class PushNotificationsService {
       final deviceId = await _getDeviceIdSafe();
       final pkg = await PackageInfo.fromPlatform();
 
-      final url = Uri.parse('${AppConfig.pushNotificationsUrl}/push/tokens/register');
+      final url =
+          Uri.parse('${AppConfig.pushNotificationsUrl}/push/tokens/register');
 
       final body = {
         'token': token,
@@ -251,7 +297,8 @@ class PushNotificationsService {
         'deviceId': deviceId,
         'appVersion': pkg.version,
         'buildNumber': pkg.buildNumber,
-        if (registrationBusiness != null && registrationBusiness.isNotEmpty) 'businessId': registrationBusiness,
+        if (registrationBusiness != null && registrationBusiness.isNotEmpty)
+          'businessId': registrationBusiness,
       };
 
       AppLogger.debug('📡 Registering push token to Central Notifications...');
@@ -273,7 +320,8 @@ class PushNotificationsService {
         return;
       }
 
-      AppLogger.error('❌ Push token register failed: HTTP ${resp.statusCode} ${resp.body}');
+      AppLogger.error(
+          '❌ Push token register failed: HTTP ${resp.statusCode} ${resp.body}');
     } catch (e) {
       AppLogger.error('❌ Push token registration error: $e');
     } finally {
