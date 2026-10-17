@@ -1,3 +1,5 @@
+const {revision,fence}=require('../shared/campaign-version');
+const {merchantLifecycleClient,merchantHandler,merchantRequestContext}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
@@ -29,18 +31,20 @@ function createResponse(statusCode, body) {
     };
 }
 
+function discountFailure(error,message){const conflict=['TransactionCanceledException','ConditionalCheckFailedException'].includes(error.name);return createResponse(error.status||(conflict?409:500),{success:false,code:error.status?error.message:conflict?'VERSION_OR_STATE_CONFLICT':'DISCOUNT_WRITE_FAILED',message:conflict?'تغير الخصم أو استخدامه؛ أعد تحميل القائمة.':message});}
+
 // Environment variables
 const DISCOUNTS_TABLE = process.env.DISCOUNTS_TABLE || 'WhizzMerchants_Discounts';
 const BUSINESSES_TABLE = process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses';
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
 
 exports.handler = async (event) => {
-    console.log('Discount Management Handler - Event:', JSON.stringify(event, null, 2));
+    console.log('Discount Management Handler - Event:', {method:event.httpMethod,path:event.path});
 
     // Instantiate AWS clients for this invocation
     const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION || 'us-east-1' });
     const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-    const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+    const dynamodb = merchantLifecycleClient(DynamoDBDocumentClient.from(dynamoDbClient));
 
     const { httpMethod, path, pathParameters, headers } = event;
 
@@ -67,7 +71,7 @@ exports.handler = async (event) => {
         // Verify the token and get user info (handles both access tokens and ID tokens)
         console.log('Getting user info from token...');
         const userInfo = await getUserInfoFromToken(cognito, token);
-        console.log('User info:', JSON.stringify(userInfo, null, 2));
+        console.log('Authenticated merchant discount request');
         if (!userInfo) {
             return createResponse(401, { success: false, message: 'Invalid access token' });
         }
@@ -75,7 +79,7 @@ exports.handler = async (event) => {
         // Get business info for user
         console.log('Getting business info for user...');
         const businessInfo = await getBusinessInfoForUser(dynamodb, userInfo);
-        console.log('Business info:', JSON.stringify(businessInfo, null, 2));
+        console.log('Scoped merchant discount request');
         if (!businessInfo) {
             return createResponse(404, { success: false, message: 'Business not found for user' });
         }
@@ -150,46 +154,9 @@ async function getUserInfoFromToken(cognito, token) {
 
 // Helper function to get business info for user
 async function getBusinessInfoForUser(dynamodb, userInfo) {
-    const email = userInfo?.email;
-    const userId = userInfo?.userId || userInfo?.cognitoUserId;
-    const phoneNumber = userInfo?.phoneNumber;
-
-    try {
-        // 1) Preferred: lookup by email via GSI (legacy / email users)
-        if (email) {
-            const result = await dynamodb.send(new QueryCommand({
-                TableName: BUSINESSES_TABLE,
-                IndexName: 'email-index',
-                KeyConditionExpression: 'email = :email',
-                ExpressionAttributeValues: { ':email': email.toLowerCase().trim() }
-            }));
-            if (result.Items && result.Items.length > 0) {
-                return result.Items[0];
-            }
-        }
-
-        // 2) Fallback: scan by cognitoUserId / ownerId / phone (phone-only users)
-        const names = {};
-        const values = { ':userId': userId };
-        let filter = 'cognitoUserId = :userId OR ownerId = :userId';
-        if (phoneNumber) {
-            values[':phone'] = phoneNumber;
-            filter += ' OR phoneNumber = :phone OR phone = :phone';
-        }
-        const scanResult = await dynamodb.send(new ScanCommand({
-            TableName: BUSINESSES_TABLE,
-            FilterExpression: filter,
-            ExpressionAttributeValues: values,
-            ...(Object.keys(names).length ? { ExpressionAttributeNames: names } : {})
-        }));
-        if (scanResult.Items && scanResult.Items.length > 0) {
-            return scanResult.Items[0];
-        }
-        return null;
-    } catch (error) {
-        console.error('Error getting business info for user:', error);
-        throw new Error('Failed to retrieve business information.');
-    }
+    const verified=merchantRequestContext.getStore();
+    if(verified?.sub!==userInfo?.userId||!verified?.businessId)throw Error('VERIFIED_MERCHANT_SCOPE_REQUIRED');
+    return (await dynamodb.send(new GetCommand({TableName:BUSINESSES_TABLE,Key:{businessId:verified.businessId},ConsistentRead:true}))).Item;
 }
 
 // GET /discounts - Get all discounts for a business
@@ -206,7 +173,7 @@ async function handleGetDiscounts(dynamodb, businessId) {
 
         return createResponse(200, {
             success: true,
-            discounts: result.Items || [],
+            discounts: (result.Items || []).map(row=>({...row,revision:revision(row)})),
             count: result.Items?.length || 0
         });
     } catch (error) {
@@ -240,11 +207,32 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
         }
 
         // Validate discount type
-        const validTypes = ['percentage', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const validTypes = ['percentage', 'fixedAmount', 'conditional', 'freeDelivery', 'buyXGetY'];
         if (!validTypes.includes(discountData.type)) {
             return createResponse(400, {
                 success: false,
                 message: 'Invalid discount type'
+            });
+        }
+
+        // Validate value ranges (server-side, UI presets are cosmetic)
+        const numValue = parseFloat(discountData.value);
+        if (isNaN(numValue) || numValue < 0) {
+            return createResponse(400, {
+                success: false,
+                message: 'Discount value must be a non-negative number'
+            });
+        }
+        if (discountData.type === 'percentage' && (numValue <= 0 || numValue > 100)) {
+            return createResponse(400, {
+                success: false,
+                message: 'Percentage discount must be between 1 and 100'
+            });
+        }
+        if (discountData.type === 'fixedAmount' && numValue <= 0) {
+            return createResponse(400, {
+                success: false,
+                message: 'Fixed amount discount must be greater than 0'
             });
         }
 
@@ -304,11 +292,11 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
         return createResponse(201, {
             success: true,
             message: 'Discount created successfully',
-            discount
+            discount: {...discount,version:1,revision:revision({...discount,version:1})}
         });
     } catch (error) {
         console.error('Error creating discount:', error);
-        return createResponse(500, { success: false, message: 'Failed to create discount' });
+        return discountFailure(error, 'Failed to create discount');
     }
 }
 
@@ -352,79 +340,130 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
             return existingDiscount;
         }
 
-        let updateExpression = 'SET updated_at = :timestamp';
+        // Use expression attribute names for every field: bare names like
+        // "status" (and potentially "type"/"value") collide with DynamoDB
+        // reserved keywords and make every update fail with a
+        // ValidationException.
+        let updateExpression = 'SET #updated_at = :timestamp';
+        const expressionAttributeNames = {
+            '#updated_at': 'updated_at'
+        };
         const expressionAttributeValues = {
             ':timestamp': new Date().toISOString()
         };
+        const validTypes = ['percentage', 'fixedAmount', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const effectiveType = updateData.type !== undefined
+            ? updateData.type
+            : JSON.parse(existingDiscount.body).discount?.type;
+        if (updateData.type !== undefined && !validTypes.includes(updateData.type)) {
+            return createResponse(400, {
+                success: false,
+                message: 'Invalid discount type'
+            });
+        }
+        if (updateData.value !== undefined) {
+            const numValue = parseFloat(updateData.value);
+            if (isNaN(numValue) || numValue < 0) {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Discount value must be a non-negative number'
+                });
+            }
+            if (effectiveType === 'percentage' && (numValue <= 0 || numValue > 100)) {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Percentage discount must be between 1 and 100'
+                });
+            }
+            if (effectiveType === 'fixedAmount' && numValue <= 0) {
+                return createResponse(400, {
+                    success: false,
+                    message: 'Fixed amount discount must be greater than 0'
+                });
+            }
+        }
 
         if (updateData.title !== undefined) {
-            updateExpression += ', title = :title';
+            updateExpression += ', #title = :title';
+            expressionAttributeNames['#title'] = 'title';
             expressionAttributeValues[':title'] = updateData.title;
         }
         if (updateData.description !== undefined) {
-            updateExpression += ', description = :description';
+            updateExpression += ', #description = :description';
+            expressionAttributeNames['#description'] = 'description';
             expressionAttributeValues[':description'] = updateData.description;
         }
         if (updateData.value !== undefined) {
-            updateExpression += ', value = :value';
+            updateExpression += ', #value = :value';
+            expressionAttributeNames['#value'] = 'value';
             expressionAttributeValues[':value'] = parseFloat(updateData.value);
         }
         if (updateData.type !== undefined) {
-            updateExpression += ', type = :type';
+            updateExpression += ', #type = :type';
+            expressionAttributeNames['#type'] = 'type';
             expressionAttributeValues[':type'] = updateData.type;
         }
         if (updateData.applicability !== undefined) {
-            updateExpression += ', applicability = :applicability';
+            updateExpression += ', #applicability = :applicability';
+            expressionAttributeNames['#applicability'] = 'applicability';
             expressionAttributeValues[':applicability'] = updateData.applicability;
         }
         if (updateData.applicableItemIds !== undefined) {
-            updateExpression += ', applicable_item_ids = :applicable_item_ids';
+            updateExpression += ', #applicable_item_ids = :applicable_item_ids';
+            expressionAttributeNames['#applicable_item_ids'] = 'applicable_item_ids';
             expressionAttributeValues[':applicable_item_ids'] = updateData.applicableItemIds;
         }
         if (updateData.applicableCategoryIds !== undefined) {
-            updateExpression += ', applicable_category_ids = :applicable_category_ids';
+            updateExpression += ', #applicable_category_ids = :applicable_category_ids';
+            expressionAttributeNames['#applicable_category_ids'] = 'applicable_category_ids';
             expressionAttributeValues[':applicable_category_ids'] = updateData.applicableCategoryIds;
         }
         if (updateData.minimumOrderAmount !== undefined) {
-            updateExpression += ', minimum_order_amount = :minimum_order_amount';
+            updateExpression += ', #minimum_order_amount = :minimum_order_amount';
+            expressionAttributeNames['#minimum_order_amount'] = 'minimum_order_amount';
             expressionAttributeValues[':minimum_order_amount'] = parseFloat(updateData.minimumOrderAmount);
         }
         if (updateData.validFrom !== undefined) {
-            updateExpression += ', valid_from = :valid_from';
+            updateExpression += ', #valid_from = :valid_from';
+            expressionAttributeNames['#valid_from'] = 'valid_from';
             expressionAttributeValues[':valid_from'] = updateData.validFrom;
         }
         if (updateData.validTo !== undefined) {
-            updateExpression += ', valid_to = :valid_to';
+            updateExpression += ', #valid_to = :valid_to';
+            expressionAttributeNames['#valid_to'] = 'valid_to';
             expressionAttributeValues[':valid_to'] = updateData.validTo;
         }
         if (updateData.usageLimit !== undefined) {
-            updateExpression += ', usage_limit = :usage_limit';
+            updateExpression += ', #usage_limit = :usage_limit';
+            expressionAttributeNames['#usage_limit'] = 'usage_limit';
             expressionAttributeValues[':usage_limit'] = updateData.usageLimit;
         }
         if (updateData.status !== undefined) {
-            updateExpression += ', status = :status';
+            updateExpression += ', #status = :status';
+            expressionAttributeNames['#status'] = 'status';
             expressionAttributeValues[':status'] = updateData.status;
         }
         if (updateData.conditionalRule !== undefined) {
-            updateExpression += ', conditional_rule = :conditional_rule';
+            updateExpression += ', #conditional_rule = :conditional_rule';
+            expressionAttributeNames['#conditional_rule'] = 'conditional_rule';
             expressionAttributeValues[':conditional_rule'] = updateData.conditionalRule;
         }
         if (updateData.conditionalParameters !== undefined) {
-            updateExpression += ', conditional_parameters = :conditional_parameters';
+            updateExpression += ', #conditional_parameters = :conditional_parameters';
+            expressionAttributeNames['#conditional_parameters'] = 'conditional_parameters';
             expressionAttributeValues[':conditional_parameters'] = updateData.conditionalParameters;
         }
 
-        // Always update the updatedAt timestamp
-        updateExpression += ', updated_at = :updatedAt';
-        expressionAttributeValues[':updatedAt'] = new Date().toISOString();
-
+        const original=fence(JSON.parse(existingDiscount.body).discount,'view');
         const params = {
             TableName: DISCOUNTS_TABLE,
             Key: {
                 discountId: discountId
             },
             UpdateExpression: updateExpression,
-            ExpressionAttributeValues: expressionAttributeValues,
+            ConditionExpression: original.ConditionExpression,
+            ExpressionAttributeNames: {...original.ExpressionAttributeNames,...expressionAttributeNames},
+            ExpressionAttributeValues: {...original.ExpressionAttributeValues,...expressionAttributeValues},
             ReturnValues: 'ALL_NEW'
         };
 
@@ -433,11 +472,11 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
         return createResponse(200, {
             success: true,
             message: 'Discount updated successfully',
-            discount: result.Attributes
+            discount: {...result.Attributes,revision:revision(result.Attributes)}
         });
     } catch (error) {
         console.error('Error updating discount:', error);
-        return createResponse(500, { success: false, message: 'Failed to update discount' });
+        return discountFailure(error, 'Failed to update discount');
     }
 }
 
@@ -469,14 +508,11 @@ async function handleDeleteDiscount(dynamodb, businessId, discountId) {
             Key: {
                 discountId: discountId
             },
-            ReturnValues: 'ALL_OLD'
+            ConditionExpression: 'businessId = :business',
+            ExpressionAttributeValues: { ':business': businessId }
         };
 
-        const result = await dynamodb.send(new DeleteCommand(params));
-
-        if (!result.Attributes) {
-            return createResponse(404, { success: false, message: 'Discount not found' });
-        }
+        await dynamodb.send(new DeleteCommand(params));
 
         return createResponse(200, {
             success: true,
@@ -484,7 +520,7 @@ async function handleDeleteDiscount(dynamodb, businessId, discountId) {
         });
     } catch (error) {
         console.error('Error deleting discount:', error);
-        return createResponse(500, { success: false, message: 'Failed to delete discount' });
+        return discountFailure(error, 'Failed to delete discount');
     }
 }
 
@@ -520,7 +556,7 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
             UpdateExpression: 'SET #status = :status, #updatedAt = :updatedAt',
             ExpressionAttributeNames: {
                 '#status': 'status',
-                '#updatedAt': 'updatedAt'
+                '#updatedAt': 'updated_at'
             },
             ExpressionAttributeValues: {
                 ':status': newStatus,
@@ -538,14 +574,31 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
         });
     } catch (error) {
         console.error('Error toggling discount status:', error);
-        return createResponse(500, { success: false, message: 'Failed to toggle discount status' });
+        return discountFailure(error, 'Failed to toggle discount status');
     }
+}
+
+// Normalize a raw DynamoDB discount item to the camelCase shape the
+// validation/calculation logic expects. The table stores snake_case
+// (valid_from, minimum_order_amount, usage_limit, ...), so reading the
+// camelCase names directly would silently disable those checks.
+function normalizeDiscount(d) {
+    if (!d) return d;
+    return {
+        ...d,
+        validFrom: d.validFrom || d.valid_from,
+        validTo: d.validTo || d.valid_to,
+        minimumOrderAmount: d.minimumOrderAmount ?? d.minimum_order_amount ?? 0,
+        usageLimit: d.usageLimit ?? d.usage_limit ?? null,
+        usageCount: d.usageCount ?? d.usage_count ?? 0,
+        conditionalParameters: d.conditionalParameters || d.conditional_parameters || {},
+    };
 }
 
 // POST /discounts/validate-discount - Validate if discount can be applied to an order
 async function handleValidateDiscount(dynamodb, businessId, orderData) {
     try {
-        const { discountId, orderTotal, items } = orderData;
+        const { discountId, orderTotal, items, deliveryFee } = orderData;
 
         if (!discountId || orderTotal === undefined || !items) {
             return createResponse(400, {
@@ -567,7 +620,7 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
             return createResponse(404, { success: false, message: 'Discount not found' });
         }
 
-        const discount = result.Item;
+        const discount = normalizeDiscount(result.Item);
 
         // Check if the discount belongs to the business
         if (discount.businessId !== businessId) {
@@ -615,7 +668,7 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
         }
 
         // Calculate discount amount
-        const discountAmount = calculateDiscountAmount(discount, orderTotal, items);
+        const discountAmount = calculateDiscountAmount(discount, orderTotal, items, deliveryFee);
 
         return createResponse(200, {
             success: true,
@@ -630,50 +683,9 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
 }
 
 // POST /discounts/apply-discount - Apply discount to an order
-async function handleApplyDiscount(dynamodb, businessId, orderData) {
-    try {
-        const { discountId, orderTotal, items } = orderData;
-
-        // First validate the discount
-        const validation = await handleValidateDiscount(dynamodb, businessId, orderData);
-        if (validation.statusCode !== 200) {
-            return validation;
-        }
-
-        const validationBody = JSON.parse(validation.body);
-        const discount = validationBody.discount;
-        const discountAmount = validationBody.discountAmount;
-
-        // Increment usage count
-        const updateParams = {
-            TableName: DISCOUNTS_TABLE,
-            Key: {
-                discountId: discountId
-            },
-            UpdateExpression: 'SET #usageCount = #usageCount + :inc, #updatedAt = :updatedAt',
-            ExpressionAttributeNames: {
-                '#usageCount': 'usageCount',
-                '#updatedAt': 'updatedAt'
-            },
-            ExpressionAttributeValues: {
-                ':inc': 1,
-                ':updatedAt': new Date().toISOString()
-            }
-        };
-
-        await dynamodb.send(new UpdateCommand(updateParams));
-
-        return createResponse(200, {
-            success: true,
-            message: 'Discount applied successfully',
-            discountAmount,
-            finalTotal: orderTotal - discountAmount,
-            discount
-        });
-    } catch (error) {
-        console.error('Error applying discount:', error);
-        return createResponse(500, { success: false, message: 'Failed to apply discount' });
-    }
+async function handleApplyDiscount() {
+    // Usage belongs to the atomic customer order transaction. Preview never consumes another use.
+    return createResponse(409, {success:false, code:'DISCOUNT_REDEMPTION_REQUIRES_ORDER', message:'يُسجل استخدام الخصم عند تأكيد الطلب.'});
 }
 
 // GET /discounts/stats - Get discount statistics
@@ -716,7 +728,7 @@ async function handleGetDiscountStats(dynamodb, businessId) {
 }
 
 // Helper function to calculate discount amount
-function calculateDiscountAmount(discount, orderTotal, items) {
+function calculateDiscountAmount(discount, orderTotal, items, deliveryFee) {
     let discountableAmount = 0;
 
     // Determine discountable amount based on applicability
@@ -744,13 +756,17 @@ function calculateDiscountAmount(discount, orderTotal, items) {
     // Calculate discount based on type
     switch (discount.type) {
         case 'percentage':
-            return discountableAmount * (discount.value / 100);
+            // Clamp: never discount more than the discountable amount
+            return Math.min(discountableAmount * (discount.value / 100), discountableAmount);
+        case 'fixedAmount':
+            return Math.min(discount.value, discountableAmount);
         case 'buyXGetY':
         case 'conditional':
             // For Buy X Get Y, implement specific logic based on items
             return calculateBuyXGetYDiscount(discount, items);
         case 'freeDelivery':
-            return 0; // This would be handled separately for delivery charges
+            // Waive the delivery fee; item prices are untouched
+            return Math.max(0, deliveryFee || 0);
         default:
             return 0; // Default to 0 for unknown types
     }
@@ -793,3 +809,5 @@ function calculateBuyXGetYDiscount(discount, items) {
         return freeItems * getItem.price * (discount.value / 100);
     }
 }
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:DynamoDBDocumentClient.from(new DynamoDBClient({region:"us-east-1"}))});

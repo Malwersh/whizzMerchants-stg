@@ -11,7 +11,7 @@ const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 
@@ -91,7 +91,15 @@ async function findRegionByCoordinates(latitude, longitude) {
 }
 
 module.exports.handler = async (event) => {
-    console.log('Received event in Auth Handler:', JSON.stringify(event, null, 2));
+    if (event.type === 'TOKEN') return require('./branch_devices').authorizer(dynamodb,event);
+    if (event.path === '/branch-device' && event.httpMethod !== 'OPTIONS') {
+        try {
+            const input = JSON.parse(event.body || '{}');
+            if (!input || Array.isArray(input) || typeof input !== 'object') throw Object.assign(Error('INVALID_JSON'),{status:400});
+            return createResponse(200,await require('./branch_devices').runtime(dynamodb,event,input));
+        } catch(error) { return createResponse(error.status || 503,{code:error.status?error.message:'DEVICE_UNAVAILABLE'}); }
+    }
+    console.log('Auth request', { method: event.httpMethod, path: event.path });
     const { httpMethod, path } = event;
 
     if (httpMethod === 'OPTIONS') {
@@ -99,6 +107,25 @@ module.exports.handler = async (event) => {
     }
 
     try {
+        if(path==='/auth/onboarding-regions'&&httpMethod==='GET'){
+            try{return createResponse(200,await require('./onboarding_regions').list(dynamodb));}
+            catch(_){return createResponse(503,{success:false,code:'REGIONS_UNAVAILABLE',message:'تعذر تحميل المناطق. حاول مجددًا.'});}
+        }
+        if (['/auth/commercial-agreements','/auth/order-cancellation','/auth/order-returns','/auth/branch-devices','/auth/branch-staff','/auth/business-changes','/auth/person-registration','/auth/person-profile','/auth/branch-drafts','/auth/branch-drafts/submit','/auth/branch-drafts/config','/auth/branch-drafts/rebase','/auth/branch-assets'].includes(path)) {
+            try { return createResponse(200,await require('./person_onboarding').route({db:dynamodb,cognito:cognitoClient,authenticate:async request=>{
+                const token=(request.headers?.Authorization||request.headers?.authorization||'').replace(/^Bearer /,'');
+                if(!token)throw Object.assign(Error('UNAUTHORIZED'),{status:401});
+                const identity=await require('../shared/merchant-lifecycle').liveMerchantIdentity(cognitoClient,token);
+                const {claims,user}=identity;const sub=(user.UserAttributes||[]).find(a=>a.Name==='sub')?.Value;
+                if(claims.iss!=='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_gtCR3ndzT'||(claims.token_use==='access'?claims.client_id:claims.aud)!=='4qabvh11nmghmf9fmc6e6ludd2'||!sub||sub!==claims.sub)throw Object.assign(Error('UNAUTHORIZED'),{status:401});
+                return identity;
+            }},event)); }
+            catch(error){const unauthorized=['NotAuthorizedException','UserNotFoundException','UNAUTHORIZED'].includes(error.name)||error.message==='UNAUTHORIZED';return createResponse(error.status||(unauthorized?401:503),{success:false,code:error.status||unauthorized?error.message:'PERSON_ONBOARDING_UNAVAILABLE',message:'تعذر إكمال العملية. حاول مجددًا.'});}
+        }
+        if (path === '/auth/onboarding-settings' && httpMethod === 'GET') {
+            try { return createResponse(200, await require('./onboarding_settings').readSettings(dynamodb, {regionId: event.queryStringParameters?.regionId})); }
+            catch (_) { return createResponse(503, {success:false, code:'ONBOARDING_SETTINGS_UNAVAILABLE', message:'تعذر تحميل إعدادات إنشاء النشاط. حاول مجددًا.'}); }
+        }
         // Handle health check
         if (path === '/auth/health') {
             return createResponse(200, {
@@ -192,6 +219,10 @@ module.exports.handler = async (event) => {
                 });
             }
 
+            let registrationType;
+            try { registrationType = await require('./onboarding_settings').resolveType(dynamodb, {businessType, configVersion:body.configVersion, regionId:body.regionId || body.address?.regionId}); }
+            catch (e) { return createResponse(['BUSINESS_TYPE_UNAVAILABLE','CONFIG_CHANGED'].includes(e.message)?400:503, {success:false,code:e.message,message:'نوع النشاط غير متاح أو تغيرت القائمة. حدّث الخيارات قبل المتابعة.'}); }
+
             try {
                 // Format phone number to international format for Cognito
                 let formattedPhoneNumber = '+1234567890'; // Default fallback
@@ -217,7 +248,7 @@ module.exports.handler = async (event) => {
                     }
                 }
                 
-                console.log('Phone number formatting:', phoneNumber, '->', formattedPhoneNumber);
+                // Phone values are not written to technical logs.
 
                 if (!/^\+9647\d{9}$/.test(formattedPhoneNumber)) {
                     return createResponse(400, {
@@ -271,7 +302,9 @@ module.exports.handler = async (event) => {
                 const businessData = {
                     businessId: businessId,
                     businessName: businessName,
-                    businessType: businessType || 'restaurant',
+                    businessType: registrationType.legacyType,
+                    businessTypeId: registrationType.id,
+                    onboardingConfigVersion: registrationType.configVersion,
                     ...(cleanEmail ? { email: cleanEmail } : {}),
                     ownerName: `${firstName} ${lastName}`,
                     phoneNumber: formattedPhoneNumber,
@@ -530,6 +563,7 @@ module.exports.handler = async (event) => {
                                 businessId: business.businessId,
                                 name: business.businessName || business.name,
                                 email: business.email,
+                                businessPhotoUrl: business.businessPhotoUrl || business.business_photo_url || null,
                                 ownerId: business.ownerId,
                                 cognitoUserId: business.cognitoUserId,
                                 status: business.status || 'approved',
@@ -742,177 +776,28 @@ module.exports.handler = async (event) => {
             }
         }
 
-        // Handle getting user businesses (used by business provider)
+        // An authenticated person can legitimately have no businesses after closure.
         if (path === '/auth/user-businesses' && httpMethod === 'GET') {
-            console.log('🏢 Getting user businesses from access token...');
-            
             const authHeader = event.headers?.Authorization || event.headers?.authorization;
-            
-            if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                return createResponse(401, {
-                    success: false,
-                    message: 'Authorization header is missing or invalid'
-                });
-            }
-
-            const bearerToken = authHeader.replace('Bearer ', '');
-
+            if (!authHeader?.startsWith('Bearer ')) return createResponse(401, { success: false, message: 'Authentication required' });
+            let identity;
             try {
-                // The API Gateway Cognito authorizer has already verified the token.
-                // Read user info from the verified claims when available; otherwise
-                // decode the JWT payload directly. This works for both ID tokens
-                // (sent by the app) and access tokens, avoiding Cognito GetUser
-                // which only accepts access tokens.
-                let claims = event.requestContext?.authorizer?.claims;
-                if (!claims) {
-                    try {
-                        const payload = bearerToken.split('.')[1];
-                        const decoded = Buffer.from(
-                            payload.replace(/-/g, '+').replace(/_/g, '/'),
-                            'base64'
-                        ).toString('utf8');
-                        claims = JSON.parse(decoded);
-                    } catch (decodeErr) {
-                        console.error('❌ Failed to decode token payload:', decodeErr);
-                        return createResponse(401, {
-                            success: false,
-                            message: 'Invalid or expired access token'
-                        });
-                    }
-                }
-
-                const email = claims.email;
-                const userId = claims.sub || claims['cognito:username'] || claims.username;
-                const firstName = claims.given_name;
-                const lastName = claims.family_name;
-                const phoneNumber = claims.phone_number;
-
-                console.log(`🔐 Authenticated user: ${email || phoneNumber} (${userId})`);
-
-                // Query businesses for this user - ENHANCED DEBUGGING
-                let businesses = [];
-                console.log(`🔍 DEBUG: Querying businesses for user: ${email}`);
-                console.log(`🔍 DEBUG: User ID: ${userId}`);
-                console.log(`🔍 DEBUG: Table: ${process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses'}`);
-                
-                try {
-                    // Phone-only users may have no email: only use email-index when an email exists.
-                    let businessResult = { Items: [] };
-                    if (email) {
-                        const businessQueryParams = {
-                            TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
-                            IndexName: 'email-index',
-                            KeyConditionExpression: 'email = :email',
-                            ExpressionAttributeValues: {
-                                ':email': email.toLowerCase().trim()
-                            }
-                        };
-                        businessResult = await dynamodb.send(new QueryCommand(businessQueryParams));
-                    }
-                    console.log(`🔍 DEBUG: Email query result: Found ${businessResult.Items?.length || 0} businesses`);
-                    
-                    if (businessResult.Items && businessResult.Items.length > 0) {
-                        businesses = businessResult.Items.map(business => ({
-                            businessId: business.businessId,
-                            businessName: business.businessName || business.name,
-                            email: business.email,
-                            ownerId: business.ownerId,
-                            cognitoUserId: business.cognitoUserId,
-                            status: business.status || 'approved',
-                            businessType: business.businessType || 'restaurant',
-                            address: business.address,
-                            phoneNumber: business.phoneNumber || business.phone,
-                            city: business.city,
-                            district: business.district,
-                            country: business.country
-                        }));
-                        console.log(`✅ Found ${businesses.length} businesses for user: ${email}`);
-                        console.log(`📋 Business IDs: ${businesses.map(b => b.businessId).join(', ')}`);
-                    } else {
-                        console.log(`⚠️ No businesses found with email-index query for: ${email}`);
-                        
-                        // Try alternative approach: scan by cognitoUserId
-                        console.log(`🔄 Trying alternative query by cognitoUserId: ${userId}`);
-                        const altParams = {
-                            TableName: process.env.BUSINESSES_TABLE || 'WhizzMerchants_Businesses',
-                            FilterExpression: 'cognitoUserId = :userId OR ownerId = :userId' + (phoneNumber ? ' OR phoneNumber = :phone OR phone = :phone' : ''),
-                            ExpressionAttributeValues: phoneNumber
-                                ? { ':userId': userId, ':phone': phoneNumber }
-                                : { ':userId': userId }
-                        };
-                        
-                        const altResult = await dynamodb.send(new ScanCommand(altParams));
-                        console.log(`🔍 Alternative scan result: Found ${altResult.Items?.length || 0} businesses`);
-                        
-                        if (altResult.Items && altResult.Items.length > 0) {
-                            businesses = altResult.Items.map(business => ({
-                                businessId: business.businessId,
-                                businessName: business.businessName || business.name,
-                                email: business.email,
-                                ownerId: business.ownerId,
-                                cognitoUserId: business.cognitoUserId,
-                                status: business.status || 'approved',
-                                businessType: business.businessType || 'restaurant',
-                                address: business.address,
-                                phoneNumber: business.phoneNumber || business.phone,
-                                city: business.city,
-                                district: business.district,
-                                country: business.country
-                            }));
-                            console.log(`✅ Found ${businesses.length} businesses via cognitoUserId`);
-                            console.log(`📋 Business IDs: ${businesses.map(b => b.businessId).join(', ')}`);
-                        } else {
-                            console.error(`❌ NO BUSINESSES FOUND for user ${userId} (${email})`);
-                            console.error(`❌ This should not happen for registered business users`);
-                            // Return empty array instead of creating fake business
-                            businesses = [];
-                        }
-                    }
-                } catch (businessError) {
-                    console.error('❌ Error querying businesses:', businessError);
-                    // Return empty array on error instead of creating fake business
-                    businesses = [];
-                }
-
-                console.log(`✅ Returning ${businesses.length} businesses for user ${email}`);
-                
-                if (businesses.length === 0) {
-                    return createResponse(404, {
-                        success: false,
-                        message: 'No businesses found for this user',
-                        debug: {
-                            email: email,
-                            userId: userId,
-                            queryAttempts: ['email-index', 'cognitoUserId scan']
-                        }
-                    });
-                }
-
-                return createResponse(200, {
-                    success: true,
-                    businesses: businesses,
-                    debug: {
-                        email: email,
-                        userId: userId,
-                        found: businesses.length
-                    }
-                });
-
-            } catch (cognitoError) {
-                console.error('Error verifying access token:', cognitoError);
-                
-                if (cognitoError.name === 'NotAuthorizedException') {
-                    return createResponse(401, {
-                        success: false,
-                        message: 'Invalid or expired access token'
-                    });
-                }
-                
-                return createResponse(500, {
-                    success: false,
-                    message: 'Authentication service error',
-                    error: cognitoError.message
-                });
+                identity = await require('../shared/merchant-lifecycle').liveMerchantIdentity(cognitoClient, authHeader.slice(7));
+                const { user, claims } = identity;
+                const sub = (user.UserAttributes || []).find(a => a.Name === 'sub')?.Value;
+                if (claims.iss !== 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_gtCR3ndzT' ||
+                    (claims.token_use === 'access' ? claims.client_id : claims.aud) !== '4qabvh11nmghmf9fmc6e6ludd2' ||
+                    !sub || sub !== claims.sub) throw new Error('UNAUTHORIZED');
+            } catch (error) {
+                const denied = ['UNAUTHORIZED', 'NotAuthorizedException', 'UserNotFoundException'].includes(error.message) ||
+                    ['NotAuthorizedException', 'UserNotFoundException'].includes(error.name);
+                return createResponse(denied ? 401 : 503, { success: false, message: denied ? 'Authentication required' : 'Authentication temporarily unavailable' });
+            }
+            try {
+                const businesses = await require('./merchant_business_list').listOwnedBusinesses(dynamodb, identity.claims.sub);
+                return createResponse(200, { success: true, businesses });
+            } catch (_) {
+                return createResponse(503, { success: false, message: 'Business list temporarily unavailable' });
             }
         }
 

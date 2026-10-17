@@ -17,8 +17,29 @@ final businessProvider = FutureProvider<Business?>((ref) async {
         '🏢 BusinessProvider: returning null - not authenticated or no businessId');
     return null;
   }
-  
-  // ⚠️ Following wizzuser: ALWAYS use cached data if present (don't depend on API)
+
+  // Try the API first so profile edits and photo uploads show up immediately.
+  // Fall back to cached session data when the API is unavailable (offline resilience).
+  debugPrint('🏢 BusinessProvider: fetching from API...');
+  try {
+    final api = ApiService();
+    final businesses = await api.getUserBusinesses();
+    debugPrint(
+        '🏢 BusinessProvider: API returned ${businesses.length} businesses');
+
+    final matches = businesses.where((b) =>
+        (b['businessId'] ?? b['id']) == session.businessId &&
+        b['deletionRequestId'] == null).toList();
+    if (matches.isNotEmpty) return Business.fromJson(matches.first);
+    // A successful server response is authoritative: do not restore a
+    // removed business from cached data or synthesize a placeholder for it.
+    await ref.read(sessionProvider.notifier).clearBusinessSelection();
+    return null;
+  } catch (e) {
+    debugPrint('🏢 BusinessProvider: API error, falling back to cache: $e');
+  }
+
+  // Cached data fallback (also keeps offline behavior)
   if (session.businessData != null) {
     debugPrint('🏢 BusinessProvider: trying to parse cached businessData');
     try {
@@ -28,45 +49,22 @@ final businessProvider = FutureProvider<Business?>((ref) async {
       return business;
     } catch (e) {
       debugPrint('🏢 BusinessProvider: failed to parse cached data: $e');
-      // Continue to API if cache parse fails
     }
   }
-  
-  debugPrint('🏢 BusinessProvider: fetching from API...');
-  try {
-    final api = ApiService();
-    final businesses = await api.getUserBusinesses();
-    debugPrint(
-        '🏢 BusinessProvider: API returned ${businesses.length} businesses');
-    
-    if (businesses.isEmpty) {
-      debugPrint('🏢 BusinessProvider: no businesses found from API');
-      return null;
-    }
-    
-    final match = businesses.firstWhere(
-      (b) => (b['businessId'] ?? b['id']) == session.businessId,
-      orElse: () => businesses.first,
+
+  // Last resort: minimal Business from session
+  if (session.businessId != null) {
+    debugPrint('🏢 BusinessProvider: Creating minimal business from session businessId');
+    return Business(
+      id: session.businessId!,
+      name: 'Business', // Placeholder - will be updated when API works
+      email: '',
+      phone: '',
+      address: '',
+      businessType: BusinessType.restaurant, // Default type
     );
-    debugPrint(
-        '🏢 BusinessProvider: matched business: ${match['businessName'] ?? match['name']}');
-    return Business.fromJson(match);
-  } catch (e) {
-    debugPrint('🏢 BusinessProvider: API error: $e');
-    // ⚠️ Following wizzuser: If API fails, create minimal Business from session
-    if (session.businessId != null) {
-      debugPrint('🏢 BusinessProvider: Creating minimal business from session businessId');
-      return Business(
-        id: session.businessId!,
-        name: 'Business', // Placeholder - will be updated when API works
-        email: '',
-        phone: '',
-        address: '',
-        businessType: BusinessType.restaurant, // Default type
-      );
-    }
-    return null;
   }
+  return null;
 });
 
 final enhancedBusinessProvider = FutureProvider<Business?>((ref) async {

@@ -20,6 +20,7 @@ class OrderCacheService {
         'driverId': order.driverId,
         'driverName': order.driverName,
         'driverPhone': order.driverPhone,
+        'driverSearchUnavailable': order.driverSearchUnavailable,
         'vehicleType': order.vehicleType,
         'vehiclePlate': order.vehiclePlate,
         'driverAssignedAt': order.driverAssignedAt?.toIso8601String(),
@@ -99,7 +100,8 @@ class OrderCacheService {
     final vehicleChanged = cached['vehicleType'] != newOrder.vehicleType;
     final updatedAtChanged = cached['updatedAt'] != newOrder.updatedAt?.toIso8601String();
 
-    final hasChanged = statusChanged || driverChanged || driverNameChanged || vehicleChanged || updatedAtChanged;
+    final searchChanged = (cached['driverSearchUnavailable'] == true) != newOrder.driverSearchUnavailable;
+    final hasChanged = searchChanged || statusChanged || driverChanged || driverNameChanged || vehicleChanged || updatedAtChanged;
 
     AppLogger.info('🔍 Comparison results:');
     AppLogger.info('   Status changed? $statusChanged');

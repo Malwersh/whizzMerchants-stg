@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, UpdateCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
@@ -5,7 +6,8 @@ const jwt = require('jsonwebtoken');
 
 // Initialize DynamoDB
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb = DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb = merchantLifecycleClient(lifecycleRawDb);
 
 // Table names from environment variables
 const BUSINESSES_TABLE = process.env.BUSINESSES_TABLE || 'order-receiver-businesses-dev';
@@ -26,7 +28,7 @@ const corsHeaders = {
  * - Address and contact information
  */
 exports.handler = async (event) => {
-  console.log('📋 Business Profile Event:', JSON.stringify(event, null, 2));
+  console.log('📋 Business Profile Event:', {method:event.httpMethod,path:event.path});
 
   // Handle CORS preflight requests
   if (event.httpMethod === 'OPTIONS') {
@@ -286,7 +288,16 @@ async function handleUpdateBusinessProfile(businessId, requestBody) {
     }
 
     const updates = JSON.parse(requestBody);
-    console.log('📝 Updating business profile:', JSON.stringify(updates, null, 2));
+    console.log('Updating business profile fields:', Object.keys(updates));
+
+    if (Object.keys(updates).some(k=>['businessName','name','address','city','district','country','street','latitude','longitude','regionId','regionPath'].includes(k))) return {statusCode:409,headers:corsHeaders,body:JSON.stringify({success:false,code:'CHANGE_REVIEW_REQUIRED',message:'تعديل الاسم أو الموقع يحتاج طلب مراجعة.'})};
+
+    if(Object.keys(updates).some(k=>['ownerName','phone','phoneNumber'].includes(k)))return {statusCode:409,headers:corsHeaders,body:JSON.stringify({success:false,code:'PERSON_OR_PHONE_FLOW_REQUIRED',message:'بيانات الشخص وهاتف الفرع تحتاج مسار تحقق مستقل.'})};
+    if(updates.description!==undefined&&(typeof updates.description!=='string'||updates.description.length>2000))return {statusCode:400,headers:corsHeaders,body:JSON.stringify({success:false,code:'INVALID_DESCRIPTION',message:'الوصف يجب ألا يتجاوز 2000 حرف.'})};
+
+    const directFields={description:2000,website:2048,businessPhotoUrl:4096};
+    if(Object.keys(updates).some(k=>!Object.hasOwn(directFields,k)))return {statusCode:400,headers:corsHeaders,body:JSON.stringify({success:false,code:'UNKNOWN_PROFILE_FIELD',message:'هذا الحقل لا يعدل من محرر البيانات العامة.'})};
+    if(Object.entries(updates).some(([k,v])=>v!==null&&(typeof v!=='string'||v.length>directFields[k])))return {statusCode:400,headers:corsHeaders,body:JSON.stringify({success:false,code:'INVALID_PROFILE_VALUE',message:'تحقق من نوع وطول البيانات المدخلة.'})};
 
     // Build update expression dynamically based on provided fields
     const updateExpressions = [];
@@ -294,23 +305,7 @@ async function handleUpdateBusinessProfile(businessId, requestBody) {
     const expressionAttributeValues = {};
 
     // Allowed fields for update
-    const allowedFields = {
-      businessName: 'businessName',
-      name: 'businessName',
-      ownerName: 'ownerName',
-      phoneNumber: 'phoneNumber',
-      phone: 'phoneNumber',
-      description: 'description',
-      website: 'website',
-      businessPhotoUrl: 'businessPhotoUrl',
-      address: 'address',
-      city: 'city',
-      district: 'district',
-      country: 'country',
-      street: 'street',
-      latitude: 'latitude',
-      longitude: 'longitude'
-    };
+    const allowedFields = {description:'description',website:'website',businessPhotoUrl:'businessPhotoUrl'};
 
     // Process each field in the update request
     Object.keys(updates).forEach(key => {
@@ -378,3 +373,5 @@ async function handleUpdateBusinessProfile(businessId, requestBody) {
     };
   }
 }
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});

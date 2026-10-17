@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../core/utils/app_logger.dart';
 import '../utils/token_validator.dart';
@@ -34,6 +35,22 @@ class TokenRefreshService {
   static Future<String?> getValidAccessToken() async {
     // Delegate to getValidIdToken to keep existing call sites working.
     return getValidIdToken();
+  }
+
+  /// Cognito GetUser requires an access token, never an ID-token fallback.
+  static Future<String?> getValidUserAccessToken() async {
+    bool valid(String? value) {
+      if (value == null || TokenValidator.isTokenExpired(value)) return false;
+      try {
+        final payload = jsonDecode(utf8.decode(base64Url.decode(
+            base64Url.normalize(value.split('.')[1]))));
+        return payload['token_use'] == 'access';
+      } catch (_) { return false; }
+    }
+    final stored = await SecureTokenStorage.getAccessToken();
+    if (valid(stored)) return stored;
+    final refreshed = (await refreshTokens())?['accessToken'];
+    return valid(refreshed) ? refreshed : null;
   }
 
   /// Refresh tokens via backend. This call is deduped so only one refresh runs at a time.

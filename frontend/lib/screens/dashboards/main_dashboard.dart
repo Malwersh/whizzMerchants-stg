@@ -1,3 +1,4 @@
+import '../delete_account_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -1905,85 +1906,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
   }
 
   void _showDeleteAccountDialog() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              Icons.warning_amber_rounded,
-              color: WhizzColors.error,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            const Text('Delete Account?'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This action cannot be undone. This will permanently delete:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            _buildDeleteWarningItem('Your business profile'),
-            _buildDeleteWarningItem('All your products and menu items'),
-            _buildDeleteWarningItem('Order history'),
-            _buildDeleteWarningItem('Business analytics and reports'),
-            _buildDeleteWarningItem('All associated data'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: WhizzColors.error.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: WhizzColors.error,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'This action is permanent and cannot be reversed.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: WhizzColors.error,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: WhizzColors.error,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete My Account'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      _confirmAndDeleteAccount();
-    }
+    await openMerchantDeletion(context, ref.read(businessProvider).value?.id);
   }
 
   Widget _buildDeleteWarningItem(String text) {
