@@ -30,6 +30,7 @@ async function route({db,cognito,authenticate},event){
  if(['/auth/order-returns','/auth/order-cancellation'].includes(path))return require('./order_returns').route({db,sub},event,input);
  if(path==='/auth/branch-devices')return require('./device_pairing_verification').route({db,cognito,sub,identity},event,input);
  if(path==='/auth/branch-staff')return require('./branch_staff').route({db,sub,identity,phone},event,input);
+ if(path==='/auth/commercial-agreements')return require('./commercial_agreements').route(event,input);
  if(path==='/auth/business-changes')return require('./business_changes').route({db,sub},event,input);
  if(path==='/auth/branch-assets')return require('./onboarding_assets').route({db,sub},event,input);
  if(path.startsWith('/auth/branch-drafts'))return require('./onboarding_drafts').route({db,sub,phone},event,input);

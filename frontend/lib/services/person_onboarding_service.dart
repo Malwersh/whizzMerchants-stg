@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'auth_header_builder.dart';
+import 'token_refresh_service.dart';
 import 'app_auth_service.dart';
 
 class PersonOnboardingService {
@@ -18,6 +19,15 @@ class PersonOnboardingService {
     final headers = authenticated
         ? await AuthHeaderBuilder.build()
         : <String, String>{'Content-Type': 'application/json'};
+    // Gateway verifies the ID token; the commercial service independently
+    // validates the access token and checks the live Cognito account.
+    if (authenticated && path.split('?').first == 'commercial-agreements') {
+      final accessToken = await TokenRefreshService.getValidUserAccessToken();
+      if (accessToken == null || accessToken.isEmpty) {
+        throw Exception('أعد تسجيل الدخول لتحميل الاتفاقية التجارية.');
+      }
+      headers['Access-Token'] = accessToken;
+    }
     final response = await (body == null
             ? client.get(uri, headers: headers)
             : client.post(uri, headers: headers, body: jsonEncode(body)))
@@ -92,6 +102,9 @@ class PersonOnboardingService {
                 'تغيرت بيانات محاولة الإرسال. أعد فتح الشاشة.',
             'INVALID_TEXT': 'أكمل الاسم وسبب التعديل.',
             'BUSINESS_UNAVAILABLE': 'النشاط غير متاح لهذا الحساب.',
+            'COMMERCIAL_MANAGEMENT_DISABLED': 'إدارة الاتفاقيات التجارية لم تُفتح بعد على هذه البيئة.',
+            'COMMERCIAL_RECENT_SIGN_IN_REQUIRED': 'أعد تسجيل الدخول لتأكيد موافقتك على الاتفاقية التجارية.',
+            'FUNDING_TERMS_CHANGED': 'تغيرت شروط تمويل الخصم. اطلب مراجعة النسخة الجديدة قبل الموافقة.',
             'INVALID_PHONE': 'أدخل رقم هاتف عراقيًا صحيحًا.',
             'REGION_PATH_REQUIRED': 'اختر البلد والمحافظة والقضاء والمنطقة.',
             'REGION_UNAVAILABLE':

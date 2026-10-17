@@ -1,3 +1,4 @@
+import 'commercial_agreements_screen.dart';
 import 'person_profile_screen.dart';
 import '../services/person_onboarding_service.dart';
 import 'merchant_business_changes_screen.dart';
@@ -1066,6 +1067,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     }
 
     return _buildModernCard([
+      ListTile(leading:const Icon(Icons.handshake_outlined),title:const Text('الاتفاقيات التجارية والعمولة'),onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>CommercialAgreementsScreen(businessId:business.id,businessName:business.name)))),
       ExpansionTile(leading:const Icon(Icons.edit_note),title:const Text('تعديل الاسم ومتابعة الطلبات'),subtitle:const Text('الاسم والموقع يتغيران بعد الموافقة'),children:[MerchantBusinessChangesScreen(businessId:business.id,embedded:true)]),
       ListTile(leading:const Icon(Icons.location_on_outlined),title:const Text('تعديل العنوان والموقع'),onTap:()=>LocationSettingsFullBottomDrawer.show(context:context,business:business)),
       _buildInfoRow(l10n.businessName, business.name, Icons.business),

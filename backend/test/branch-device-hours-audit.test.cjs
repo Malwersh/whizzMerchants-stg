@@ -5,7 +5,7 @@ class TransactWriteCommand{constructor(input){this.input=input;}}
 const moduleSource=file=>fs.readFileSync(__dirname+'/../functions/shared/'+file,'utf8');
 const helper={exports:{}};vm.runInNewContext(moduleSource('branch-device-hours-audit.js'),{module:helper,require:n=>n==='node:crypto'?require(n):{GetCommand}});
 function fixture(){
- const m={exports:{}};vm.runInNewContext(moduleSource('merchant-lifecycle.js'),{module:m,process:{env:{}},require:n=>n.startsWith('node:')?require(n):n==='./branch-device-hours-audit'?helper.exports:n==='@aws-sdk/lib-dynamodb'?{GetCommand,TransactWriteCommand}:{CognitoIdentityProviderClient:class{}}});
+ const m={exports:{}};vm.runInNewContext(moduleSource('merchant-lifecycle.js'),{module:m,process:{env:{}},require:n=>n==='./legacy-order-policy'?require('../functions/shared/legacy-order-policy'):n.startsWith('node:')?require(n):n==='./branch-device-hours-audit'?helper.exports:n==='@aws-sdk/lib-dynamodb'?{GetCommand,TransactWriteCommand}:{CognitoIdentityProviderClient:class{}}});
  const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],rows=new Map(days.map(weekday=>[weekday,{businessId:'b',weekday,opening:'09:00',closing:'18:00',isClosed:false,updatedAt:'original',secret:'never-audit'}])),events=[],calls=[];
  let blocked=false,failedAudit=false,race;
  const actor={sub:'employee',businessId:'b',ownerId:'owner',actorName:'أحمد',roleName:'مدير',deviceId:'d',sessionId:'s',permissionVersion:2,policyVersion:3,deviceGuards:[{ConditionCheck:{TableName:'staging-MerchantPlatform',Key:{pk:'BRANCH#b',sk:'MEMBER#employee'},ConditionExpression:'#v=:v',ExpressionAttributeNames:{'#v':'version'},ExpressionAttributeValues:{':v':2}}}]};

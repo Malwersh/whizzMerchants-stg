@@ -3,10 +3,10 @@ const test=require('node:test'),assert=require('node:assert/strict'),vm=require(
 class GetCommand{constructor(input){this.input=input;}}
 class UpdateCommand{constructor(input){this.input=input;}}
 class TransactWriteCommand{constructor(input){this.input=input;}}
-function fixture(){const module={exports:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/../functions/shared/merchant-lifecycle.js','utf8'),{module,process:{env:{}},require:n=>n.startsWith('node:')?require(n):n==='@aws-sdk/lib-dynamodb'?{GetCommand,TransactWriteCommand}: {CognitoIdentityProviderClient:class{}}});let current={storeId:'b',orderId:'o',status:'pending'},revoked=false,auditFailed=false;const transactions=[],events=[];
+function fixture(){const module={exports:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/../functions/shared/merchant-lifecycle.js','utf8'),{module,process:{env:{}},require:n=>n==='./legacy-order-policy'?require('../functions/shared/legacy-order-policy'):n.startsWith('node:')?require(n):n==='@aws-sdk/lib-dynamodb'?{GetCommand,TransactWriteCommand}: {CognitoIdentityProviderClient:class{}}});let current={storeId:'b',orderId:'o',status:'pending'},revoked=false,auditFailed=false;const transactions=[],events=[];
  const raw={send:async c=>{if(c.constructor.name==='GetCommand')return {Item:structuredClone(current)};const tx=c.input.TransactItems;transactions.push(tx);const u=tx.find(x=>x.Update)?.Update;
  if(revoked || auditFailed || u?.ExpressionAttributeValues[':deviceExpectedStatus']!==undefined&&current.status!==u.ExpressionAttributeValues[':deviceExpectedStatus'])throw Object.assign(Error('Conflict'),{name:'TransactionCanceledException'});
- if(u?.TableName==='WizzOrders')current={...current,status:u.ExpressionAttributeValues[':status']};events.push(...tx.filter(x=>x.Put?.Item.action==='ORDER_STATUS_CHANGED').map(x=>x.Put.Item));return {};}};
+ if(u?.TableName==='WizzOrders'){current={...current,status:u.ExpressionAttributeValues[':status']};if(u.UpdateExpression.includes('#lfCanonicalOrderStatus'))current.orderStatus=u.ExpressionAttributeValues[':status'];if(u.ExpressionAttributeValues[':storeStatus'])current.storeStatus=u.ExpressionAttributeValues[':storeStatus'];}events.push(...tx.filter(x=>x.Put?.Item.action==='ORDER_STATUS_CHANGED').map(x=>x.Put.Item));return {};}};
  const actor={sub:'employee',ownerId:'owner',businessId:'b',deviceId:'device',sessionId:'session',actorName:'أحمد',roleName:'تشغيلي',permissionVersion:3,policyVersion:2,deviceOrder:{id:'o',expectedStatus:'pending',targetStatus:'confirmed'},deviceGuards:[{ConditionCheck:{TableName:'staging-MerchantPlatform',Key:{pk:'BRANCH#b',sk:'MEMBER#employee'},ConditionExpression:'#v=:v',ExpressionAttributeNames:{'#v':'version'},ExpressionAttributeValues:{':v':1}}}]};
  const run=(input={TableName:'WizzOrders',Key:{PK:'ORDER#o',SK:'META'},UpdateExpression:'SET #status=:status',ExpressionAttributeNames:{'#status':'status'},ExpressionAttributeValues:{':status':'confirmed'},ReturnValues:'ALL_NEW'})=>module.exports.merchantRequestContext.run(actor,()=>module.exports.merchantLifecycleClient(raw).send(new UpdateCommand(input)));
  return {run,transactions,actor,events,current:()=>current,setStatus:s=>current.status=s,failAudit:()=>auditFailed=true,revoke:()=>revoked=true};}
@@ -21,3 +21,29 @@ test('failed audit or revoked membership leaves no order change or success event
 test('employee cannot substitute another status or order for the authorized action',async()=>{const f=fixture();for(const patch of [{targetStatus:'delivered'},{targetStatus:'rejected'},{id:'foreign'}]){Object.assign(f.actor.deviceOrder,patch);await assert.rejects(f.run());f.actor.deviceOrder={id:'o',expectedStatus:'pending',targetStatus:'confirmed'};}assert.equal(f.transactions.length,0);});
 
 test('owner order writes retain their existing lifecycle guards without employee audit',async()=>{const f=fixture();delete f.actor.deviceGuards;delete f.actor.deviceOrder;f.actor.sub='owner';await f.run();assert.equal(f.events.length,0);assert.equal(f.transactions[0].filter(x=>x.ConditionCheck).length,3);assert.equal(f.transactions[0].find(x=>x.Update).Update.ExpressionAttributeValues[':deviceActorId'],undefined);});
+
+test('financial order accepts preparation but rejects terminal and rollback writes before transaction/audit',async()=>{
+ const f=fixture();f.current().financialSnapshot={digest:'frozen'};
+ await f.run();assert.equal(f.current().status,'confirmed');
+ const update=f.transactions[0].find(x=>x.Update).Update;assert.ok(Object.values(update.ExpressionAttributeNames).includes('financialSnapshot'));
+ for(const target of ['delivered','cancelled','rejected']){
+  const old=f.events.length;f.actor.deviceOrder={id:'o',expectedStatus:'confirmed',targetStatus:target};await assert.rejects(f.run({TableName:'WizzOrders',Key:{PK:'ORDER#o',SK:'META'},UpdateExpression:'SET #status=:status',ExpressionAttributeNames:{'#status':'status'},ExpressionAttributeValues:{':status':target}}),/WORKFLOW_REQUIRED/);assert.equal(f.events.length,old);
+ }
+});
+test('financial order with an assignment or terminal archive marker cannot reenter preparation',async()=>{
+ for(const patch of [{financialAcceptance:{schemaVersion:1}},{financialOutcome:'done'},{codFinancialEvidence:{}},{driverId:'d'}]){
+  const f=fixture();Object.assign(f.current(),{financialSnapshot:{},...patch});await assert.rejects(f.run(),/WORKFLOW_REQUIRED/);assert.equal(f.transactions.length,0);assert.equal(f.events.length,0);
+ }
+});
+
+
+test('employee ready action atomically saves canonical financial readiness and audits the saved state',async()=>{
+ const f=fixture();Object.assign(f.current(),{status:'preparing',orderStatus:'confirmed',financialSnapshot:{digest:'frozen'}});f.actor.deviceOrder={id:'o',expectedStatus:'preparing',targetStatus:'ready'};
+ await f.run({TableName:'WizzOrders',Key:{PK:'ORDER#o',SK:'META'},UpdateExpression:'SET #status=:status, storeStatus=:storeStatus',ExpressionAttributeNames:{'#status':'status'},ExpressionAttributeValues:{':status':'ready',':storeStatus':'b#ready#b4'}});
+ assert.equal(f.current().status,'ready_for_pickup');assert.equal(f.current().orderStatus,'ready_for_pickup');assert.equal(f.current().storeStatus,'b#ready_for_pickup#b4');assert.equal(f.events[0].after.status,'ready_for_pickup');assert.equal(f.actor.deviceOrder.targetStatus,'ready');
+});
+test('legacy employee ready retains its original state and audit value',async()=>{
+ const f=fixture();f.current().status='preparing';f.actor.deviceOrder={id:'o',expectedStatus:'preparing',targetStatus:'ready'};
+ await f.run({TableName:'WizzOrders',Key:{PK:'ORDER#o',SK:'META'},UpdateExpression:'SET #status=:status',ExpressionAttributeNames:{'#status':'status'},ExpressionAttributeValues:{':status':'ready'}});
+ assert.equal(f.current().status,'ready');assert.equal(f.current().orderStatus,undefined);assert.equal(f.events[0].after.status,'ready');
+});

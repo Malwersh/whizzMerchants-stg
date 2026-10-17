@@ -3,6 +3,10 @@ Transform: AWS::Serverless-2016-10-31
 Description: Wizz Merchants API - Complete Backend Stack v3.0
 
 Parameters:
+  CommercialAdminEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
   MerchantStaffPermissionMode:
     Type: String
     Default: CENTRAL
@@ -311,6 +315,8 @@ Resources:
     DependsOn: BusinessStatusBroadcastFunction
     Properties:
       Name: !Sub "order-receiver-regional-${Stage}"
+      # Dedicated COD stack owns return/cancellation child routes. Preserve these and other separately managed paths.
+      Mode: merge
       StageName: !Ref Stage
       EndpointConfiguration:
         Type: REGIONAL
@@ -1071,6 +1077,47 @@ Resources:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /auth/commercial-agreements:
+                get:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                post:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                options:
+                  security: []
+                  responses:
+                    '200':
+                      description: CORS preflight response
+                      headers:
+                        Access-Control-Allow-Origin:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Methods:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Headers:
+                          schema:
+                            type: string
+                  x-amazon-apigateway-integration:
+                    type: mock
+                    requestTemplates:
+                      application/json: '{"statusCode": 200}'
+                    responses:
+                      default:
+                        statusCode: "200"
+                        responseParameters:
+                          method.response.header.Access-Control-Allow-Origin: "'*'"
+                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
               /auth/branch-staff:
                 get:
                   security:
@@ -1079,81 +1126,6 @@ Resources:
                     type: aws_proxy
                     httpMethod: POST
                     uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
-                post:
-                  security:
-                    - CognitoAuthorizer: []
-                  x-amazon-apigateway-integration:
-                    type: aws_proxy
-                    httpMethod: POST
-                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
-                options:
-                  security: []
-                  responses:
-                    '200':
-                      description: CORS preflight response
-                      headers:
-                        Access-Control-Allow-Origin:
-                          schema:
-                            type: string
-                        Access-Control-Allow-Methods:
-                          schema:
-                            type: string
-                        Access-Control-Allow-Headers:
-                          schema:
-                            type: string
-                  x-amazon-apigateway-integration:
-                    type: mock
-                    requestTemplates:
-                      application/json: '{"statusCode": 200}'
-                    responses:
-                      default:
-                        statusCode: "200"
-                        responseParameters:
-                          method.response.header.Access-Control-Allow-Origin: "'*'"
-                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
-                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
-              /auth/order-returns:
-                get:
-                  security:
-                    - CognitoAuthorizer: []
-                  x-amazon-apigateway-integration:
-                    type: aws_proxy
-                    httpMethod: POST
-                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
-                post:
-                  security:
-                    - CognitoAuthorizer: []
-                  x-amazon-apigateway-integration:
-                    type: aws_proxy
-                    httpMethod: POST
-                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
-                options:
-                  security: []
-                  responses:
-                    '200':
-                      description: CORS preflight response
-                      headers:
-                        Access-Control-Allow-Origin:
-                          schema:
-                            type: string
-                        Access-Control-Allow-Methods:
-                          schema:
-                            type: string
-                        Access-Control-Allow-Headers:
-                          schema:
-                            type: string
-                  x-amazon-apigateway-integration:
-                    type: mock
-                    requestTemplates:
-                      application/json: '{"statusCode": 200}'
-                    responses:
-                      default:
-                        statusCode: "200"
-                        responseParameters:
-                          method.response.header.Access-Control-Allow-Origin: "'*'"
-                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
-                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
-              /auth/order-cancellation:
                 post:
                   security:
                     - CognitoAuthorizer: []
@@ -2827,6 +2799,7 @@ Resources:
       FunctionName: !Sub 'order-receiver-regional-${Stage}-unified-auth-v4-sam'
       Environment:
         Variables:
+          COMMERCIAL_ADMIN_ENABLED: !Ref CommercialAdminEnabled
           FINANCIAL_COD_RETURNS_MODE: 'OFF'
           FINANCIAL_COD_ASSIGNMENTS_MODE: 'OFF'
           FINANCIAL_ACCEPT_FUNCTION_ARN: 'arn:aws:lambda:us-east-1:699561669180:function:staging-driver-financial-accept'
@@ -2842,6 +2815,14 @@ Resources:
               - Effect: Allow
                 Action: [lambda:InvokeFunction]
                 Resource: 'arn:aws:lambda:us-east-1:699561669180:function:staging-driver-financial-accept'
+          - !Ref AWS::NoValue
+
+        - !If
+          - IsFinancialReturnStaging
+          - Statement:
+              - Effect: Allow
+                Action: [lambda:InvokeFunction]
+                Resource: 'arn:aws:lambda:us-east-1:699561669180:function:staging-wizz-staff-service'
           - !Ref AWS::NoValue
 
         - Version: "2012-10-17"
@@ -3351,7 +3332,8 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+                - cognito-idp:AdminGetUser
+              Resource: arn:aws:cognito-idp:us-east-1:699561669180:userpool/us-east-1_gtCR3ndzT
 
   MerchantOrderFunction:
     Type: AWS::Serverless::Function

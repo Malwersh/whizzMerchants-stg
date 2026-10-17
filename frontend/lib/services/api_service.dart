@@ -189,17 +189,29 @@ class ApiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getDiscounts() async {
+  Future<void> _checkDiscountSession(String token) async {
+    if (await SecureTokenStorage.getIdToken() != token &&
+        await SecureTokenStorage.getAccessToken() != token) {
+      throw Exception('تغيرت جلسة الدخول. أعد تحميل الخصومات.');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDiscounts(
+      {required String businessId}) async {
     // ✅ Use automatic token retrieval
-    final token = await _getValidToken();
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
 
     final response = await http.get(
-      Uri.parse('$baseUrl/discounts'),
+      Uri.parse('$baseUrl/discounts')
+          .replace(queryParameters: {'businessId': businessId}),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -387,17 +399,21 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> createDiscount(
-      Map<String, dynamic> discountData) async {
-    final token = await _getValidToken();
+  Future<Map<String, dynamic>> createDiscount(Map<String, dynamic> discountData,
+      {required String businessId}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.post(
-      Uri.parse('$baseUrl/discounts'),
+      Uri.parse('$baseUrl/discounts')
+          .replace(queryParameters: {'businessId': businessId}),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
       body: jsonEncode(discountData),
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode == 201) {
       final data = jsonDecode(response.body);
@@ -412,16 +428,23 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> updateDiscount(
-      String discountId, Map<String, dynamic> discountData) async {
-    final token = await _getValidToken();
+      String discountId, Map<String, dynamic> discountData,
+      {required String businessId, String? baseRevision}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.put(
-      Uri.parse('$baseUrl/discounts/$discountId'),
+      Uri.parse('$baseUrl/discounts/$discountId').replace(queryParameters: {
+        'businessId': businessId,
+        if (baseRevision != null) 'baseRevision': baseRevision
+      }),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
       body: jsonEncode(discountData),
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -435,15 +458,22 @@ class ApiService {
     }
   }
 
-  Future<void> deleteDiscount(String discountId) async {
-    final token = await _getValidToken();
+  Future<void> deleteDiscount(String discountId,
+      {required String businessId, String? baseRevision}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.delete(
-      Uri.parse('$baseUrl/discounts/$discountId'),
+      Uri.parse('$baseUrl/discounts/$discountId').replace(queryParameters: {
+        'businessId': businessId,
+        if (baseRevision != null) 'baseRevision': baseRevision
+      }),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode != 200) {
       final data = jsonDecode(response.body);
@@ -453,15 +483,23 @@ class ApiService {
   }
 
   /// Toggle a discount between active and paused.
-  Future<Map<String, dynamic>> toggleDiscountStatus(String discountId) async {
-    final token = await _getValidToken();
+  Future<Map<String, dynamic>> toggleDiscountStatus(String discountId,
+      {required String businessId, String? baseRevision}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.patch(
-      Uri.parse('$baseUrl/discounts/$discountId/toggle-status'),
+      Uri.parse('$baseUrl/discounts/$discountId/toggle-status').replace(
+          queryParameters: {
+            'businessId': businessId,
+            if (baseRevision != null) 'baseRevision': baseRevision
+          }),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
     );
+
+    await _checkDiscountSession(token);
 
     final data = jsonDecode(response.body);
     if (response.statusCode != 200 || data['success'] != true) {

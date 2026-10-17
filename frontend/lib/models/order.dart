@@ -91,6 +91,7 @@ class OrderItem {
 }
 
 class Order {
+  final bool driverSearchUnavailable;
   final Map<String,dynamic>? financialAssignment;
   String id;
   String businessId;
@@ -118,6 +119,7 @@ class Order {
   DateTime? pickedUpAt; // وقت استلام السائق للطلب
 
   Order({
+    this.driverSearchUnavailable = false,
     this.financialAssignment,
     required this.id,
     required this.businessId,
@@ -172,6 +174,7 @@ class Order {
 
     return Order(
       id: orderId,
+      driverSearchUnavailable: json['driverSearchUnavailable'] == true,
       financialAssignment: json['financialAssignment'] is Map ? Map<String,dynamic>.unmodifiable(json['financialAssignment']) : null,
       businessId: json['businessId'] ?? json['storeId'] ?? '',
       customerId: json['customerId'] ??
@@ -367,6 +370,7 @@ class Order {
 
     return {
       'id': id,
+      'driverSearchUnavailable': driverSearchUnavailable,
       if(financialAssignment!=null) 'financialAssignment': financialAssignment,
       'businessId': businessId,
       'customerName': customerName,
@@ -408,6 +412,7 @@ class Order {
   }) {
     return Order(
       id: id ?? this.id,
+      driverSearchUnavailable: driverSearchUnavailable,
       financialAssignment: financialAssignment,
       businessId: businessId ?? this.businessId,
       customerId: customerId ?? this.customerId,

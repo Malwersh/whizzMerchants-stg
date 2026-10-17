@@ -115,6 +115,10 @@ class OrderCard extends ConsumerWidget {
               SizedBox(height: GoldenRatio.lg),
 
               if(actionLabel!=null&&onTap!=null) OutlinedButton(onPressed:onTap,child:Text(actionLabel!)),
+              if (order.driverSearchUnavailable) const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text('تعذر العثور على سائق. الطلب ما زال قائمًا ويحتاج متابعة من المنصة.'),
+              ),
               // Customer Info
               Row(
                 children: [

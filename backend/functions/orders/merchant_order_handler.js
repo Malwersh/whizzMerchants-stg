@@ -79,8 +79,8 @@ function normalizeOrderForFrontend(order) {
     if (!order) return order;
     const businessId = resolveBusinessId(order);
     const id = order.orderId || order.id;
-    const {financialSnapshot,commercialPricing,financialAcceptance,...view}=order;
-    return { ...view, financialAssignment:financialOrderAssignment(order),id, orderId: id, businessId };
+    const {financeRollout,financialSnapshot,commercialPricing,financialAcceptance,codFinancialEvidence,financialSearch,...view}=order;
+    return { ...view, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment:financialOrderAssignment(order),id, orderId: id, businessId };
 }
 
 /**
@@ -212,7 +212,7 @@ exports.handler = async (event) => {
 
     } catch (error) {
         console.error('Error in merchant order handler:', error);
-        return createResponse(500, { success: false, message: 'Internal server error' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Internal server error' });
     }
 };
 
@@ -243,7 +243,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             statusesToQuery = ['cancelled', 'canceled_by_user', 'canceled_by_store', 'canceled_by_system', 'expired'];
         } else if (status === 'completed' || status === 'delivered') {
             // For completed orders
-            statusesToQuery = ['delivered', 'completed'];
+            statusesToQuery = ['delivered', 'completed', 'returned'];
         } else {
             // Single status query
             statusesToQuery = [status];
@@ -453,7 +453,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             });
             
             return {
-                financialAssignment: financialOrderAssignment(order),
+                driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment: financialOrderAssignment(order),
                 id: order.orderId, // alias for frontend models expecting `id`
                 orderId: order.orderId,
                 orderNumber: orderNumber,
@@ -500,7 +500,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
 
     } catch (error) {
         console.error('Error getting orders for business:', error);
-        return createResponse(500, { success: false, message: 'Failed to get orders' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to get orders' });
     }
 }
 
@@ -611,7 +611,7 @@ async function handleAcceptOrder(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error accepting order:', error);
-        return createResponse(500, { success: false, message: 'Failed to accept order' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to accept order' });
     }
 }
 
@@ -707,7 +707,7 @@ async function handleRejectOrder(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error rejecting order:', error);
-        return createResponse(500, { success: false, message: 'Failed to reject order' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to reject order' });
     }
 }
 
@@ -877,13 +877,13 @@ async function handleUpdateOrderStatus(orderId, data) {
             id: orderId,
             orderId: orderId,
             businessId: resolveBusinessId(updatedOrder),
-            status: status,
+            status: updatedOrder.status,
             updatedAt: timestamp
         });
 
     } catch (error) {
         console.error('❌ Error updating order status:', error);
-        return createResponse(500, { success: false, message: 'Failed to update order status' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to update order status' });
     }
 }
 
@@ -1062,7 +1062,7 @@ async function handleIncomingOrder(orderData) {
 
     } catch (error) {
         console.error('Error handling incoming order:', error);
-        return createResponse(500, { success: false, message: 'Failed to process incoming order' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to process incoming order' });
     }
 }
 
@@ -1153,7 +1153,7 @@ async function handleCancelOrderByUser(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error cancelling order by user:', error);
-        return createResponse(500, { success: false, message: 'Failed to cancel order by user' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to cancel order by user' });
     }
 }
 
@@ -1244,7 +1244,7 @@ async function handleCancelOrderByStore(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error cancelling order by store:', error);
-        return createResponse(500, { success: false, message: 'Failed to cancel order by store' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to cancel order by store' });
     }
 }
 
@@ -1335,7 +1335,7 @@ async function handleCancelOrderBySystem(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error cancelling order by system:', error);
-        return createResponse(500, { success: false, message: 'Failed to cancel order by system' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to cancel order by system' });
     }
 }
 
