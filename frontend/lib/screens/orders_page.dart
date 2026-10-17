@@ -245,7 +245,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
         // 🎯 ALSO include ready orders without drivers (waiting for assignment)
         final isReadyWaitingForDriver =
-            order.status == OrderStatus.ready && order.driverId == null;
+            [OrderStatus.ready, OrderStatus.readyForPickup].contains(order.status) && order.driverId == null;
 
         // 🎯 CRITICAL: Include ALL assigned orders (they MUST have drivers in backend)
         // Even if UI hasn't updated yet (driverId may still be null locally)

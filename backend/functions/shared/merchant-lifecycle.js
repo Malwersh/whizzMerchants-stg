@@ -1,4 +1,5 @@
 'use strict';
+const {fenceMerchantOrderOperation,canonicalFinancialPreparation}=require('./legacy-order-policy');
 const {AsyncLocalStorage}=require('node:async_hooks');
 const {TransactWriteCommand,GetCommand,ScanCommand,PutCommand,DeleteCommand}=require('@aws-sdk/lib-dynamodb');
 const {CognitoIdentityProviderClient,GetUserCommand,AdminGetUserCommand}=require('@aws-sdk/client-cognito-identity-provider');
@@ -46,7 +47,8 @@ function merchantLifecycleClient(raw){
    {ConditionCheck:{TableName:'staging-AccountDeletion',Key:{pk:'BUSINESS_LIFECYCLE#MERCHANT#'+actor.businessId,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
    {ConditionCheck:{TableName:'WhizzMerchants_Businesses',Key:{businessId:actor.businessId},ConditionExpression:'ownerId = :sub AND cognitoUserId = :sub AND attribute_not_exists(deletionRequestId)',ExpressionAttributeValues:{':sub':actor.sub}}}
   ];
-  const items=name==='TransactWriteCommand'?command.input.TransactItems:[{[name.slice(0,-7)]:{...command.input}}];
+  const items=name==='TransactWriteCommand'?command.input.TransactItems.map(x=>({...x})):[{[name.slice(0,-7)]:{...command.input}}];
+  for(let i=0;i<items.length;i++)if((items[i].Put||items[i].Update||items[i].Delete)?.TableName==='WhizzMerchants_Discounts'){if(actor.deviceGuards)throw Error('DEVICE_WRITE_SCOPE_INVALID');items[i]=await require('./campaign-version').ownerOperation(raw,items[i],actor.businessId,{GetCommand,expectedRevision:actor.campaignBaseRevision});}
   for(const item of items){
    const operation=item.Put||item.Update||item.Delete||item.ConditionCheck;
    if(actor.deviceGuards && !['WizzOrders','WhizzMerchants_Products','WhizzMerchants_BusinessWorkingHours'].includes(operation?.TableName))throw Error('DEVICE_WRITE_SCOPE_INVALID');
@@ -60,13 +62,16 @@ function merchantLifecycleClient(raw){
     const record=item.Put?.Item||(await raw.send(new GetCommand({TableName:operation.TableName,Key:operation.Key,ConsistentRead:true}))).Item;
     const field=record?.businessId?'businessId':record?.storeId?'storeId':record?.merchantId?'merchantId':null;
     if(!field||record[field]!==actor.businessId)throw Error('ORDER_BUSINESS_SCOPE_INVALID');
+    const requestedOrderStatus=operation.ExpressionAttributeValues?.[':status'];
+    fenceMerchantOrderOperation(item,record);
+    const storedOrderStatus=canonicalFinancialPreparation(item,record);
     if(actor.deviceGuards&&item.Put)throw Error('DEVICE_ORDER_CREATE_FORBIDDEN');
     if(actor.deviceOrder){
      if(record.orderId!==actor.deviceOrder.id && operation.Key?.PK!=='ORDER#'+actor.deviceOrder.id)throw Error('ORDER_BUSINESS_SCOPE_INVALID');
-     if(!item.Update || !['confirmed','rejected','preparing','ready'].includes(actor.deviceOrder.targetStatus) || operation.ExpressionAttributeValues?.[':status']!==actor.deviceOrder.targetStatus)throw Error('DEVICE_ORDER_ACTION_INVALID');
+     if(!item.Update || !['confirmed','rejected','preparing','ready'].includes(actor.deviceOrder.targetStatus) || requestedOrderStatus!==actor.deviceOrder.targetStatus)throw Error('DEVICE_ORDER_ACTION_INVALID');
      if(item.Update){
       const now=new Date().toISOString(),id=require('node:crypto').randomUUID();
-      auditItems.push({Put:{TableName:'staging-MerchantPlatform',Item:{pk:'BRANCH#'+actor.businessId,sk:'STAFF_AUDIT#OPERATIONS#'+now+'#'+id,ownerId:actor.ownerId,businessId:actor.businessId,actorId:actor.sub,actorName:actor.actorName||'',roleName:actor.roleName||'',deviceId:actor.deviceId,sessionId:actor.sessionId,permissionVersion:actor.permissionVersion,policyVersion:actor.policyVersion||0,action:'ORDER_STATUS_CHANGED',entityId:actor.deviceOrder.id,result:'SUCCEEDED',createdAt:now,before:{status:actor.deviceOrder.expectedStatus},after:{status:actor.deviceOrder.targetStatus}},ConditionExpression:'attribute_not_exists(pk)'}});
+      auditItems.push({Put:{TableName:'staging-MerchantPlatform',Item:{pk:'BRANCH#'+actor.businessId,sk:'STAFF_AUDIT#OPERATIONS#'+now+'#'+id,ownerId:actor.ownerId,businessId:actor.businessId,actorId:actor.sub,actorName:actor.actorName||'',roleName:actor.roleName||'',deviceId:actor.deviceId,sessionId:actor.sessionId,permissionVersion:actor.permissionVersion,policyVersion:actor.policyVersion||0,action:'ORDER_STATUS_CHANGED',entityId:actor.deviceOrder.id,result:'SUCCEEDED',createdAt:now,before:{status:actor.deviceOrder.expectedStatus},after:{status:storedOrderStatus}},ConditionExpression:'attribute_not_exists(pk)'}});
       operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#deviceExpectedStatus=:deviceExpectedStatus';
       operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#deviceExpectedStatus':'status'};
       operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':deviceExpectedStatus':actor.deviceOrder.expectedStatus};
@@ -91,7 +96,7 @@ function merchantLifecycleClient(raw){
   if(actor.deviceGuards && items.some(x=>(x.Put||x.Update||x.Delete||x.ConditionCheck)?.TableName==='WhizzMerchants_BusinessWorkingHours'))auditItems.push(...await require('./branch-device-hours-audit').prepare(raw,actor,items));
   if(name!=='TransactWriteCommand'){
    if(command.input.ReturnValues&&!['NONE','ALL_NEW'].includes(command.input.ReturnValues))throw Error('UNSUPPORTED_GUARDED_RETURN_VALUES');
-   delete items[0][name.slice(0,-7)].ReturnValues;
+   delete Object.values(items[0])[0].ReturnValues;
   }
   const result=await raw.send(new TransactWriteCommand({TransactItems:[...(businessWrite?fences.slice(0,2):fences),...items,...auditItems]}));
   if(command.input.ReturnValues==='ALL_NEW'){
@@ -127,11 +132,11 @@ function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({
     owned.push(...page.Items||[]);cursor=page.LastEvaluatedKey;
    }while(cursor);
    let body={};try{body=JSON.parse(event.body||'{}');}catch(_){}
-   const requested=event.pathParameters?.businessId||body.businessId;
+   const requested=event.pathParameters?.businessId||event.queryStringParameters?.businessId||body.businessId;
    const business=requested?owned.find(b=>b.businessId===requested):(owned.length===1?owned[0]:null);
    if(!business||business.ownerId!==sub||business.cognitoUserId!==sub)throw Error('OWNER_REQUIRED');
    if(business.deletionRequestId)throw Error('ACCOUNT_CLOSING');
-   return await scope.run({sub,businessId:business.businessId},()=>handler(event,context));
+   return await scope.run({sub,businessId:business.businessId,campaignBaseRevision:event.queryStringParameters?.baseRevision},()=>handler(event,context));
   }catch(e){
    const unauthorized=['UNAUTHORIZED','NotAuthorizedException','UserNotFoundException','InvalidParameterException'].includes(e.code||e.name)||e.message==='UNAUTHORIZED';
    const forbidden=['OWNER_REQUIRED','ACCOUNT_CLOSING'].includes(e.message);
