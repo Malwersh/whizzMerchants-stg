@@ -1455,7 +1455,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                           ),
                                           isExpanded: true,
                                           items:
-                                              DiscountType.values.map((type) {
+                                              DiscountType.values.where((type) => [DiscountType.percentage, DiscountType.fixedAmount, DiscountType.freeDelivery].contains(type) || type == discount?.type).map((type) {
                                             String label;
                                             switch (type) {
                                               case DiscountType.percentage:
@@ -2697,6 +2697,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       }
                                     }
 
+                                    if (![DiscountType.percentage, DiscountType.fixedAmount, DiscountType.freeDelivery].contains(discountType)) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('هذا النوع من العروض غير مدعوم حالياً.')));
+                                      return;
+                                    }
                                     // Prepare conditional parameters for Buy X Get Y and Conditional discounts
                                     Map<String, dynamic> conditionalParams = {};
                                     ConditionalDiscountRule? conditionalRule;
