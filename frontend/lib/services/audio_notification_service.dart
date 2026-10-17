@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,15 +11,20 @@ class AudioNotificationService {
   factory AudioNotificationService() => _instance;
   AudioNotificationService._internal();
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  late final AudioPlayer _audioPlayer = AudioPlayer();
   final SoundNotificationSettings _settings = SoundNotificationSettings();
 
   // Sound configuration - Use available sound files
-  static const String _newOrderSound = 'sounds/first_nitification_sound.wav'; // Main new order sound
-  static const String _notificationChime = 'sounds/notification_chime.aiff'; // Fallback sound
-  static const String _gentleReminderSound = 'sounds/first_nitification_sound.wav'; // Use new sound
-  static const String _urgentAlertSound = 'sounds/first_nitification_sound.wav'; // Use new sound
-  static const String _autoRejectSound = 'sounds/notification_chime.aiff'; // Use chime as fallback
+  static const String _newOrderSound =
+      'sounds/first_nitification_sound.wav'; // Main new order sound
+  static const String _notificationChime =
+      'sounds/notification_chime.aiff'; // Fallback sound
+  static const String _gentleReminderSound =
+      'sounds/first_nitification_sound.wav'; // Use new sound
+  static const String _urgentAlertSound =
+      'sounds/first_nitification_sound.wav'; // Use new sound
+  static const String _autoRejectSound =
+      'sounds/notification_chime.aiff'; // Use chime as fallback
 
   /// Initialize the audio service
   Future<void> initialize() async {
@@ -30,6 +37,41 @@ class AudioNotificationService {
     }
   }
 
+  final Map<String, DateTime> _announcedOrders = {};
+
+  static const _soundHistoryKey = 'merchant_order_sound_history_v1';
+  static Future<bool> markOrderSoundAnnounced(String? orderId) async {
+    if (orderId == null || orderId.isEmpty) return false;
+    _instance._announcedOrders[orderId] = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    Map<String, dynamic> history = {};
+    try {
+      history = Map<String, dynamic>.from(
+          jsonDecode(prefs.getString(_soundHistoryKey) ?? '{}'));
+    } catch (_) {}
+    final now = DateTime.now().millisecondsSinceEpoch;
+    history.removeWhere((k, v) => v is! int || now - v > 3600000);
+    final seen = history.containsKey(orderId);
+    history[orderId] = now;
+    while (history.length > 200) {
+      history.remove(history.keys.first);
+    }
+    await prefs.setString(_soundHistoryKey, jsonEncode(history));
+    return seen;
+  }
+
+  Future<void> playNewOrderSoundOnce(String orderId) async {
+    if (!_settings.shouldPlaySound('new_order')) return;
+    final now = DateTime.now();
+    _announcedOrders
+        .removeWhere((_, time) => now.difference(time).inHours >= 1);
+    if (_announcedOrders.containsKey(orderId)) return;
+    _announcedOrders[orderId] = now;
+    if (await markOrderSoundAnnounced(orderId)) return;
+    await playNewOrderSound();
+  }
+
   /// Play new order notification sound with IMMEDIATE priority
   Future<void> playNewOrderSound() async {
     if (!_settings.shouldPlaySound('new_order')) {
@@ -39,13 +81,13 @@ class AudioNotificationService {
 
     try {
       debugPrint('🚨 IMMEDIATE new order sound starting');
-      
+
       // Stop any currently playing sound IMMEDIATELY
       await _audioPlayer.stop();
-      
+
       // Set volume and play with highest priority
       await _audioPlayer.setVolume(_settings.volume);
-      
+
       // Play sound with IMMEDIATE execution
       await _audioPlayer.play(AssetSource(_newOrderSound));
 
@@ -55,7 +97,7 @@ class AudioNotificationService {
       debugPrint('🚨 IMMEDIATE new order sound played successfully');
     } catch (e) {
       debugPrint('❌ CRITICAL Error playing new order sound: $e');
-      
+
       // Try notification chime as fallback
       try {
         await _audioPlayer.play(AssetSource(_notificationChime));
@@ -103,7 +145,7 @@ class AudioNotificationService {
       await _audioPlayer.stop();
       await _audioPlayer.setVolume(_settings.volume);
       await _audioPlayer.play(AssetSource(_newOrderSound));
-      
+
       // Enhanced haptic feedback for urgent orders (double impact)
       await HapticFeedback.heavyImpact();
       await Future.delayed(const Duration(milliseconds: 100));

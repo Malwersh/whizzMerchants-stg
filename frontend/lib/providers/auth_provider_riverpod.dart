@@ -36,7 +36,11 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier() : super(const AuthState());
+  AuthNotifier({Future<void> Function()? signOutAction})
+      : _signOutAction = signOutAction ?? AppAuthService.signOut,
+        super(const AuthState());
+
+  final Future<void> Function() _signOutAction;
   
   final CognitoAuthService _cognitoService = CognitoAuthService();
 
@@ -50,11 +54,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (signedIn) {
         userData = await AppAuthService.getCurrentUser();
         
-        // Register push token if already signed in
+        // Register only after live identity validation.
+        if (userData != null) {
         try {
-          final businessId = userData?['custom:business_id'] ?? 
-                            userData?['custom:businessId'] ?? 
-                            userData?['businessId'];
+          final businessId = userData['custom:business_id'] ??
+                            userData['custom:businessId'] ??
+                            userData['businessId'];
           await PushNotificationsService.instance.registerTokenIfPossible(
             businessId: businessId is String ? businessId : null,
           );
@@ -62,10 +67,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         } catch (e) {
           AppLogger.warning('⚠️ Push token registration failed on init (non-critical): $e');
         }
+        }
       }
       
-      state = state.copyWith(
-        status: signedIn
+      state = AuthState(
+        status: signedIn && userData != null
             ? AuthStatus.authenticated
             : AuthStatus.unauthenticated,
         isLoading: false,
@@ -81,8 +87,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
   
   Future<void> signOut() async {
+    // Leave protected UI before clearing the branch/session it reads.
+    state = const AuthState(
+      status: AuthStatus.unauthenticated,
+      isLoading: true,
+    );
     try {
-      await AppAuthService.signOut();
+      await _signOutAction();
     } catch (e) {}
     state = const AuthState(status: AuthStatus.unauthenticated);
   }

@@ -1483,6 +1483,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get emailAlreadyInUse => 'البريد الإلكتروني مستخدم بالفعل';
 
   @override
+  String get phoneNumberAlreadyExists =>
+      'هذا الرقم مسجل مسبقاً. يرجى تسجيل الدخول بدلاً من ذلك.';
+
+  @override
   String get passwordResetLinkSent => 'Password reset link sent to your email';
 
   @override

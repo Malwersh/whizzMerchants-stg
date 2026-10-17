@@ -14,6 +14,7 @@ import '../services/app_auth_service.dart';
 import '../services/image_upload_service.dart';
 import '../services/document_upload_service.dart';
 import '../services/region_service.dart';
+import '../services/onboarding_config_service.dart';
 import '../services/address_autofill_service.dart';
 import '../models/business.dart';
 import '../models/region.dart';
@@ -64,7 +65,10 @@ class _RegistrationFormScreenState
   bool _isLoading = false;
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
-  String _selectedBusinessType = 'restaurant';
+  String _selectedBusinessType = '';
+  OnboardingConfig? _businessTypeConfig;
+  bool _typesLoading = true;
+  String? _typesError;
   int _currentPageIndex = 0;
   bool _agreedToTerms = false;
 
@@ -82,6 +86,7 @@ class _RegistrationFormScreenState
   void initState() {
     super.initState();
     _businessCountryController.text = 'Iraq';
+    _loadBusinessTypes();
   }
 
   @override
@@ -883,114 +888,35 @@ class _RegistrationFormScreenState
     );
   }
 
-  Widget _buildBusinessTypeSelector(AppLocalizations loc) {
-    final businessTypes = [
-      {
-        'value': 'restaurant',
-        'label': loc.restaurant,
-        'icon': Icons.restaurant,
-      },
-      {'value': 'cafe', 'label': loc.cafe, 'icon': Icons.local_cafe},
-      {'value': 'bakery', 'label': loc.bakery, 'icon': Icons.cake},
-      {
-        'value': 'grocery',
-        'label': loc.grocery,
-        'icon': Icons.local_grocery_store,
-      },
-      {
-        'value': 'pharmacy',
-        'label': loc.pharmacy,
-        'icon': Icons.local_pharmacy,
-      },
-      {'value': 'store', 'label': loc.store, 'icon': Icons.store},
-    ];
+  Future<void> _loadBusinessTypes() async {
+    if (mounted) setState(() { _typesLoading = true; _typesError = null; });
+    final service = OnboardingConfigService();
+    try {
+      final config = await service.load(regionId: _selectedRegionId);
+      if (!mounted) return;
+      setState(() {
+        _businessTypeConfig = config;
+        if (!config.types.any((t) => t['id'] == _selectedBusinessType)) _selectedBusinessType = '';
+      });
+    } catch (_) {
+      if (mounted) setState(() { _businessTypeConfig = null; _selectedBusinessType = ''; _typesError = 'تعذر تحميل أنواع الأنشطة. أعد المحاولة.'; });
+    } finally {
+      service.close();
+      if (mounted) setState(() => _typesLoading = false);
+    }
+  }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          loc.selectYourBusinessType,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: WhizzColors.secondary, // 30% secondary (blue)
-          ),
-        ),
-        SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: businessTypes.map((type) {
-            final isSelected = _selectedBusinessType == type['value'];
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedBusinessType = type['value'] as String;
-                });
-              },
-              child: Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-                decoration: BoxDecoration(
-                  gradient: isSelected
-                      ? LinearGradient(
-                          colors: [
-                            WhizzColors.primary, // 10% primary (yellow)
-                            WhizzColors.primary.withOpacity(0.8),
-                          ],
-                        )
-                      : null,
-                  color: isSelected ? null : WhizzColors.white, // 60% white
-                  border: Border.all(
-                    color: isSelected
-                        ? WhizzColors
-                              .primary // 10% primary
-                        : WhizzColors.grey200,
-                    width: isSelected ? 2 : 1,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: isSelected
-                      ? [
-                          BoxShadow(
-                            color: WhizzColors.primary.withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      type['icon'] as IconData,
-                      color: isSelected
-                          ? WhizzColors
-                                .secondary // 30% secondary (blue) for contrast
-                          : WhizzColors.primary, // 10% primary
-                      size: AppDimensions.iconSizeMD,
-                    ),
-                    SizedBox(width: AppSpacing.sm),
-                    Text(
-                      type['label'] as String,
-                      style: TextStyle(
-                        color: isSelected
-                            ? WhizzColors
-                                  .secondary // 30% secondary
-                            : WhizzColors.textPrimary,
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
+  Widget _buildBusinessTypeSelector(AppLocalizations loc) {
+    if (_typesLoading) return const LinearProgressIndicator();
+    if (_typesError != null) return Column(children: [Text(_typesError!), TextButton(onPressed: _loadBusinessTypes, child: const Text('إعادة المحاولة'))]);
+    final types = _businessTypeConfig?.types ?? [];
+    if (types.isEmpty) return Column(children: [const Text('لا توجد أنواع أنشطة متاحة للتسجيل حاليًا.'), TextButton(onPressed: _loadBusinessTypes, child: const Text('تحديث الأنواع'))]);
+    return DropdownButtonFormField<String>(
+      value: _selectedBusinessType.isEmpty ? null : _selectedBusinessType,
+      decoration: InputDecoration(labelText: loc.selectYourBusinessType),
+      isExpanded: true,
+      items: types.map((t) => DropdownMenuItem<String>(value: t['id'] as String, child: Text(t[Localizations.localeOf(context).languageCode == 'ar' ? 'labelAr' : 'labelEn'] as String))).toList(),
+      onChanged: (value) => setState(() => _selectedBusinessType = value ?? ''),
     );
   }
 
@@ -1410,6 +1336,12 @@ class _RegistrationFormScreenState
       return false;
     }
 
+    await _loadBusinessTypes();
+    if (_selectedBusinessType.isEmpty || _businessTypeConfig == null) {
+      _showErrorSnackBar('اختر نوع نشاط متاحًا قبل المتابعة.');
+      return false;
+    }
+
     // Check if address is filled via Mapbox autofill OR manual entry
     if (_businessStreetController.text.trim().isEmpty) {
       _showErrorSnackBar(loc.pleaseEnterStreetAddress);
@@ -1654,6 +1586,7 @@ class _RegistrationFormScreenState
         'firstName': _firstNameController.text.trim(),
         'lastName': _lastNameController.text.trim(),
         'businessType': _selectedBusinessType,
+        'configVersion': _businessTypeConfig?.configVersion,
         'phoneNumber': normalizedPhone,
         'address': {
           // Google Places API address components
@@ -1703,10 +1636,31 @@ class _RegistrationFormScreenState
         }
       } else {
         if (mounted) {
+          final isDuplicate = registerResult.message
+              .toLowerCase()
+              .contains('already exists');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(registerResult.message),
+              content: Text(
+                isDuplicate
+                    ? loc.phoneNumberAlreadyExists
+                    : registerResult.message,
+              ),
               backgroundColor: Colors.red,
+              action: isDuplicate
+                  ? SnackBarAction(
+                      label: loc.loginInstead,
+                      textColor: Colors.white,
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AuthScreen(),
+                          ),
+                        );
+                      },
+                    )
+                  : null,
             ),
           );
         }

@@ -1,3 +1,7 @@
+const {merchantHandler,merchantRequestContext,beginMerchantUpload}=require('../shared/merchant-lifecycle');
+const {DynamoDBClient}=require('@aws-sdk/client-dynamodb');
+const {DynamoDBDocumentClient}=require('@aws-sdk/lib-dynamodb');
+const uploadDb=DynamoDBDocumentClient.from(new DynamoDBClient({region:'us-east-1'}));
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { CognitoIdentityProviderClient, GetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const { v4: uuidv4 } = require('uuid');
@@ -23,6 +27,8 @@ function createResponse(statusCode, body) {
 
 // Helper function to get user info from bearer token
 async function getUserFromToken(event) {
+    const verified=merchantRequestContext.getStore();
+    if(verified)return {userId:verified.sub,email:null};
     try {
         const authHeader = event.headers?.Authorization || event.headers?.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -60,7 +66,12 @@ function isProductImageUpload(event) {
 
 // Helper function to upload image to S3
 const uploadToS3 = async (imageBuffer, key, contentType = 'image/jpeg') => {
-    const bucketName = process.env.BUSINESS_PHOTOS_BUCKET || 'order-receiver-business-photos-dev-1755170214';
+    const bucketName = process.env.BUSINESS_PHOTOS_BUCKET;
+    if (!bucketName) throw new Error('BUSINESS_PHOTOS_BUCKET_REQUIRED');
+    if ((process.env.STAGE || process.env.ENVIRONMENT) === 'staging' &&
+        bucketName !== 'wizz-merchants-staging-businessphotosbucket-up3j1qega8m5') {
+        throw new Error('STAGING_STORAGE_SCOPE_INVALID');
+    }
     
     const params = {
         Bucket: bucketName,
@@ -109,7 +120,7 @@ const decodeBase64Image = (dataString) => {
 };
 
 exports.handler = async (event) => {
-    console.log('Image Upload Handler - Event:', JSON.stringify(event, null, 2));
+    console.log('Image Upload Handler - Event:', {method:event.httpMethod,path:event.path});
 
     const { httpMethod, path, headers, body } = event;
 
@@ -237,11 +248,14 @@ exports.handler = async (event) => {
             // Generate unique filename with proper extension and user context
             const imageId = uuidv4();
             const fileExtension = decodedImage.type.includes('png') ? 'png' : 'jpg';
-            const fileName = `${folderName}/${userId}/${imageId}.${fileExtension}`;
+            const owner=merchantRequestContext.getStore();
+            const fileName = owner ? `merchants/${owner.businessId}/${folderName}/${imageId}.${fileExtension}` : `${folderName}/${userId}/${imageId}.${fileExtension}`;
 
             try {
                 // Upload to S3
-                const imageUrl = await uploadToS3(decodedImage.data, fileName, decodedImage.type);
+                const release=merchantRequestContext.getStore()?await beginMerchantUpload(uploadDb):null;
+                let imageUrl;
+                try{imageUrl = await uploadToS3(decodedImage.data, fileName, decodedImage.type);}finally{if(release)await release();}
                 
                 console.log(`${uploadType} uploaded successfully for user ${userId}:`, imageUrl);
                 
@@ -276,3 +290,7 @@ exports.handler = async (event) => {
         });
     }
 };
+
+const originalUploadHandler=module.exports.handler;
+const protectedUploadHandler=merchantHandler(originalUploadHandler,{db:uploadDb});
+module.exports.handler=(event,context)=>isRegistrationUpload(event)&&!event.headers?.Authorization&&!event.headers?.authorization?originalUploadHandler(event,context):protectedUploadHandler(event,context);

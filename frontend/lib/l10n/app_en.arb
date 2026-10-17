@@ -473,6 +473,7 @@
   "passwordsDoNotMatch": "Passwords do not match",
   "registrationSuccess": "Registration successful",
   "emailAlreadyInUse": "Email address is already in use",
+  "phoneNumberAlreadyExists": "An account with this phone number already exists. Please sign in instead.",
   "passwordResetLinkSent": "Password reset link sent to your email",
   "welcomeToOrderReceiver": "Welcome to Order Receiver",
   "welcomeDescription": "Manage your business orders efficiently with our powerful order management system.",
