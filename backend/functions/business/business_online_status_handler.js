@@ -110,7 +110,7 @@ async function updateBusinessAcceptingOrders(businessId, acceptingOrders, userId
             Key: {
                 businessId: businessId
             },
-            UpdateExpression: 'SET acceptingOrders = :accepting, lastStatusUpdate = :timestamp, onlineStatus = :status, operatingStatus = :operating, statusUpdatedBy = :userId, statusSource = :source',
+            UpdateExpression: 'SET acceptingOrders = :accepting, lastStatusUpdate = :timestamp, onlineStatus = :status, operatingStatus = :operating, statusUpdatedBy = :userId, statusSource = :source REMOVE ordersPausedUntil, orderPauseId',
             ExpressionAttributeValues: {
                 ':accepting': acceptingOrders,
                 ':timestamp': timestamp,
@@ -295,6 +295,12 @@ async function handleBusinessStatusToggle(event) {
         }
 
         const body = JSON.parse(bodyString);
+        if(['set_order_reception','pause_orders'].includes(body.action)){
+            const {Item:b}=await dynamodb.send(new GetCommand({TableName:process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}));
+            const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+            return createResponse(200,{success:true,data:await require('../shared/order-reception').execute(dynamodb,b,{subjectId:actor.sub,ownerId:actor.sub,role:'OWNER'},[],body,true)});
+        }
+
         if(body.action==='complete_setup'){
             const result=await require('./branch_readiness').activate(dynamodb,businessId);
             return createResponse(result.activated?200:409,{success:result.activated,...result});
@@ -350,6 +356,13 @@ async function handleBusinessStatusToggle(event) {
  */
 async function handleGetBusinessStatus(event) {
     try {
+        if(event.queryStringParameters?.view==='order-reception'){
+            const businessId=event.pathParameters.businessId;
+            const {Item:b}=await dynamodb.send(new GetCommand({TableName:process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}));
+            const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+            return createResponse(200,{success:true,data:await require('../shared/order-reception').execute(dynamodb,b,{subjectId:actor.sub,ownerId:actor.sub,role:'OWNER'},[],{action:'read_order_reception'},true)});
+        }
+
         const { businessId } = event.pathParameters;
         const authHeader = event.headers.Authorization || event.headers.authorization;
         const userId = getUserIdFromToken(authHeader);

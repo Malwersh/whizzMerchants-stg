@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'notification_sound_policy.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -30,6 +32,7 @@ class AudioNotificationService {
   Future<void> initialize() async {
     try {
       await _settings.initialize();
+      unawaited(NotificationSoundPolicy.refresh());
       await _audioPlayer.setVolume(_settings.volume);
       debugPrint('🔊 AudioNotificationService initialized');
     } catch (e) {
@@ -89,7 +92,10 @@ class AudioNotificationService {
       await _audioPlayer.setVolume(_settings.volume);
 
       // Play sound with IMMEDIATE execution
-      await _audioPlayer.play(AssetSource(_newOrderSound));
+      unawaited(NotificationSoundPolicy.refresh());
+      final file=NotificationSoundPolicy.file('merchantNewOrder');
+      if(file==null)return;
+      await _audioPlayer.play(NotificationSoundFiles.source(file));
 
       // Add strong haptic feedback for enhanced notification
       await HapticFeedback.heavyImpact();
@@ -144,7 +150,10 @@ class AudioNotificationService {
       // 🔧 FIX: Play sound only once instead of 3 times to avoid repetition
       await _audioPlayer.stop();
       await _audioPlayer.setVolume(_settings.volume);
-      await _audioPlayer.play(AssetSource(_newOrderSound));
+      unawaited(NotificationSoundPolicy.refresh());
+      final file=NotificationSoundPolicy.file('merchantNewOrder');
+      if(file==null)return;
+      await _audioPlayer.play(NotificationSoundFiles.source(file));
 
       // Enhanced haptic feedback for urgent orders (double impact)
       await HapticFeedback.heavyImpact();

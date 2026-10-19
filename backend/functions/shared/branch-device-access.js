@@ -37,7 +37,7 @@ function projectOrders(result,actor){
  if(result.statusCode!==200)return result;
  const data=JSON.parse(result.body);
  if(Array.isArray(data.orders))data.orders=data.orders.filter(o=>(o.businessId||o.storeId||o.merchantId)===actor.businessId).map(o=>{
-  const fields=actor.receptionOnly?['orderId','id','status','createdAt']:['orderId','id','status','createdAt','items','totalAmount','estimatedPreparationTime','notes','driverName','driverPhone'];
+  const fields=actor.receptionOnly?['orderId','id','status','createdAt']:['orderId','id','orderNumber','status','createdAt','merchantAcceptanceDeadlineAt','items','totalAmount','deliveryFee','paymentMethod','estimatedPreparationTime','estimatedReadyAt','notes','deliveryInstructions','driverName','driverPhone'];
   return Object.fromEntries(fields.filter(k=>o[k]!==undefined).map(k=>[k,o[k]]));
  });
  return {...result,body:JSON.stringify(data)};

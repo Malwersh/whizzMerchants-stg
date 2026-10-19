@@ -1,3 +1,4 @@
+import 'services/commercial_notice_navigation.dart';
 import 'providers/branch_device_provider.dart';
 import 'screens/branch_device_home_screen.dart';
 import 'providers/login_intent_provider.dart';
@@ -45,6 +46,7 @@ Future<void> _bootstrapAfterRunApp() async {
   // 🔔 Initialize Firebase Messaging (push)
   try {
     await PushNotificationsService.instance.initialize();
+    await PushNotificationsService.instance.registerTokenIfPossible();
   } catch (e) {
     debugPrint('❌ PushNotificationsService init failed (non-fatal): $e');
   }
@@ -83,6 +85,7 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp>
       debugPrint('🔄 App resumed - validating session...');
       final sessionNotifier = ref.read(sessionProvider.notifier);
       sessionNotifier.onAppResumed();
+      unawaited(PushNotificationsService.instance.registerTokenIfPossible());
     } else if (state == AppLifecycleState.paused) {
       debugPrint('⏸️ App paused');
     } else if (state == AppLifecycleState.inactive) {
@@ -94,6 +97,7 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp>
   Widget build(BuildContext context) {
     final currentLocale = ref.watch(languageProviderRiverpod);
     return MaterialApp(
+      navigatorKey: CommercialNoticeNavigation.navigatorKey,
       title: 'WIZZ Business Manager',
       debugShowCheckedModeBanner: false,
       theme: DesignSystem.lightTheme,
@@ -159,12 +163,9 @@ class AuthGate extends ConsumerWidget {
       final prevBusinessId = previous?.businessId;
       final becameAuthed = !prevAuthed && next.isAuthenticated;
       final businessChanged = prevBusinessId != next.businessId;
-      final hasBusiness =
-          next.businessId != null && next.businessId!.isNotEmpty;
 
       if ((becameAuthed || businessChanged) &&
           next.isAuthenticated &&
-          hasBusiness &&
           !next.isExpired) {
         try {
           await ref.read(sessionProvider.notifier).waitForSessionReady();
@@ -181,7 +182,9 @@ class AuthGate extends ConsumerWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (pairedDevice.hasError) {
-      return Scaffold(body: Center(child: TextButton(
+      return Scaffold(
+          body: Center(
+              child: TextButton(
         onPressed: () => ref.read(branchDeviceProvider.notifier).load(),
         child: const Text('تعذر قراءة إعداد الجهاز. إعادة المحاولة'),
       )));

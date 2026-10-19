@@ -214,6 +214,11 @@ class Discount {
     }
   }
 
+  static String _wireDate(DateTime value) =>
+      DateTime.fromMillisecondsSinceEpoch(value.millisecondsSinceEpoch,
+              isUtc: true)
+          .toIso8601String();
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -224,10 +229,10 @@ class Discount {
       'value': value,
       'applicability': applicability.name,
       'status': status.name,
-      'startDate': startDate.toIso8601String(),
-      'endDate': endDate.toIso8601String(),
-      'validFrom': validFrom.toIso8601String(), // Backend expects validFrom
-      'validTo': validTo.toIso8601String(), // Backend expects validTo
+      'startDate': _wireDate(startDate),
+      'endDate': _wireDate(endDate),
+      'validFrom': _wireDate(validFrom), // Backend expects validFrom
+      'validTo': _wireDate(validTo), // Backend expects validTo
       'minimumOrderAmount': minimumOrderAmount,
       'maxUsage': maxUsage,
       'currentUsage': currentUsage,
@@ -238,8 +243,8 @@ class Discount {
       'conditionalParameters':
           conditionalParameters, // Add this field for backend validation
       'businessId': businessId,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
+      'createdAt': _wireDate(createdAt),
+      'updatedAt': _wireDate(updatedAt),
     };
   }
 

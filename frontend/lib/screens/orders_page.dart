@@ -1,3 +1,5 @@
+import '../services/merchant_order_alerts.dart';
+import '../widgets/preparation_time_sheet.dart';
 import 'order_return_screen.dart';
 import 'order_cancellation_screen.dart';
 import '../services/branch_employee_access.dart';
@@ -48,6 +50,10 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   bool _isLoading = true;
   String? _soundSnapshotBusinessId;
   final Set<String> _observedOrderIds = {};
+  StreamSubscription? _arrivalSubscription;
+  StreamSubscription? _snapshotSubscription;
+  int _snapshotRevision = 0;
+  String? _queuedRefreshBusinessId;
   StreamSubscription? _newOrderSubscription;
   StreamSubscription? _orderUpdateSubscription;
   Timer? _smartPollingTimer; // 🎯 Smart polling للطلبات النشطة فقط
@@ -58,6 +64,31 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   @override
   void initState() {
     super.initState();
+    _arrivalSubscription = MerchantOrderAlerts.events.listen((event) {
+      final branch = widget.employeeAccess?.businessId ??
+          widget.businessId ??
+          ref.read(sessionProvider).businessId;
+      if (event['businessId'] != branch || !mounted || _disposed) return;
+      if (_isLoading && widget.employeeAccess == null) {
+        _queuedRefreshBusinessId = branch;
+        return;
+      }
+      unawaited(
+          _loadOrders(branch!, preserveNewOrders: true).catchError((Object e) {
+        AppLogger.error('Arrival refresh failed: $e');
+      }));
+    });
+    _snapshotSubscription = MerchantOrderAlerts.snapshots.listen((snapshot) {
+      final branch = widget.employeeAccess?.businessId ??
+          widget.businessId ??
+          ref.read(sessionProvider).businessId;
+      if (snapshot.businessId != branch || !mounted || _disposed) return;
+      _snapshotRevision++;
+      _observedOrderIds.addAll(snapshot.orders.map((o) => o.id));
+      setState(() {
+        _orders = List<Order>.of(snapshot.orders);
+      });
+    });
     if (widget.employeeAccess != null) {
       _selectedFilter = 'pending';
       _loadEmployeeOrders();
@@ -102,6 +133,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   @override
   void dispose() {
     _disposed = true;
+    _arrivalSubscription?.cancel();
+    _snapshotSubscription?.cancel();
     _smartPollingTimer?.cancel(); // 🎯 Cancel smart polling
     if (widget.employeeAccess != null) {
       super.dispose();
@@ -157,29 +190,10 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             debugPrint('🚨 IMMEDIATE: Updated existing order: ${newOrder.id}');
           }
 
-          // IMMEDIATELY switch to pending tab to show the new order
-          if (_selectedFilter != 'pending') {
-            _selectedFilter = 'pending';
-            debugPrint('🚨 IMMEDIATE: Switched to pending tab');
-          }
+          // Keep the merchant's current tab; the alert provides an explicit View action.
         });
 
-        // SECOND: Show IMMEDIATE prominent notification
-        if (context.mounted) {
-          showAdaptiveSnackBar(
-            context: context,
-            message:
-                '🚨 NEW ORDER ARRIVED!\nFrom: ${newOrder.customerName}\nTotal: ${newOrder.totalAmount.toStringAsFixed(2)} IQD',
-            type: AdaptiveSnackBarType.success,
-            duration: const Duration(seconds: 8),
-            actionLabel: loc.viewNow,
-            onAction: () {
-              setState(() {
-                _selectedFilter = 'pending';
-              });
-            },
-          );
-        }
+        // The branch-scoped attention host presents a dismissible alert.
 
         // THIRD: Background server sync (delayed to not interfere with immediate UI)
         Future.delayed(const Duration(seconds: 2), () async {
@@ -244,8 +258,11 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             order.status != OrderStatus.cancelled;
 
         // 🎯 ALSO include ready orders without drivers (waiting for assignment)
-        final isReadyWaitingForDriver =
-            [OrderStatus.ready, OrderStatus.readyForPickup].contains(order.status) && order.driverId == null;
+        final isReadyWaitingForDriver = [
+              OrderStatus.ready,
+              OrderStatus.readyForPickup
+            ].contains(order.status) &&
+            order.driverId == null;
 
         // 🎯 CRITICAL: Include ALL assigned orders (they MUST have drivers in backend)
         // Even if UI hasn't updated yet (driverId may still be null locally)
@@ -330,7 +347,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
       AppLogger.info('🔵 hasOrderChanged result: $hasChanged');
 
-      if (!hasChanged) {
+      if (!hasChanged && _orders.any((order) => order.id == orderId)) {
         // No changes detected - skip UI update
         AppLogger.debug('⏭️ Order $orderId unchanged - skipping UI update');
         return;
@@ -348,6 +365,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             _orders[orderIndex] = updatedOrder;
             AppLogger.success('✅ Order $orderId refreshed with latest data');
             updatedOrder.logDriverInfo(); // Log driver info for debugging
+          } else {
+            _orders.insert(0, updatedOrder);
           }
         });
       }
@@ -550,6 +569,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       return;
     }
 
+    final snapshotRevision = _snapshotRevision;
     try {
       AppLogger.info(
           'Loading orders for businessId: $businessId, selectedFilter: $_selectedFilter');
@@ -576,6 +596,12 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       unawaited(PushNotificationsService.instance
           .registerTokenIfPossible(businessId: businessId));
       if (!mounted || _disposed) return;
+      if (snapshotRevision != _snapshotRevision) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
       if (_soundSnapshotBusinessId == businessId) {
         for (final order in orders) {
           if (order.status == OrderStatus.pending &&
@@ -684,6 +710,18 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       }
 
       rethrow;
+    } finally {
+      final queued = _queuedRefreshBusinessId;
+      _queuedRefreshBusinessId = null;
+      if (queued != null && mounted && !_disposed) {
+        final branch =
+            widget.businessId ?? ref.read(sessionProvider).businessId;
+        if (branch == queued)
+          unawaited(_loadOrders(queued, preserveNewOrders: true)
+              .catchError((Object e) {
+            AppLogger.error('Queued arrival refresh failed: $e');
+          }));
+      }
     }
   }
 
@@ -703,6 +741,15 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   }
 
   Future<void> _handleOrderUpdate(String orderId, OrderStatus newStatus) async {
+    int? preparationMinutes;
+    final branchId = widget.employeeAccess?.businessId ??
+        widget.businessId ??
+        ref.read(sessionProvider).businessId;
+    if (newStatus == OrderStatus.confirmed) {
+      if (branchId == null) return;
+      preparationMinutes = await choosePreparationMinutes(context, branchId);
+      if (preparationMinutes == null || !mounted) return;
+    }
     if (widget.employeeAccess != null) {
       try {
         String? reason;
@@ -710,7 +757,10 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           reason = await _showCancelReasonBottomSheet();
           if (reason == null) return;
         }
-        await widget.employeeAccess!.update(orderId, newStatus, reason: reason);
+        await widget.employeeAccess!.update(orderId, newStatus,
+            reason: reason, preparationMinutes: preparationMinutes ?? 20);
+        if (preparationMinutes != null)
+          await rememberPreparationMinutes(branchId!, preparationMinutes);
         await _loadEmployeeOrders();
       } catch (e) {
         if (mounted)
@@ -733,21 +783,16 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
         return;
       }
 
-      // STEP 1: Immediately update local order status for instant UI feedback
-      // This prevents the order from disappearing while API call is in progress
+      // Server decides the winner. Do not show a successful acceptance before it commits.
       final orderIndex = _orders.indexWhere((order) => order.id == orderId);
-      if (orderIndex != -1 && mounted) {
-        setState(() {
-          _orders[orderIndex].status = newStatus;
-          _orders[orderIndex].updatedAt = DateTime.now();
-        });
-        AppLogger.info('🔄 Updated local order status to $newStatus');
-      }
 
       // STEP 2: Make the backend API call to update order status
       if (newStatus == OrderStatus.confirmed) {
         // Accept order
-        await _orderService.acceptMerchantOrder(orderId);
+        await _orderService.acceptMerchantOrder(orderId,
+            preparationMinutes: preparationMinutes ?? 20, businessId: branchId);
+        if (preparationMinutes != null)
+          await rememberPreparationMinutes(branchId!, preparationMinutes);
         // Send to kitchen printers / kitchen display (non-blocking).
         if (orderIndex != -1) {
           _dispatchToKitchen(_orders[orderIndex]);
@@ -853,16 +898,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
   Future<void> _performOrderCancellation(String orderId, String reason) async {
     try {
-      // STEP 1: Immediately update local order status
-      final orderIndex = _orders.indexWhere((order) => order.id == orderId);
-      if (orderIndex != -1 && mounted) {
-        setState(() {
-          _orders[orderIndex].status = OrderStatus.cancelled;
-          _orders[orderIndex].updatedAt = DateTime.now();
-        });
-        AppLogger.info('🔄 Updated local order status to cancelled');
-      }
-
+      // A rejection is shown only after the server commits it.
       // STEP 2: Call unified OrderService to cancel order
       final session = ref.read(sessionProvider);
       final businessId = session.businessId;
@@ -1241,7 +1277,9 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             order.status == OrderStatus.arrivedAtStore ||
             order.status == OrderStatus.pickedUp ||
             order.status == OrderStatus.headingToCustomer ||
-            order.status == OrderStatus.arrivedAtCustomer || order.status == OrderStatus.returning || order.status == OrderStatus.returnArrived;
+            order.status == OrderStatus.arrivedAtCustomer ||
+            order.status == OrderStatus.returning ||
+            order.status == OrderStatus.returnArrived;
 
       case 'delivered': // تبويب "تم التوصيل" في الأرشيف
         return order.status == OrderStatus.delivered ||
@@ -1951,11 +1989,24 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   }
 
   VoidCallback? _returnAction(Order order) {
-    final a=order.financialAssignment;
-    if(widget.employeeAccess!=null||a==null)return null;
-    final selectors={'businessId':order.businessId,'orderId':order.id,'offerId':a['offerId'],'attempt':a['attempt']};
-    if(a['returnId']!=null)return ()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>OrderReturnScreen(selectors:selectors)));
-    if([OrderStatus.assigned,OrderStatus.headingToStore,OrderStatus.arrivedAtStore].contains(order.status))return ()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>OrderCancellationScreen(selectors:selectors)));
+    final a = order.financialAssignment;
+    if (widget.employeeAccess != null || a == null) return null;
+    final selectors = {
+      'businessId': order.businessId,
+      'orderId': order.id,
+      'offerId': a['offerId'],
+      'attempt': a['attempt']
+    };
+    if (a['returnId'] != null)
+      return () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => OrderReturnScreen(selectors: selectors)));
+    if ([
+      OrderStatus.assigned,
+      OrderStatus.headingToStore,
+      OrderStatus.arrivedAtStore
+    ].contains(order.status))
+      return () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => OrderCancellationScreen(selectors: selectors)));
     return null;
   }
 
@@ -1971,7 +2022,11 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           child: OrderCard(
             order: order,
             onTap: _returnAction(order),
-            actionLabel: _returnAction(order)==null?null:order.financialAssignment?['returnId']!=null?'متابعة واستلام المرتجع':'إلغاء قبل استلام السائق',
+            actionLabel: _returnAction(order) == null
+                ? null
+                : order.financialAssignment?['returnId'] != null
+                    ? 'متابعة واستلام المرتجع'
+                    : 'إلغاء قبل استلام السائق',
             onOrderUpdated: _handleOrderUpdate,
             canUpdateStatus: widget.employeeAccess?.canUpdate,
           ),
@@ -1997,7 +2052,11 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
         return OrderCard(
           order: order,
           onTap: _returnAction(order),
-            actionLabel: _returnAction(order)==null?null:order.financialAssignment?['returnId']!=null?'متابعة واستلام المرتجع':'إلغاء قبل استلام السائق',
+          actionLabel: _returnAction(order) == null
+              ? null
+              : order.financialAssignment?['returnId'] != null
+                  ? 'متابعة واستلام المرتجع'
+                  : 'إلغاء قبل استلام السائق',
           onOrderUpdated: _handleOrderUpdate,
           canUpdateStatus: widget.employeeAccess?.canUpdate,
         );

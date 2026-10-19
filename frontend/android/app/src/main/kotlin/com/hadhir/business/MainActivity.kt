@@ -17,6 +17,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        SoundFiles.install(this, flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.whizz.merchants/statement-export").setMethodCallHandler { call, result ->
             if (call.method != "saveCsv") { result.notImplemented() }
             else if (exportResult != null) { result.error("EXPORT_BUSY", null, null) }

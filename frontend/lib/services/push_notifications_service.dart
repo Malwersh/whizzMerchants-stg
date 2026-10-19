@@ -1,3 +1,8 @@
+import 'sound_notification_settings.dart';
+import 'notification_sound_policy.dart';
+import 'merchant_order_alerts.dart';
+import 'commercial_notice_navigation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'branch_device_service.dart';
 import 'dart:async';
@@ -37,17 +42,25 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 class PushNotificationsService {
-  PushNotificationsService._();
+  PushNotificationsService._() {
+    NotificationSoundFiles.changed.addListener(() {if(_initialized)unawaited(registerTokenIfPossible(businessId:_lastKnownBusinessId));});
+    SoundNotificationSettings().addListener(() {
+      if (_initialized) unawaited(registerTokenIfPossible(businessId: _lastKnownBusinessId));
+    });
+  }
   static final PushNotificationsService instance = PushNotificationsService._();
 
+  final registrationStatus = ValueNotifier<String>('لم يُسجّل هذا الجهاز بعد.');
   bool _initialized = false;
   bool _isRegistering = false;
   String? _lastRegisteredToken;
+  bool? _lastRegisteredSoundEnabled;
   String? _lastRegisteredBusinessId;
   String? _lastRegisteredSubjectId;
   bool _registrationPending = false;
   String? _lastKnownBusinessId;
 
+  String? _lastReadySounds;
   // Audio service for playing notification sounds
   final AudioNotificationService _audioService = AudioNotificationService();
 
@@ -90,7 +103,7 @@ class PushNotificationsService {
 
       if (Platform.isIOS) {
         await messaging.setForegroundNotificationPresentationOptions(
-          alert: true,
+          alert: false,
           badge: true,
           // Foreground orders use the deduplicated in-app audio path.
           // Background notifications retain the APNs payload sound.
@@ -104,6 +117,7 @@ class PushNotificationsService {
             initial?.data['orderId']?.toString());
       // Handle foreground push notifications
       FirebaseMessaging.onMessage.listen((message) async {
+        CommercialNoticeNavigation.receive(message.data);
         await MerchantNotificationInbox.recordPush(message.data,
                 title: message.notification?.title,
                 body: message.notification?.body,
@@ -117,6 +131,7 @@ class PushNotificationsService {
         // Handle new_order action
         final action = message.data['action']?.toString() ?? '';
         if (action == 'new_order') {
+          MerchantOrderAlerts.receive(message.data);
           AppLogger.debug('🚨 NEW ORDER PUSH RECEIVED (foreground)');
 
           // Play notification sound
@@ -141,6 +156,7 @@ class PushNotificationsService {
       });
 
       FirebaseMessaging.onMessageOpenedApp.listen((message) async {
+        CommercialNoticeNavigation.receive(message.data, tapped: true);
         if (message.data['action'] == 'new_order')
           await AudioNotificationService.markOrderSoundAnnounced(
               message.data['orderId']?.toString());
@@ -168,8 +184,9 @@ class PushNotificationsService {
 
       // Cold start: app launched from a terminated state by tapping a notification.
       // This is critical for debugging the "tap from closed" path.
-      final initialMessage = await messaging.getInitialMessage();
+      final initialMessage = initial;
       if (initialMessage != null) {
+        CommercialNoticeNavigation.receive(initialMessage.data, tapped: true);
         await MerchantNotificationInbox.recordPush(initialMessage.data,
                 title: initialMessage.notification?.title,
                 body: initialMessage.notification?.body,
@@ -222,7 +239,12 @@ class PushNotificationsService {
   Future<void> registerTokenIfPossible(
       {String? forcedToken, String? businessId}) async {
     if (!_initialized) {
-      await initialize();
+      try {
+        await initialize();
+      } catch (_) {
+        registrationStatus.value = 'تعذر تهيئة الإشعارات. أعد المحاولة.';
+        return;
+      }
     }
 
     final requestedBusiness = businessId?.trim();
@@ -237,9 +259,24 @@ class PushNotificationsService {
     try {
       _isRegistering = true;
 
+      registrationStatus.value = 'جارٍ تسجيل هذا الجهاز…';
+      if (Platform.isIOS) {
+        String? apns;
+        for (var attempt = 0; attempt < 10; attempt++) {
+          apns = await FirebaseMessaging.instance.getAPNSToken();
+          if (apns != null) break;
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+        if (apns == null) {
+          registrationStatus.value =
+              'لم يكتمل اتصال الجهاز بخدمة Apple. تحقق من الإذن والإنترنت ثم أعد المحاولة.';
+          return;
+        }
+      }
       final token =
           (forcedToken ?? await FirebaseMessaging.instance.getToken())?.trim();
       if (token == null || token.isEmpty) {
+        registrationStatus.value = 'لم يكتمل تجهيز الإشعارات. أعد المحاولة.';
         AppLogger.debug('⚠️ FCM token not available yet');
         return;
       }
@@ -248,15 +285,22 @@ class PushNotificationsService {
           .read(key: 'merchant_paired_branch_device_v1');
       if (paired != null) {
         final device = Map<String, dynamic>.from(jsonDecode(paired));
-        await BranchDeviceService().call(device['deviceToken'], {
+        final pushResult=await BranchDeviceService().call(device['deviceToken'], {
           'action': 'register_push',
           'pushToken': token,
+          'soundEnabled': SoundNotificationSettings().shouldPlaySound('new_order'),
+          'soundReady': NotificationSoundPolicy.ready,
           'platform': Platform.isIOS ? 'ios' : 'android'
         });
+        final beforeReady=NotificationSoundPolicy.ready.join(',');
+        await NotificationSoundPolicy.adopt(pushResult['notificationPolicy']??pushResult['data']?['notificationPolicy']);
+        if(beforeReady!=NotificationSoundPolicy.ready.join(',')){await BranchDeviceService().call(device['deviceToken'],{'action':'register_push','pushToken':token,'platform':Platform.isIOS?'ios':'android','soundReady':NotificationSoundPolicy.ready,'soundEnabled':SoundNotificationSettings().shouldPlaySound('new_order')});}
+        registrationStatus.value = 'تم تسجيل هذا الجهاز للإشعارات.';
         return;
       }
       final authToken = await TokenRefreshService.getValidAccessToken();
       if (authToken == null || authToken.isEmpty) {
+        registrationStatus.value = 'سجّل الدخول لإكمال تسجيل الإشعارات.';
         // Not logged in (or session not ready) → skip for now.
         AppLogger.debug(
             'ℹ️ No auth token yet; skipping push token registration');
@@ -269,9 +313,14 @@ class PushNotificationsService {
       ))) as Map<String, dynamic>;
       final subjectId = claims['sub']?.toString();
       final registrationBusiness = _lastKnownBusinessId;
-      if (_lastRegisteredToken == token &&
+      await NotificationSoundPolicy.refresh();
+      final soundEnabled=SoundNotificationSettings().shouldPlaySound('new_order');
+      if (_lastReadySounds == NotificationSoundPolicy.ready.join(',') && _lastRegisteredSoundEnabled == soundEnabled && _lastRegisteredToken == token &&
           _lastRegisteredBusinessId == registrationBusiness &&
-          _lastRegisteredSubjectId == subjectId) return;
+          _lastRegisteredSubjectId == subjectId) {
+        registrationStatus.value = 'تم تسجيل هذا الجهاز للإشعارات.';
+        return;
+      }
 
       final platform = Platform.isIOS
           ? 'ios'
@@ -292,8 +341,10 @@ class PushNotificationsService {
 
       final body = {
         'token': token,
+        'soundEnabled': soundEnabled,
         'app': 'merchant',
         'platform': platform,
+          'soundReady': NotificationSoundPolicy.ready,
         'deviceId': deviceId,
         'appVersion': pkg.version,
         'buildNumber': pkg.buildNumber,
@@ -313,16 +364,22 @@ class PushNotificationsService {
       );
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        _lastReadySounds=NotificationSoundPolicy.ready.join(',');
+        _lastRegisteredSoundEnabled = soundEnabled;
         _lastRegisteredToken = token;
         _lastRegisteredBusinessId = registrationBusiness;
         _lastRegisteredSubjectId = subjectId;
+        registrationStatus.value = 'تم تسجيل هذا الجهاز للإشعارات.';
         AppLogger.success('✅ Push token registered (merchant)');
         return;
       }
 
+      registrationStatus.value = 'تعذر تسجيل الجهاز في الخادم. أعد المحاولة.';
       AppLogger.error(
           '❌ Push token register failed: HTTP ${resp.statusCode} ${resp.body}');
     } catch (e) {
+      registrationStatus.value =
+          'تعذر تسجيل الإشعارات. تحقق من الإنترنت ثم أعد المحاولة.';
       AppLogger.error('❌ Push token registration error: $e');
     } finally {
       _isRegistering = false;

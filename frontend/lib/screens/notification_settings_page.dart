@@ -1,373 +1,201 @@
+import '../services/sound_notification_settings.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../l10n/app_localizations.dart';
-import '../core/design_system/design_system.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:permission_handler/permission_handler.dart'
+    show openAppSettings;
+import '../services/push_notifications_service.dart';
 
-class NotificationSettingsPage extends ConsumerStatefulWidget {
-  const NotificationSettingsPage({super.key});
-
+/// Device permission comes from the OS. No local switches pretending to control
+/// server delivery; category delivery preferences require a server contract.
+class NotificationSettingsPage extends StatefulWidget {
+  final Future<AuthorizationStatus> Function()? readPermission;
+  final Future<AuthorizationStatus> Function()? requestPermission;
+  final Future<void> Function()? registerDevice;
+  final Future<bool> Function()? openSettings;
+  final ValueNotifier<String>? registrationStatus;
+  const NotificationSettingsPage(
+      {super.key,
+      this.readPermission,
+      this.requestPermission,
+      this.registerDevice,
+      this.openSettings,
+      this.registrationStatus});
   @override
-  ConsumerState<NotificationSettingsPage> createState() =>
+  State<NotificationSettingsPage> createState() =>
       _NotificationSettingsPageState();
 }
 
-class _NotificationSettingsPageState
-    extends ConsumerState<NotificationSettingsPage> {
-  bool _pushNotifications = true;
-  bool _emailNotifications = true;
-  bool _smsNotifications = false;
-  bool _newOrderNotifications = true;
-  bool _orderStatusNotifications = true;
-  bool _paymentNotifications = true;
-
+class _NotificationSettingsPageState extends State<NotificationSettingsPage>
+    with WidgetsBindingObserver {
+  AuthorizationStatus? _permission;
+  bool _busy = false;
+  String? _error;
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    WidgetsBinding.instance.addObserver(this);
+    SoundNotificationSettings().initialize();
+    _load();
   }
 
-  Future<void> _loadSettings() async {
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
+  }
+
+  Future<void> _load({bool request = false}) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      final prefs = await SharedPreferences.getInstance();
-      setState(() {
-        _pushNotifications = prefs.getBool('notif_push') ?? true;
-        _emailNotifications = prefs.getBool('notif_email') ?? true;
-        _smsNotifications = prefs.getBool('notif_sms') ?? false;
-        _newOrderNotifications = prefs.getBool('notif_new_order') ?? true;
-        _orderStatusNotifications = prefs.getBool('notif_order_status') ?? true;
-        _paymentNotifications = prefs.getBool('notif_payment') ?? true;
-      });
-    } catch (e) {
-      // Handle error appropriately
+      AuthorizationStatus permission;
+      if (request && widget.requestPermission != null) {
+        permission = await widget.requestPermission!();
+      } else if (!request && widget.readPermission != null) {
+        permission = await widget.readPermission!();
+      } else {
+        await Firebase.initializeApp();
+        final settings = request
+            ? await FirebaseMessaging.instance
+                .requestPermission(alert: true, badge: true, sound: true)
+            : await FirebaseMessaging.instance.getNotificationSettings();
+        permission = settings.authorizationStatus;
+      }
+      if (!mounted) return;
+      setState(() => _permission = permission);
+      if (permission == AuthorizationStatus.authorized ||
+          permission == AuthorizationStatus.provisional) {
+        await (widget.registerDevice?.call() ??
+            PushNotificationsService.instance.registerTokenIfPossible());
+      }
+    } catch (_) {
+      if (mounted)
+        setState(() => _error = 'تعذر التحقق من الإشعارات. أعد المحاولة.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    return Scaffold(
-      backgroundColor: WhizzColors.backgroundPrimary,
-      appBar: AppBar(
-        backgroundColor: WhizzColors.secondary,
-        foregroundColor: WhizzColors.white,
-        elevation: 0,
-        title: Text(
-          loc.notificationSettings,
-          style: AppTypography.titleLarge.copyWith(
-            fontWeight: FontWeight.w600,
-            color: WhizzColors.white,
-          ),
-        ),
-        actions: [
-          FilledButton.icon(
-            onPressed: () => _saveSettings(),
-            style: FilledButton.styleFrom(
-              backgroundColor: WhizzColors.textSecondary,
-              foregroundColor: WhizzColors.onSecondary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLG),
-              ),
-            ),
-            icon: const Icon(Icons.save_rounded),
-            label: Text(loc.save),
-          ),
-          SizedBox(width: AppSpacing.md),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Delivery Methods Section
-                _buildNotificationSection(
-                loc.deliveryMethods,
-                  Icons.send,
-                WhizzColors.secondary,
-                  [
-                    _buildModernSwitchTile(
-                    loc.pushNotifications,
-                    loc.receiveNotificationsOnYourDevice,
-                      _pushNotifications,
-                      (value) => setState(() => _pushNotifications = value),
-                      Icons.notifications,
-                    WhizzColors.secondary,
-                    ),
-                    _buildModernSwitchTile(
-                    loc.emailNotifications,
-                    loc.receiveNotificationsViaEmail,
-                      _emailNotifications,
-                      (value) => setState(() => _emailNotifications = value),
-                      Icons.email,
-                    WhizzColors.textSecondary,
-                    ),
-                    _buildModernSwitchTile(
-                    loc.smsNotifications,
-                    loc.receiveNotificationsViaSMS,
-                      _smsNotifications,
-                      (value) => setState(() => _smsNotifications = value),
-                      Icons.sms,
-                    WhizzColors.secondary,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Order Notifications Section
-                _buildNotificationSection(
-                loc.orderNotifications,
-                  Icons.shopping_cart,
-                WhizzColors.textSecondary,
-                  [
-                    _buildModernSwitchTile(
-                    loc.newOrders,
-                    loc.getNotifiedWhenNewOrdersArrive,
-                      _newOrderNotifications,
-                      (value) => setState(() => _newOrderNotifications = value),
-                      Icons.add_shopping_cart,
-                    WhizzColors.secondary,
-                    ),
-                    _buildModernSwitchTile(
-                    loc.orderStatusUpdates,
-                    loc.getNotifiedWhenOrderStatusChanges,
-                      _orderStatusNotifications,
-                      (value) =>
-                          setState(() => _orderStatusNotifications = value),
-                      Icons.update,
-                    WhizzColors.textSecondary,
-                    ),
-                    _buildModernSwitchTile(
-                    loc.paymentNotifications,
-                    loc.getNotifiedAboutPaymentUpdates,
-                      _paymentNotifications,
-                      (value) => setState(() => _paymentNotifications = value),
-                      Icons.payment,
-                    WhizzColors.secondary,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-      ),
-    );
-  }
-
-  Widget _buildNotificationSection(
-      String title, IconData icon, Color iconColor, List<Widget> children) {
-    return Container(
-      decoration: BoxDecoration(
-        color: WhizzColors.white,
-        borderRadius: BorderRadius.circular(AppDimensions.borderRadiusXL),
-        border: Border.all(
-          color: iconColor.withValues(alpha: 0.2),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: WhizzColors.textPrimary.withValues(alpha: 0.04),
-            blurRadius: AppSpacing.lg,
-            offset: Offset(0, GoldenRatio.sm),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: EdgeInsets.all(AppSpacing.lg),
-            decoration: BoxDecoration(
-              color: WhizzColors.grey50,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(AppDimensions.borderRadiusXL),
-                topRight: Radius.circular(AppDimensions.borderRadiusXL),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: WhizzColors.black,
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: WhizzColors.white,
-                    size: AppSpacing.lg,
-                  ),
-                ),
-                SizedBox(width: AppSpacing.md),
-                Text(
-                  title,
-                  style: AppTypography.titleMedium.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: WhizzColors.textPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              children: children,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModernSwitchTile(String title, String subtitle, bool value,
-      ValueChanged<bool> onChanged, IconData icon, Color iconColor) {
-    return Container(
-      margin: EdgeInsets.only(bottom: AppSpacing.md),
-      padding: EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: iconColor.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLG),
-        border: Border.all(
-          color: iconColor.withValues(alpha: 0.1),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(GoldenRatio.sm),
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(GoldenRatio.sm),
-            ),
-            child: Icon(
-              icon,
-              color: iconColor,
-              size: AppSpacing.lg,
-            ),
-          ),
-          SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppTypography.bodyLarge.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: WhizzColors.textPrimary,
-                  ),
-                ),
-                SizedBox(height: GoldenRatio.xs),
-                Text(
-                  subtitle,
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: WhizzColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: iconColor,
-            activeTrackColor: iconColor.withValues(alpha: 0.3),
-            inactiveTrackColor: WhizzColors.grey50,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _saveSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('notif_push', _pushNotifications);
-      await prefs.setBool('notif_email', _emailNotifications);
-      await prefs.setBool('notif_sms', _smsNotifications);
-      await prefs.setBool('notif_new_order', _newOrderNotifications);
-      await prefs.setBool('notif_order_status', _orderStatusNotifications);
-      await prefs.setBool('notif_payment', _paymentNotifications);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: WhizzColors.textSecondary,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: Colors.black87,
-                    size: 16,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    AppLocalizations.of(context)!.settingsSavedSuccessfully,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: WhizzColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.error_rounded,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    AppLocalizations.of(context)!
-                        .failedToSaveSettings(e.toString()),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: WhizzColors.error,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
-      }
-    }
+    final granted = _permission == AuthorizationStatus.authorized ||
+        _permission == AuthorizationStatus.provisional;
+    final denied = _permission == AuthorizationStatus.denied;
+    final status = granted
+        ? 'الإشعارات مسموحة على هذا الجهاز'
+        : denied
+            ? 'الإشعارات غير مسموحة على هذا الجهاز'
+            : _permission == AuthorizationStatus.notDetermined
+                ? 'لم تحدد إذن الإشعارات بعد'
+                : 'جارٍ التحقق من الإذن…';
+    return Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+            appBar: AppBar(title: const Text('إعدادات الإشعارات')),
+            body: ListView(padding: const EdgeInsets.all(20), children: [
+              ListenableBuilder(listenable:SoundNotificationSettings(),builder:(context,_)=>Card(child:SwitchListTile(
+                title:const Text('صوت الطلبات الجديدة'),subtitle:const Text('فعّال افتراضيًا. عند كتم الصوت تستمر التنبيهات المرئية داخل التطبيق.'),
+                value:SoundNotificationSettings().soundEnabled&&SoundNotificationSettings().newOrderSoundEnabled,
+                onChanged:(value)async{await SoundNotificationSettings().setSoundEnabled(value);await SoundNotificationSettings().setNewOrderSoundEnabled(value);},
+                secondary:const Icon(Icons.volume_up_outlined),
+              ))),
+              Card(
+                  child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Icon(
+                                granted
+                                    ? Icons.notifications_active_outlined
+                                    : Icons.notifications_off_outlined,
+                                size: 36),
+                            const SizedBox(height: 12),
+                            Text(status,
+                                style: Theme.of(context).textTheme.titleMedium),
+                            const SizedBox(height: 12),
+                            const Text(
+                                'قد لا يظهر طلب الإذن مرة أخرى إذا سبق أن اخترت السماح أو الرفض. يمكنك تغيير اختيارك من إعدادات الهاتف.'),
+                            const SizedBox(height: 16),
+                            if (_error != null)
+                              Text(_error!,
+                                  style: TextStyle(
+                                      color:
+                                          Theme.of(context).colorScheme.error)),
+                            if (_busy) const LinearProgressIndicator(),
+                            if (_permission ==
+                                AuthorizationStatus.notDetermined)
+                              FilledButton(
+                                  onPressed:
+                                      _busy ? null : () => _load(request: true),
+                                  child: const Text('السماح بالإشعارات')),
+                            OutlinedButton.icon(
+                                onPressed: _busy
+                                    ? null
+                                    : () async {
+                                        final opened = await (widget
+                                                .openSettings
+                                                ?.call() ??
+                                            openAppSettings());
+                                        if (!opened && mounted)
+                                          setState(() => _error =
+                                              'تعذر فتح الإعدادات. افتح إعدادات الهاتف ثم اختر تطبيق المطعم والإشعارات.');
+                                      },
+                                icon: const Icon(Icons.settings_outlined),
+                                label: const Text('فتح إعدادات الهاتف')),
+                          ]))),
+              const SizedBox(height: 12),
+              Card(
+                  child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text('تسجيل هذا الجهاز',
+                                style: Theme.of(context).textTheme.titleMedium),
+                            const SizedBox(height: 8),
+                            ValueListenableBuilder<String>(
+                                valueListenable: widget.registrationStatus ??
+                                    PushNotificationsService
+                                        .instance.registrationStatus,
+                                builder: (_, value, __) => Text(value)),
+                            TextButton.icon(
+                                onPressed: _busy ? null : () => _load(),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('تحديث الإذن وتسجيل الجهاز')),
+                            const Text(
+                                'السماح بالإشعارات وتسجيل الجهاز لا يعنيان تأكيد وصول إشعار؛ يتم التحقق من الإرسال بشكل مستقل.'),
+                          ]))),
+              const SizedBox(height: 12),
+              Card(
+                  child: Column(children: const [
+                ListTile(
+                    title: Text('أنواع الإشعارات'),
+                    subtitle:
+                        Text('تظهر الأنواع المرتبطة بعملك وصلاحيات حسابك.')),
+                ListTile(
+                    leading: Icon(Icons.shopping_bag_outlined),
+                    title: Text('الطلبات'),
+                    subtitle: Text('الطلبات الجديدة وتحديثات حالتها.')),
+                ListTile(
+                    leading: Icon(Icons.handshake_outlined),
+                    title: Text('المشاركات التجارية'),
+                    subtitle:
+                        Text('طلبات الموافقة على المشاركة في تمويل الخصومات.')),
+                ListTile(
+                    leading: Icon(Icons.account_balance_wallet_outlined),
+                    title: Text('المحفظة'),
+                    subtitle: Text('الإشعارات المالية المرتبطة بحسابك.')),
+              ])),
+            ])));
   }
 }

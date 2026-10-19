@@ -32,6 +32,7 @@ class OrderItem {
   double price;
   int quantity;
   String? notes;
+  final List<String> modifiers;
 
   OrderItem({
     required this.id,
@@ -39,6 +40,7 @@ class OrderItem {
     required this.price,
     required this.quantity,
     this.notes,
+    this.modifiers = const [],
   });
 
   // Getter for dishId (alias for id for backward compatibility)
@@ -57,6 +59,7 @@ class OrderItem {
           : _parsePrice(json['unitPrice']) / 1000,
       quantity: json['quantity'] ?? 1,
       notes: json['notes'] ?? json['specialInstructions'],
+      modifiers: (json['modifiers'] as List? ?? []).whereType<Map>().map((m)=>m['name']?.toString() ?? '').where((s)=>s.isNotEmpty).toList(),
     );
   }
 
@@ -84,6 +87,7 @@ class OrderItem {
       'price': price,
       'quantity': quantity,
       'notes': notes,
+      'modifiers': modifiers.map((name)=>{'name':name}).toList(),
     };
   }
 
@@ -93,6 +97,8 @@ class OrderItem {
 class Order {
   final bool driverSearchUnavailable;
   final Map<String,dynamic>? financialAssignment;
+  DateTime? merchantAcceptanceDeadlineAt;
+  int? estimatedPreparationTime;
   String id;
   String businessId;
   String customerId;
@@ -108,6 +114,8 @@ class Order {
   String? notes;
   String? orderNumber; // Add order number
   double deliveryFee; // Add delivery fee
+  final String paymentMethod;
+  final String? deliveryInstructions;
 
   // 🚗 معلومات السائق (عند التعيين)
   String? driverId; // معرف السائق
@@ -121,6 +129,8 @@ class Order {
   Order({
     this.driverSearchUnavailable = false,
     this.financialAssignment,
+    this.merchantAcceptanceDeadlineAt,
+    this.estimatedPreparationTime,
     required this.id,
     required this.businessId,
     required this.customerId,
@@ -136,6 +146,8 @@ class Order {
     this.notes,
     this.orderNumber,
     this.deliveryFee = 0.0,
+    this.paymentMethod = 'cash',
+    this.deliveryInstructions,
     // Driver information
     this.driverId,
     this.driverName,
@@ -176,6 +188,8 @@ class Order {
       id: orderId,
       driverSearchUnavailable: json['driverSearchUnavailable'] == true,
       financialAssignment: json['financialAssignment'] is Map ? Map<String,dynamic>.unmodifiable(json['financialAssignment']) : null,
+      merchantAcceptanceDeadlineAt: _parseDateTime(json['merchantAcceptanceDeadlineAt']),
+      estimatedPreparationTime: (json['estimatedPreparationTime'] as num?)?.toInt(),
       businessId: json['businessId'] ?? json['storeId'] ?? '',
       customerId: json['customerId'] ??
           json['userId'] ??
@@ -196,6 +210,8 @@ class Order {
       notes: json['notes'],
       orderNumber: json['orderNumber'] ?? json['orderNumber_gsi'],
       deliveryFee: _parseDeliveryFee(json),
+      paymentMethod: json['paymentMethod']?.toString() ?? 'cash',
+      deliveryInstructions: json['deliveryInstructions']?.toString(),
       // Parse driver information
       driverId: json['driverId'],
       driverName: json['driverName'] ?? json['driver_name'],
@@ -372,6 +388,10 @@ class Order {
       'id': id,
       'driverSearchUnavailable': driverSearchUnavailable,
       if(financialAssignment!=null) 'financialAssignment': financialAssignment,
+      'merchantAcceptanceDeadlineAt': merchantAcceptanceDeadlineAt?.toIso8601String(),
+      'estimatedPreparationTime': estimatedPreparationTime,
+      'paymentMethod': paymentMethod,
+      'deliveryInstructions': deliveryInstructions,
       'businessId': businessId,
       'customerName': customerName,
       'customerPhone': customerPhone,
@@ -414,6 +434,8 @@ class Order {
       id: id ?? this.id,
       driverSearchUnavailable: driverSearchUnavailable,
       financialAssignment: financialAssignment,
+      merchantAcceptanceDeadlineAt: merchantAcceptanceDeadlineAt,
+      estimatedPreparationTime: estimatedPreparationTime,
       businessId: businessId ?? this.businessId,
       customerId: customerId ?? this.customerId,
       customerName: customerName ?? this.customerName,
@@ -428,6 +450,8 @@ class Order {
       notes: notes ?? this.notes,
       orderNumber: orderNumber ?? this.orderNumber,
       deliveryFee: deliveryFee ?? this.deliveryFee,
+      paymentMethod: paymentMethod,
+      deliveryInstructions: deliveryInstructions,
       // 🚗 Preserve driver information
       driverId: driverId ?? this.driverId,
       driverName: driverName ?? this.driverName,
@@ -440,10 +464,8 @@ class Order {
   }
 
   bool shouldAutoReject() {
-    // Auto-expire orders that are older than 10 minutes (matches CircularOrderTimer)
-    final now = DateTime.now();
-    final orderAge = now.difference(createdAt);
-    return orderAge.inMinutes >= 10;
+    // Display helper only. Expiration is decided by the server.
+    return !DateTime.now().isBefore(merchantAcceptanceDeadlineAt ?? createdAt.add(const Duration(minutes: 5)));
   }
 
   @override

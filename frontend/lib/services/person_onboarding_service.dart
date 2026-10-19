@@ -21,7 +21,7 @@ class PersonOnboardingService {
         : <String, String>{'Content-Type': 'application/json'};
     // Gateway verifies the ID token; the commercial service independently
     // validates the access token and checks the live Cognito account.
-    if (authenticated && path.split('?').first == 'commercial-agreements') {
+    if (authenticated && ['commercial-agreements', 'settlement-schedules'].contains(path.split('?').first)) {
       final accessToken = await TokenRefreshService.getValidUserAccessToken();
       if (accessToken == null || accessToken.isEmpty) {
         throw Exception('أعد تسجيل الدخول لتحميل الاتفاقية التجارية.');
@@ -102,6 +102,12 @@ class PersonOnboardingService {
                 'تغيرت بيانات محاولة الإرسال. أعد فتح الشاشة.',
             'INVALID_TEXT': 'أكمل الاسم وسبب التعديل.',
             'BUSINESS_UNAVAILABLE': 'النشاط غير متاح لهذا الحساب.',
+            'SETTLEMENT_SCHEDULE_ADMIN_DISABLED': 'إدارة جداول التسوية لم تُفعّل بعد.',
+            'SCHEDULE_OWNER_REQUIRED': 'موافقة مالك المتجر مطلوبة لهذا الجدول.',
+            'SCHEDULE_PROPOSAL_CONFLICT': 'تغيّر الاقتراح. حدّث الصفحة وراجع البيانات.',
+            'SCHEDULE_FUTURE_BOUNDARY_REQUIRED': 'انقضى تاريخ بداية الاقتراح. يلزم اقتراح جديد.',
+            'SCHEDULE_BASE_VERSION_CONFLICT': 'تغيّر الجدول المعتمد. حدّث الصفحة.',
+            'SCHEDULE_CONFLICT_OR_UNKNOWN_OUTCOME_RETRY_SAME_PROPOSAL': 'تعذر التحقق من النتيجة. أعد المحاولة على الطلب نفسه.',
             'COMMERCIAL_MANAGEMENT_DISABLED': 'إدارة الاتفاقيات التجارية لم تُفتح بعد على هذه البيئة.',
             'COMMERCIAL_RECENT_SIGN_IN_REQUIRED': 'أعد تسجيل الدخول لتأكيد موافقتك على الاتفاقية التجارية.',
             'FUNDING_TERMS_CHANGED': 'تغيرت شروط تمويل الخصم. اطلب مراجعة النسخة الجديدة قبل الموافقة.',

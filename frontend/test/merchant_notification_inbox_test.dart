@@ -19,6 +19,7 @@ void main() {
       'history only includes the requested restaurant and does not create unread alerts',
       () async {
     final inbox = MerchantNotificationInbox(
+        sharingLoader: (_) async => [],
         subjectLoader: () async => 'owner',
         orderLoader: (_) async =>
             [order('one', 'restaurant'), order('other', 'elsewhere')]);
@@ -36,6 +37,7 @@ void main() {
         '[{"id":"push","title":"طلب جديد","body":"","type":"new_order","data":{},"isRead":false,"businessId":"restaurant","createdAt":"2026-10-12T00:00:00Z"}]');
     String? account = 'owner';
     final inbox = MerchantNotificationInbox(
+        sharingLoader: (_) async => [],
         subjectLoader: () async => account, orderLoader: (_) async => []);
     await inbox.load('restaurant');
     expect(inbox.items.single.isRead, isFalse);

@@ -238,7 +238,7 @@ Resources:
       Environment:
         Variables:
           OTPIQ_KEY_PARAM: !Sub "/whizz/${Stage}/otpiq-key"
-          OTPIQ_PROVIDER: whatsapp-sms
+          OTPIQ_PROVIDER: whatsapp-telegram-sms
           OTPIQ_SENDER_ID: ""
 
   OtpVerifyAuthChallengeFunction:
@@ -1118,6 +1118,47 @@ Resources:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /auth/settlement-schedules:
+                get:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                post:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                options:
+                  security: []
+                  responses:
+                    '200':
+                      description: CORS preflight response
+                      headers:
+                        Access-Control-Allow-Origin:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Methods:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Headers:
+                          schema:
+                            type: string
+                  x-amazon-apigateway-integration:
+                    type: mock
+                    requestTemplates:
+                      application/json: '{"statusCode": 200}'
+                    responses:
+                      default:
+                        statusCode: "200"
+                        responseParameters:
+                          method.response.header.Access-Control-Allow-Origin: "'*'"
+                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,Access-Token,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
               /auth/branch-staff:
                 get:
                   security:
@@ -2799,12 +2840,13 @@ Resources:
       FunctionName: !Sub 'order-receiver-regional-${Stage}-unified-auth-v4-sam'
       Environment:
         Variables:
+          SETTLEMENT_SCHEDULE_ADMIN_ENABLED: 'true'
           COMMERCIAL_ADMIN_ENABLED: !Ref CommercialAdminEnabled
           FINANCIAL_COD_RETURNS_MODE: 'OFF'
           FINANCIAL_COD_ASSIGNMENTS_MODE: 'OFF'
           FINANCIAL_ACCEPT_FUNCTION_ARN: 'arn:aws:lambda:us-east-1:699561669180:function:staging-driver-financial-accept'
           PROFILE_OTP_KEY_PARAM: !Sub '/whizz/${Stage}/otpiq-key'
-          PROFILE_OTP_PROVIDER: whatsapp-sms
+          PROFILE_OTP_PROVIDER: whatsapp-telegram-sms
           PROFILE_OTP_SENDER: ''
       CodeUri: functions/auth/
       Handler: unified_auth_handler.handler

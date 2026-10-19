@@ -30,6 +30,18 @@ void main() {
     expect(value.maxUsage, 20);
     expect(value.minimumOrderAmount, 3500);
   });
+  test('writes UTC millisecond dates accepted by commercial validation', () {
+    final value = Discount.fromJson({
+      'id': 'precision',
+      'startDate': '2026-10-17T19:02:47.089811+03:00',
+      'endDate': '2026-10-24T19:02:47.089811+03:00',
+    });
+    final json = value.toJson();
+    expect(json['validFrom'], '2026-10-17T16:02:47.089Z');
+    expect(json['validTo'], '2026-10-24T16:02:47.089Z');
+    expect(json['startDate'], json['validFrom']);
+    expect(json['endDate'], json['validTo']);
+  });
   test('retains legacy camel case discount shapes', () {
     final value = Discount.fromJson({
       'id': 'old',

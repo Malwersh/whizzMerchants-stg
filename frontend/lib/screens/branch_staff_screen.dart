@@ -1,3 +1,7 @@
+import 'commercial_agreements_screen.dart';
+import 'notification_settings_page.dart';
+import '../widgets/commercial_requests_banner.dart';
+import '../services/commercial_notice_navigation.dart';
 import 'dart:convert';
 import 'branch_device_setup_screen.dart';
 import 'staff_grant_editor.dart';
@@ -45,6 +49,7 @@ class _BranchStaffScreenState extends State<BranchStaffScreen> {
 
   @override
   void dispose() {
+    if (widget.employeeHome) CommercialNoticeNavigation.ownerReady = false;
     phone.dispose();
     super.dispose();
   }
@@ -64,6 +69,13 @@ class _BranchStaffScreenState extends State<BranchStaffScreen> {
               r[owner ? 'invitations' : 'items'] ?? []);
           members = List<Map<String, dynamic>>.from(
               memberships[owner ? 'members' : 'items'] ?? []);
+          if (widget.employeeHome)
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                CommercialNoticeNavigation.ownerReady = true;
+                CommercialNoticeNavigation.tryOpen();
+              }
+            });
         });
     } catch (e) {
       if (mounted)
@@ -307,6 +319,31 @@ class _BranchStaffScreenState extends State<BranchStaffScreen> {
                             : (m['businessName'] ?? '')),
                         subtitle: Text(
                             '${m['grant']?['roleNameAr'] ?? roles[m['role']] ?? m['role']} — ${m['status'] == 'ACTIVE' ? 'عضوية مقبولة' : 'مسحوبة'}')),
+                    if (!owner &&
+                        m['status'] == 'ACTIVE' &&
+                        const ['MANAGER', 'BRANCH_MANAGER', 'LEGACY_MANAGER']
+                            .contains(m['role'])) ...[
+                      CommercialRequestsBanner(
+                          businessId: m['businessId'], service: api),
+                      TextButton.icon(
+                          onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => CommercialAgreementsScreen(
+                                      businessId: m['businessId'],
+                                      businessName: m['businessName'],
+                                      service: api))),
+                          icon: const Icon(Icons.handshake_outlined),
+                          label: const Text('موافقات الخصومات')),
+                      TextButton.icon(
+                          onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const NotificationSettingsPage())),
+                          icon: const Icon(Icons.notifications_outlined),
+                          label: const Text('إعدادات الإشعارات')),
+                    ],
                     if (!owner && m['status'] == 'ACTIVE')
                       Padding(
                           padding: const EdgeInsets.symmetric(

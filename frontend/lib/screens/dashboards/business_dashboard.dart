@@ -1,3 +1,6 @@
+import '../order_reception_settings_page.dart';
+import '../../widgets/merchant_order_attention.dart';
+import '../../widgets/commercial_requests_banner.dart';
 import '../branch_employee_discounts_screen.dart';
 import '../../widgets/branch_employee_status_control.dart';
 import '../branch_employee_wallet_screen.dart';
@@ -316,7 +319,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
         onNavigate: (index) => _onNavigate(index),
         isLoading: _loadingOrders,
       ),
-      body: _buildDashboardBody(business),
+      body: Column(children: [CommercialRequestsBanner(businessId: business.id, businessName: business.name), Expanded(child: _buildDashboardBody(business))]),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: WhizzColors.white,
@@ -490,6 +493,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
               showTabs: false),
         );
     final settings = ListView(padding: const EdgeInsets.all(16), children: [
+      Card(child:ListTile(leading:const Icon(Icons.tune_rounded),title:const Text('استقبال الطلبات والصوت'),onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>OrderReceptionSettingsPage(businessId:access.businessId,access:access))))),
       if (hours)
         Card(
             child: ExpansionTile(
@@ -557,7 +561,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
   @override
   Widget build(BuildContext context) {
     if (widget.employeeAccess != null)
-      return _employeeDashboard(widget.employeeAccess!);
+      return widget.employeeAccess!.canOrders ? MerchantOrderAttention(key:ValueKey('attention_${widget.employeeAccess!.businessId}'),businessId:widget.employeeAccess!.businessId,load:widget.employeeAccess!.orders,open:(id)=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>OrdersPage(employeeAccess:widget.employeeAccess,focusOrderId:id))),child:_employeeDashboard(widget.employeeAccess!)) : _employeeDashboard(widget.employeeAccess!);
     final businessAsync = ref.watch(businessProvider);
 
     return businessAsync.when(
@@ -594,11 +598,15 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
           );
         }
 
-        return ResponsiveHelper.isMobile(context)
+        return MerchantOrderAttention(
+          key:ValueKey('attention_${business.id}'),businessId:business.id,
+          load:()=>_orderService.getMerchantOrders(business.id),
+          open:(id)=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>OrdersPage(businessId:business.id,focusOrderId:id))),
+          child: ResponsiveHelper.isMobile(context)
             ? _buildMobileLayout(business)
             : ResponsiveHelper.isTablet(context)
                 ? _buildTabletLayout(business)
-                : _buildDesktopLayout(business);
+                : _buildDesktopLayout(business));
       },
       loading: () => const Scaffold(
         body: Center(

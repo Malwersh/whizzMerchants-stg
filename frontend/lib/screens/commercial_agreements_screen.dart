@@ -7,12 +7,16 @@ import '../services/person_onboarding_service.dart';
 
 class CommercialAgreementsScreen extends StatefulWidget {
   final String businessId;
+  final String? focusSharingId;
+  final String? focusRequestKind;
   final String? businessName;
   final Map<String, String> branchNames;
   final PersonOnboardingService? service;
   const CommercialAgreementsScreen(
       {super.key,
       required this.businessId,
+      this.focusSharingId,
+      this.focusRequestKind,
       this.businessName,
       this.branchNames = const {},
       this.service});
@@ -74,7 +78,8 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
     final epoch = _epoch, businessId = widget.businessId;
     final body = <String, dynamic>{
       'businessId': businessId,
-      'action': 'ACCEPT_AGREEMENT',
+      'action':
+          draft['kind'] == 'DELIVERY' ? 'ACCEPT_DELIVERY' : draft['kind'] == 'FUNDING' ? 'ACCEPT_FUNDING' : 'ACCEPT_AGREEMENT',
       'id': draft['id'],
       'draftVersion': draft['version'],
       'baseVersion': draft['baseVersion'],
@@ -128,6 +133,7 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(date.day)}/${two(date.month)}/${date.year} • ${two(date.hour)}:${two(date.minute)} (UTC)';
   }
+
   String _branch(dynamic id) =>
       widget.branchNames[id] ??
       (id == widget.businessId
@@ -188,19 +194,14 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
           const Text('الأوقات معروضة بالتوقيت العالمي UTC.',
               style: TextStyle(fontSize: 12)),
         ]),
-        _section('تمويل الخصومات', Icons.local_offer_outlined, [
-          if (policies.isEmpty)
-            const Text('لا تتضمن هذه الاتفاقية مشاركة في تمويل خصومات.',
-                style: TextStyle(fontSize: 14, height: 1.6)),
-          for (var i = 0; i < policies.length; i++) ...[
-            _line('الخصم ${i + 1}',
-                'حصتك من تمويل الخصم: ${_number(policies[i]['merchantNumerator'] / policies[i]['denominator'] * 100)}%؛ والمنصة تتحمل الباقي.'),
-            _line('الفترة',
-                '${_date(policies[i]['effectiveFrom'])} إلى ${_date(policies[i]['effectiveTo'])}'),
-            const Text('تُقرب حصتك للأسفل والباقي على المنصة.',
-                style: TextStyle(fontSize: 13)),
-          ],
-        ]),
+        if (policies.isNotEmpty)
+          _section('إفصاح تاريخي عن مشاركة الخصومات', Icons.history, [
+            for (final policy in policies)
+              _line('حصة المتجر في النسخة التاريخية',
+                  '${_number(policy['merchantNumerator'] / policy['denominator'] * 100)}%'),
+            const Text(
+                'طلبات المشاركة الجديدة مستقلة عن اتفاقية العمولة والخدمة.'),
+          ]),
         ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: const Text('تفاصيل تقريب المبالغ',
@@ -211,6 +212,21 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
               _line('رسم الخدمة',
                   _rounding(values['serviceFee']['finalRounding'])),
             ]),
+      ]);
+  Widget _sharingTerms(Map<String, dynamic> values, String? name) =>
+      _section('شروط المشاركة', Icons.local_offer_outlined, [
+        _line(
+            'الخصم', name ?? 'اسم الخصم غير متاح؛ أعد التحميل أو راجع المنصة'),
+        _line('الفرع', _branch(widget.businessId)),
+        _line('حصتك من مبلغ الخصم',
+            '${_number(values['merchantNumerator'] / values['denominator'] * 100)}%'),
+        _line('حصة المنصة',
+            '${_number((1 - values['merchantNumerator'] / values['denominator']) * 100)}%'),
+        _line('مدة الخصم والمشاركة',
+            '${_date(values['effectiveFrom'])} إلى ${_date(values['effectiveTo'])}'),
+        const Text(
+            'هذه مشاركة في مبلغ الخصم وليست عمولة مبيعات. لا تسري قبل موافقتك. عند تغيير شروط الخصم تحتاج المشاركة إلى موافقة جديدة؛ وحتى ذلك يتحمل صاحب الخصم تكلفته كاملة.',
+            style: TextStyle(fontSize: 13, height: 1.6)),
       ]);
   String _rounding(dynamic r) => r == null
       ? 'غير محدد'
@@ -238,8 +254,8 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
               const SizedBox(height: 10),
               Text(
                   _direct
-                      ? 'راجع النسخة والفروع والعمولة وتمويل الخصومات قبل الموافقة. تُثبّت النسخة بعد موافقتك واستكمال التحقق.'
-                      : 'راجع النسخة والفروع والعمولة وتمويل الخصومات قبل الموافقة. تبقى الشروط المعتمدة السابقة سارية حتى اعتماد المنصة للنسخة الجديدة.',
+                      ? 'راجع الشروط قبل الموافقة. تُثبّت النسخة بعد موافقتك واستكمال التحقق.'
+                      : 'راجع شروط كل طلب قبل الموافقة. عرض التوصيل يتفعّل بموافقتك وفق تاريخ بدايته؛ وتظهر حالة كل اتفاقية أدناه.',
                   style: const TextStyle(fontSize: 14, height: 1.7)),
               const SizedBox(height: 16),
               if (_busy) const LinearProgressIndicator(),
@@ -251,105 +267,185 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
               ],
               if (!_busy && _error == null && _items.isEmpty)
                 const Text('لا توجد اتفاقيات تجارية مقدمة لهذا الفرع.'),
-              for (final item in _items)
+              for (final item in _items.where((x) =>
+                  widget.focusSharingId == null ||
+                  (x['draft']['id'] == widget.focusSharingId && (widget.focusRequestKind == null || x['draft']['kind'] == widget.focusRequestKind))))
                 _card(Map<String, dynamic>.from(item as Map)),
             ])),
       );
+  Widget _deliveryTerms(Map<String, dynamic> v) {
+    String cash(dynamic x) => '${_number(x['minorAmount'] / 1000)} دينار';
+    final c = v['customerRule'], f = v['funding'], e = v['eligibility'], l = v['limits'];
+    final customer = switch (c['kind']) {
+      'FREE' => 'التوصيل مجاني للزبون',
+      'FIXED_TARIFF' => 'توصيل ثابت للزبون: ${cash(c['amount'])}',
+      'CAPPED_PRICE' => 'يدفع الزبون حتى ${cash(c['amount'])} للتوصيل',
+      'AMOUNT_OFF' => 'خصم ${cash(c['amount'])} من التوصيل',
+      'PERCENT_OFF' => 'خصم ${_number(c['numerator'] / c['denominator'] * 100)}% حتى ${cash(c['maximumDiscount'])}',
+      _ => 'التوصيل حسب التعرفة المعتادة',
+    };
+    final funding = switch (f['kind']) {
+      'MERCHANT' => 'المتجر يتحمل دعم التوصيل بالكامل',
+      'PLATFORM' => 'المنصة تتحمل دعم التوصيل بالكامل',
+      'SHARED_RATIO' => 'المتجر ${_number(f['merchantNumerator'] / f['denominator'] * 100)}%، والمنصة ${_number((f['denominator'] - f['merchantNumerator']) / f['denominator'] * 100)}% من الدعم. سقف المتجر ${cash(f['merchantCap'])}، والمنصة ${cash(f['platformCap'])}',
+      _ => '${f['contributor'] == 'MERCHANT' ? 'المتجر' : 'المنصة'} يساهم حتى ${cash(f['contribution'])}، والطرف الآخر يتحمل الباقي حتى ${cash(f['remainderCap'])}',
+    };
+    return _section('شروط عرض التوصيل', Icons.delivery_dining, [
+      Text(customer), Text(funding),
+      Text('أجرة السائق مستقلة عن رسوم التوصيل على الزبون.'),
+      Text('دعم المتجر لكل طلب حتى ${cash(l['merchantPerOrder'])}؛ وميزانيته ${cash(l['merchantBudget'])}'),
+      Text('دعم المنصة لكل طلب حتى ${cash(l['platformPerOrder'])}؛ وميزانيتها ${cash(l['platformBudget'])}'),
+      Text('الحد الأدنى للطلب ${cash(e['minimumGoods'])} ${e['minimumGoodsBasis'] == 'GOODS_GROSS' ? 'قبل خصم الأصناف' : 'بعد خصم الأصناف'}'),
+      Text('ضمن ${_number(e['maximumRoadMeters'] / 1000)} كم، في ${e['regionIds'].length} منطقة محددة بالعرض'),
+      Text('${e['audience'] == 'NEW_CUSTOMER' ? 'للزبائن الجدد' : 'لجميع الزبائن'}؛ حتى ${l['perCustomerUses']} استخدام لكل زبون'),
+      Text(e['goodsDiscountStacking'] == 'ALLOW' ? 'يمكن جمعه مع خصم الأصناف' : 'لا يجمع مع خصم الأصناف'),
+      Text('من ${_date(v['effectiveFrom'])} إلى ${_date(v['effectiveTo'])}'),
+      const Text('عند عدم تحقق الشروط أو تجاوز سقف الدعم، تطبق التعرفة المعتادة قبل تأكيد الطلب.'),
+      const Text('موافقتك تفعّل هذه النسخة وفق مدتها دون اعتماد إضافي من موظف آخر.'),
+    ]);
+  }
+
   Widget _card(Map<String, dynamic> item) {
     final draft = Map<String, dynamic>.from(item['draft'] as Map);
     final current = item['current'];
+    final delivery = draft['kind'] == 'DELIVERY';
+    final sharing = draft['kind'] == 'FUNDING';
     final accepted = item['ownerAccepted'] == true;
     final published = draft['publishedVersion'] != null;
     return Card(
+        key: ValueKey(
+            'card-${widget.businessId}-${draft["id"]}-${draft["version"]}-${draft["hash"]}'),
         elevation: 0,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: const BorderSide(color: Color(0xffdce3ee))),
-        child: Padding(
-            padding: const EdgeInsets.all(16),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('الشروط التجارية — النسخة ${draft['version']}',
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (current?['terms'] != null)
-                ExpansionTile(
-                    title:
-                        Text('الشروط المعتمدة — إصدار ${current['version']}'),
-                    children: [
-                      if (current['disclosure'] != null)
-                        _terms(
-                            Map<String, dynamic>.from(
-                                current['disclosure']['values'] as Map),
-                            List<dynamic>.from(
-                                current['disclosure']['businessIds']),
-                            List<dynamic>.from(
-                                current['disclosure']['fundingPolicies']))
-                      else
-                        const Text(
-                            'تفاصيل الإفصاح التاريخية غير متاحة. راجع المنصة للحصول على النسخة الكاملة.'),
-                    ]),
-              Text(
-                  published
-                      ? 'تم اعتماد هذه النسخة.'
-                      : accepted
-                          ? (_direct
-                              ? 'سُجلت موافقتك؛ تفعيل النسخة غير مكتمل. حدّث الحالة أو راجع الإدارة.'
-                              : 'وافقت على هذه النسخة؛ تنتظر اعتماد المنصة.')
-                          : 'بانتظار مراجعتك وموافقتك',
-                  style: const TextStyle(fontSize: 14, height: 1.6)),
-              _terms(
-                  Map<String, dynamic>.from(draft['values'] as Map),
-                  List<dynamic>.from(draft['businessIds']),
-                  List<dynamic>.from(draft['fundingPolicies'] ?? [])),
-              _section('مرجع الدعم', Icons.confirmation_number_outlined, [
-                if (item['supportReference'] is String) ...[
-                  Row(children: [
-                    Expanded(child: SelectableText(item['supportReference'], textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1))),
-                    IconButton(tooltip: 'نسخ مرجع الدعم', icon: const Icon(Icons.copy_outlined), onPressed: () async {
-                      try {
-                        await Clipboard.setData(ClipboardData(text: '${item['supportReference']} / V${draft['version']}'));
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('نُسخ مرجع الدعم ورقم النسخة.')));
-                      } catch (_) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر النسخ. يمكنك تحديد المرجع ونسخه يدويًا.')));
-                      }
-                    }),
-                  ]),
-                  Text('النسخة ${draft['version']} — اذكر المرجع والنسخة عند التواصل مع الدعم.', style: const TextStyle(fontSize: 13, height: 1.6)),
-                ] else const Text('مرجع الدعم غير متاح؛ أعد تحديث الاتفاقية.', style: TextStyle(fontSize: 14)),
-              ]),
-              if (!published && !accepted) ...[
-                const Divider(height: 28),
-                CheckboxListTile(
-                    value: _confirmed.contains(draft['hash']),
-                    onChanged: _busy
-                        ? null
-                        : (v) => setState(() {
-                              if (v == true) {
-                                _confirmed.add(draft['hash']);
-                              } else {
-                                _confirmed.remove(draft['hash']);
+        child: ExpansionTile(
+            key: ValueKey(
+                'request-${widget.businessId}-${draft['id']}-${draft['version']}-${draft['hash']}'),
+            initiallyExpanded: (sharing || delivery) && widget.focusSharingId == draft['id'],
+            tilePadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            title: Text(
+                delivery ? 'عرض توصيل' : sharing
+                    ? (item['campaignLabel'] as String? ?? 'مشاركة تمويل خصم')
+                    : 'الشروط التجارية',
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            subtitle: Text(
+                '${delivery ? 'عرض توصيل' : sharing ? 'مشاركة خصم' : 'اتفاقية تجارية'} • النسخة ${draft['version']}\n${published ? 'معتمدة' : accepted ? 'سُجلت موافقتك؛ جارٍ استكمال التفعيل' : 'بانتظار مراجعتك وموافقتك'}',
+                style: const TextStyle(fontSize: 13, height: 1.6)),
+            children: [
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (current?['terms'] != null)
+                  ExpansionTile(
+                      title:
+                          Text('الشروط المعتمدة — إصدار ${current['version']}'),
+                      children: [
+                        if (current['disclosure'] != null)
+                          _terms(
+                              Map<String, dynamic>.from(
+                                  current['disclosure']['values'] as Map),
+                              List<dynamic>.from(
+                                  current['disclosure']['businessIds']),
+                              List<dynamic>.from(
+                                  current['disclosure']['fundingPolicies']))
+                        else
+                          const Text(
+                              'تفاصيل الإفصاح التاريخية غير متاحة. راجع المنصة للحصول على النسخة الكاملة.'),
+                      ]),
+                Text(
+                    published
+                        ? 'تم اعتماد هذه النسخة.'
+                        : accepted
+                            ? ((delivery || _direct)
+                                ? 'سُجلت موافقتك؛ تفعيل النسخة غير مكتمل. حدّث الحالة أو راجع الإدارة.'
+                                : 'وافقت على هذه النسخة؛ تنتظر اعتماد المنصة.')
+                            : 'بانتظار مراجعتك وموافقتك',
+                    style: const TextStyle(fontSize: 14, height: 1.6)),
+                if (delivery)
+                  _deliveryTerms(Map<String, dynamic>.from(draft['values'] as Map))
+                else if (sharing)
+                  _sharingTerms(
+                      Map<String, dynamic>.from(draft['values'] as Map),
+                      item['campaignLabel'] as String?)
+                else
+                  _terms(
+                      Map<String, dynamic>.from(draft['values'] as Map),
+                      List<dynamic>.from(draft['businessIds']),
+                      List<dynamic>.from(draft['fundingPolicies'] ?? [])),
+                if (!sharing && !delivery)
+                  _section('مرجع الدعم', Icons.confirmation_number_outlined, [
+                    if (item['supportReference'] is String) ...[
+                      Row(children: [
+                        Expanded(
+                            child: SelectableText(item['supportReference'],
+                                textDirection: TextDirection.ltr,
+                                style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1))),
+                        IconButton(
+                            tooltip: 'نسخ مرجع الدعم',
+                            icon: const Icon(Icons.copy_outlined),
+                            onPressed: () async {
+                              try {
+                                await Clipboard.setData(ClipboardData(
+                                    text:
+                                        '${item['supportReference']} / V${draft['version']}'));
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            'نُسخ مرجع الدعم ورقم النسخة.')));
+                              } catch (_) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            'تعذر النسخ. يمكنك تحديد المرجع ونسخه يدويًا.')));
                               }
                             }),
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    title: const Text(
-                        'قرأت شروط هذه النسخة ونطاقها وأوافق عليها',
-                        style: TextStyle(fontSize: 14, height: 1.6))),
-                SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                        onPressed: _busy || !_confirmed.contains(draft['hash'])
-                            ? null
-                            : () => _accept(draft),
-                        style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16)),
-                        child: const Text('تأكيد الموافقة على النسخة',
-                            style: TextStyle(fontSize: 15)))),
-              ],
-            ])));
+                      ]),
+                      Text(
+                          'النسخة ${draft['version']} — اذكر المرجع والنسخة عند التواصل مع الدعم.',
+                          style: const TextStyle(fontSize: 13, height: 1.6)),
+                    ] else
+                      const Text('مرجع الدعم غير متاح؛ أعد تحديث الاتفاقية.',
+                          style: TextStyle(fontSize: 14)),
+                  ]),
+                if (!published && !accepted) ...[
+                  const Divider(height: 28),
+                  CheckboxListTile(
+                      value: _confirmed.contains(draft['hash']),
+                      onChanged: _busy
+                          ? null
+                          : (v) => setState(() {
+                                if (v == true) {
+                                  _confirmed.add(draft['hash']);
+                                } else {
+                                  _confirmed.remove(draft['hash']);
+                                }
+                              }),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                          'قرأت شروط هذه النسخة ونطاقها وأوافق عليها',
+                          style: TextStyle(fontSize: 14, height: 1.6))),
+                  SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                          onPressed:
+                              _busy || !_confirmed.contains(draft['hash'])
+                                  ? null
+                                  : () => _accept(draft),
+                          style: FilledButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 16)),
+                          child: const Text('تأكيد الموافقة على النسخة',
+                              style: TextStyle(fontSize: 15)))),
+                ],
+              ])
+            ]));
   }
 }

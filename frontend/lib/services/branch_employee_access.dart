@@ -41,7 +41,7 @@ class BranchEmployeeAccess {
         .toList();
   }
 
-  Future<void> update(String id, OrderStatus status, {String? reason}) async {
+  Future<void> update(String id, OrderStatus status, {String? reason, int preparationMinutes = 20}) async {
     if (!canUpdate(status)) throw BranchDeviceException('PERMISSION_REQUIRED');
     final action = status == OrderStatus.confirmed
         ? 'confirm'
@@ -59,7 +59,7 @@ class BranchEmployeeAccess {
         session: session,
         body: {
           'businessId': businessId,
-          if (action == 'confirm') 'estimatedPreparationTime': 20,
+          if (action == 'confirm') 'estimatedPreparationTime': preparationMinutes,
           if (action == 'reject') 'reason': reason ?? 'رفض موظف الفرع',
           if (value != null) 'status': value,
         });

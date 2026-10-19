@@ -1,3 +1,5 @@
+import 'notification_settings_page.dart';
+import 'commercial_agreements_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 import '../core/theme/whizz_colors.dart';
@@ -52,7 +54,15 @@ class _MerchantNotificationsScreenState
   Future<void> _open(NotificationModel item) async {
     await inbox.markRead(id: item.id);
     if (!mounted) return;
-    if (item.orderId != null) {
+    if (item.type == 'commercial_sharing_requested') {
+      await Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => CommercialAgreementsScreen(
+                  businessId: widget.businessId,
+                  focusSharingId: item.data['sharingId']?.toString(),
+                  focusRequestKind: item.data['requestKind']?.toString() ?? 'FUNDING')));
+    } else if (item.orderId != null) {
       await Navigator.push(
           context,
           MaterialPageRoute(
@@ -100,6 +110,14 @@ class _MerchantNotificationsScreenState
                 title: const Text('الإشعارات'),
                 centerTitle: true,
                 actions: [
+                  IconButton(
+                      tooltip: 'إعدادات الإشعارات',
+                      icon: const Icon(Icons.notifications_active_outlined),
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  const NotificationSettingsPage()))),
                   TextButton(
                       onPressed: inbox.items.any((x) => !x.isRead)
                           ? () => inbox.markRead()

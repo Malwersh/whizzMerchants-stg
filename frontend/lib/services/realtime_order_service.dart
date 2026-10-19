@@ -1,3 +1,4 @@
+import 'merchant_order_alerts.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -155,6 +156,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
         _newOrderController != null &&
         !_newOrderController!.isClosed) {
       _newOrderController!.add(order);
+      MerchantOrderAlerts.receive({'orderId':order.id,'businessId':order.businessId});
       unawaited(MerchantNotificationInbox.recordPush({'businessId':order.businessId,'orderId':order.id,
         'action':'new_order','updatedAt':order.createdAt.toIso8601String()},
         title:'طلب جديد #${order.orderNumber ?? order.id}',body:order.customerName).catchError((Object _) {}));

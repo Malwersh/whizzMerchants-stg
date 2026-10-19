@@ -1,5 +1,4 @@
 'use strict';
-const {fenceMerchantOrderOperation,canonicalFinancialPreparation}=require('./legacy-order-policy');
 const {AsyncLocalStorage}=require('node:async_hooks');
 const {TransactWriteCommand,GetCommand,ScanCommand,PutCommand,DeleteCommand}=require('@aws-sdk/lib-dynamodb');
 const {CognitoIdentityProviderClient,GetUserCommand,AdminGetUserCommand}=require('@aws-sdk/client-cognito-identity-provider');
@@ -63,6 +62,14 @@ function merchantLifecycleClient(raw){
     const field=record?.businessId?'businessId':record?.storeId?'storeId':record?.merchantId?'merchantId':null;
     if(!field||record[field]!==actor.businessId)throw Error('ORDER_BUSINESS_SCOPE_INVALID');
     const requestedOrderStatus=operation.ExpressionAttributeValues?.[':status'];
+    if(item.Update&&requestedOrderStatus==='confirmed'){
+     const ack=await require('./merchant-response-ack').acceptanceAck(raw,record,actor,new Date().toISOString());
+     if(ack)auditItems.push(ack);
+    }
+
+    // Authentication-only packages do not contain the order writer policy.
+    // Order mutations must still load and enforce it before any transaction.
+    const {fenceMerchantOrderOperation,canonicalFinancialPreparation}=require('./legacy-order-policy');
     fenceMerchantOrderOperation(item,record);
     const storedOrderStatus=canonicalFinancialPreparation(item,record);
     if(actor.deviceGuards&&item.Put)throw Error('DEVICE_ORDER_CREATE_FORBIDDEN');

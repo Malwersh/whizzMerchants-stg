@@ -1,3 +1,4 @@
+import '../screens/order_reception_settings_page.dart';
 import '../screens/merchant_wallet_accounts_screen.dart';
 import '../screens/merchant_notifications_screen.dart';
 import 'package:flutter/material.dart';
@@ -67,6 +68,7 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
         if (businessId != null && businessId!.isNotEmpty)
           IconButton(tooltip:'الإشعارات',icon:const Icon(Icons.notifications_none_rounded,color:WhizzColors.secondary),
             onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>MerchantNotificationsScreen(businessId:businessId!)))),
+        if (businessId != null) IconButton(tooltip:'استقبال الطلبات',icon:const Icon(Icons.tune_rounded),onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>OrderReceptionSettingsPage(businessId:businessId!)))),
         IconButton(
             tooltip: 'محافظ المطاعم',
             icon: const Icon(Icons.account_balance_wallet_outlined,

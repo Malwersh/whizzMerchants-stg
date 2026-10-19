@@ -471,6 +471,10 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                 deliveryInstructions: order.deliveryInstructions,
                 paymentMethod: order.paymentMethod,
                 paymentStatus: order.paymentStatus,
+                merchantAcceptanceDeadlineAt: order.merchantAcceptanceDeadlineAt,
+                estimatedPreparationTime: order.estimatedPreparationTime,
+                estimatedReadyAt: order.estimatedReadyAt,
+                estimatedDeliveryTime: order.estimatedDeliveryTime,
                 createdAt: order.createdAt,
                 updatedAt: order.updatedAt,
                 notes: order.notes || order.cancelReason,
@@ -569,11 +573,11 @@ async function handleAcceptOrder(orderId, data) {
             ReturnValues: 'ALL_NEW'
         };
 
-        // Add estimated preparation time if provided
-        if (estimatedPreparationTime) {
-            updateParams.UpdateExpression += ', estimatedPreparationTime = :prepTime';
-            updateParams.ExpressionAttributeValues[':prepTime'] = estimatedPreparationTime;
-        }
+        require('../shared/merchant-response-policy').applyAcceptance(updateParams, currentOrder,
+            estimatedPreparationTime ?? 20, timestamp);
+        const responder=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+        if(responder){updateParams.UpdateExpression+=', merchantResponseActor=:responder';updateParams.ExpressionAttributeValues[':responder']={kind:'MERCHANT',subjectId:responder.sub,role:responder.deviceGuards?'STAFF':'OWNER',roleName:responder.roleName||(responder.deviceGuards?'موظف الفرع':'المالك')};}
+
 
         console.log(`🔄 Confirming order with storeStatus: ${newStoreStatus}`);
 
@@ -611,7 +615,7 @@ async function handleAcceptOrder(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error accepting order:', error);
-        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to accept order' });
+        return createResponse(error.status || (error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500), { success: false, code:error.code || 'ORDER_CONFIRMATION_FAILED', message: 'تعذر تأكيد الطلب. حدّث قائمة الطلبات وأعد المحاولة.' });
     }
 }
 
@@ -644,6 +648,18 @@ async function handleRejectOrder(orderId, data) {
         }
 
         const currentOrder = currentOrderResult.Item;
+        if(currentOrder.merchantResponsePolicy?.schemaVersion===1){
+            const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+            if(!actor||actor.businessId!==(currentOrder.storeId||currentOrder.businessId)||actor.deviceGuards&&(!actor.deviceOrder||actor.deviceOrder.id!==orderId||actor.deviceOrder.targetStatus!=='rejected'))return createResponse(403,{success:false,code:'ORDER_BUSINESS_SCOPE_INVALID'});
+            const adapter=require('./merchant_pending_response');
+            const responseDb=currentOrder.financialSnapshot||currentOrder.commercialPricing?adapter.createFinanceRollout({db:lifecycleRawDb}).db:lifecycleRawDb;
+            const engine=adapter.createMerchantPendingResponse({db:responseDb,enableDeliveryFunding:process.env.FINANCIAL_DELIVERY_FUNDING_MODE==='REQUIRED',authenticate:async()=>({kind:'MERCHANT',subjectId:actor.sub,businessId:actor.businessId,ownerId:actor.ownerId||actor.sub,guards:actor.deviceGuards||[]})});
+            const result=await engine.run(orderId,'REJECT',reason);
+            const updated=(await lifecycleRawDb.send(new GetCommand({TableName:ORDERS_TABLE,Key:{PK:'ORDER#'+orderId,SK:'META'},ConsistentRead:true}))).Item;
+            if(!result.replayed){await publishOrderStatusUpdate(updated,'ORDER_REJECTED');await notifyCentralPlatform(updated,'cancelled');}
+            return createResponse(200,{success:true,orderId,status:result.status,replayed:result.replayed});
+        }
+
         console.log(`📄 Current order status: ${currentOrder.status}`);
 
         const storeKey = currentOrder.storeId || currentOrder.businessId || currentOrder.merchantId;
@@ -707,7 +723,7 @@ async function handleRejectOrder(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error rejecting order:', error);
-        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to reject order' });
+        return createResponse(error.status || (error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'||error.code==='ORDER_ALREADY_HANDLED'||String(error.code||'').startsWith('MERCHANT_RESPONSE_')?409:500), { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to reject order' });
     }
 }
 

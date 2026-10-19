@@ -159,7 +159,7 @@ class OrderService {
     }
   }
 
-  Future<void> acceptMerchantOrder(String orderId) async {
+  Future<void> acceptMerchantOrder(String orderId, {int preparationMinutes = 20, String? businessId}) async {
     final token = await _getToken();
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
@@ -171,6 +171,7 @@ class OrderService {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
+      body: jsonEncode({'estimatedPreparationTime': preparationMinutes, if(businessId!=null)'businessId':businessId}),
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {
@@ -188,25 +189,10 @@ class OrderService {
       throw AuthTokenExpiredException('Auth token missing');
     }
 
-    AppLogger.info('🚫 Rejecting order via unified OrderService: $orderId');
-    AppLogger.debug('   Business ID: $businessId');
-    AppLogger.debug('   Reason: ${reason ?? "No reason provided"}');
-
-    // Use unified OrderService /order/cancel endpoint
-    // Authenticate ownership before cancellation and wallet hold release.
-    final response = await http.post(
-      Uri.parse('${AppConfig.orderServiceUrl}/order/cancel'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: jsonEncode({
-        'orderId': orderId,
-        'canceledBy': 'restaurant',
-        'reason': reason ?? 'تم رفض الطلب من قبل المطعم',
-        'requestedBy': businessId,
-      }),
+    final response = await http.put(
+      Uri.parse('$baseUrl/merchant/order/$orderId/reject'),
+      headers:{'Authorization':'Bearer $token','Content-Type':'application/json'},
+      body:jsonEncode({'businessId':businessId,'reason':reason??'تم رفض الطلب من المطعم'}),
     );
 
     AppLogger.debug('Response status: ${response.statusCode}');

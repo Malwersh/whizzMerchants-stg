@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whizz_merchants/models/order.dart';
+import 'package:whizz_merchants/widgets/order_card.dart';
 
 void main() {
   test('raw WizzOrders minor pricing displays IQD, including fractions', () {
@@ -39,4 +40,12 @@ void main() {
     expect(order.totalAmount, 2500000);
     expect(order.deliveryFee, 0);
   });
+  test('order card displays already normalized IQD without a second division', () {
+    final order = Order.fromJson({'orderId':'canary', 'pricing':{'total':9500000},
+      'items':[{'unitPrice':3500000,'quantity':2}]});
+    expect(formatOrderCardIqd(order.items.single.price * order.items.single.quantity), '7,000 د.ع');
+    expect(formatOrderCardIqd(order.totalAmount), '9,500 د.ع');
+    expect(formatOrderCardIqd(6250.125), '6,250.125 د.ع');
+  });
+
 }

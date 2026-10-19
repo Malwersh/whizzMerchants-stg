@@ -1,3 +1,4 @@
+import 'person_onboarding_service.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
@@ -12,11 +13,14 @@ class MerchantNotificationInbox extends ChangeNotifier {
   static final instance = MerchantNotificationInbox();
   MerchantNotificationInbox(
       {Future<String?> Function()? subjectLoader,
-      Future<List<Order>> Function(String)? orderLoader})
+      Future<List<Order>> Function(String)? orderLoader,
+      Future<List<dynamic>> Function(String)? sharingLoader})
       : _subjectLoader = subjectLoader ?? _currentSubject,
+        _sharingLoader = sharingLoader ?? ((id) async => List<dynamic>.from((await PersonOnboardingService().call('commercial-agreements?businessId=${Uri.encodeComponent(id)}&view=pending-sharing'))['items'] ?? [])),
         _orderLoader =
             orderLoader ?? ((id) => OrderService().getMerchantOrders(id));
   final Future<String?> Function() _subjectLoader;
+  final Future<List<dynamic>> Function(String) _sharingLoader;
   final Future<List<Order>> Function(String) _orderLoader;
   String? _scope;
   List<NotificationModel> items = [];
@@ -119,6 +123,23 @@ class MerchantNotificationInbox extends ChangeNotifier {
     if (_scope != key) items = [];
     _scope = key;
     await _reload(key);
+    try {
+      final pending = await _sharingLoader(business);
+      if (_scope != key || await _subjectLoader() != subject) return;
+      await _write(key, (prefs) async {
+        final rows = _read(prefs, key), ids = <String>{};
+        for (final item in pending) {
+          final draft = Map<String, dynamic>.from(item['draft'] as Map);
+          final delivery = draft['kind'] == 'DELIVERY';
+          final id = '${delivery ? 'delivery' : 'sharing'}:${draft['id']}:${draft['version']}';ids.add(id);
+          if (rows.any((x) => x.id == id)) continue;
+          rows.add(NotificationModel(id: id, title: delivery ? 'عرض توصيل بانتظار موافقتك' : 'طلب مشاركة في خصم', body: '${delivery ? 'عرض توصيل' : item['campaignLabel'] ?? 'خصم'} — بانتظار مراجعتك وموافقتك', type: 'commercial_sharing_requested', data: {'subjectId': subject, 'businessId': business, 'sharingId': draft['id'], 'requestKind': draft['kind'], 'eventId': id}, businessId: business, createdAt: DateTime.tryParse(draft['createdAt']?.toString() ?? '') ?? DateTime.now()));
+        }
+        rows.removeWhere((x) => x.type == 'commercial_sharing_requested' && !ids.contains(x.id));
+        await _save(prefs, key, rows);
+      });
+      await _reload(key);
+    } catch (_) { /* Preserve existing entries on a failed owner-only read. */ }
     try {
       final orders = await _orderLoader(business);
       if (_scope != key || await _subjectLoader() != subject) return;

@@ -1,3 +1,4 @@
+import '../services/order_reception_service.dart';
 import 'package:flutter/material.dart';
 import '../services/branch_employee_access.dart';
 import '../services/branch_device_service.dart';
@@ -21,7 +22,12 @@ class _BranchEmployeeStatusControlState
   void initState() {
     super.initState();
     _load();
+    OrderReceptionService.changes.addListener(_onReceptionChanged);
   }
+
+  void _onReceptionChanged(){if(mounted)_load();}
+  @override
+  void dispose(){OrderReceptionService.changes.removeListener(_onReceptionChanged);super.dispose();}
 
   @override
   void didUpdateWidget(covariant BranchEmployeeStatusControl oldWidget) {

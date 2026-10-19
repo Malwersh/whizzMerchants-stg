@@ -1,3 +1,6 @@
+import 'notification_settings_page.dart';
+import '../widgets/commercial_requests_banner.dart';
+import '../services/commercial_notice_navigation.dart';
 import 'auth/auth_surface.dart';
 import 'branch_staff_screen.dart';
 import 'person_profile_screen.dart';
@@ -30,6 +33,12 @@ class _MerchantBusinessesScreenState
     _load();
   }
 
+  @override
+  void dispose() {
+    CommercialNoticeNavigation.ownerReady = false;
+    super.dispose();
+  }
+
   Future<void> _load() async {
     await Future.wait([_loadBusinesses(), _loadDrafts()]);
   }
@@ -40,6 +49,12 @@ class _MerchantBusinessesScreenState
       if (mounted)
         setState(() {
           _businesses = rows;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              CommercialNoticeNavigation.ownerReady = true;
+              CommercialNoticeNavigation.tryOpen();
+            }
+          });
           _error = null;
         });
     } catch (_) {
@@ -176,6 +191,13 @@ class _MerchantBusinessesScreenState
           child: Scaffold(
               appBar: AppBar(title: const Text('مطاعمي وأنشطتي'), actions: [
                 IconButton(
+                    tooltip: 'إعدادات الإشعارات',
+                    icon: const Icon(Icons.notifications_active_outlined),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const NotificationSettingsPage()))),
+                IconButton(
                     tooltip: 'دعواتي وعضوياتي',
                     icon: const Icon(Icons.groups_outlined),
                     onPressed: () => Navigator.push(
@@ -215,7 +237,13 @@ class _MerchantBusinessesScreenState
                               padding: EdgeInsets.all(20),
                               child: Text(
                                   'حسابك الشخصي جاهز. لا توجد أنشطة مرتبطة به بعد.'))),
-                    for (final b in _businesses ?? <Map<String, dynamic>>[])
+                    for (final b
+                        in _businesses ?? <Map<String, dynamic>>[]) ...[
+                      CommercialRequestsBanner(
+                          key: ValueKey('sharing-${b['businessId']}'),
+                          businessId: b['businessId'].toString(),
+                          businessName:
+                              (b['businessName'] ?? b['name'])?.toString()),
                       Card(
                           child: ListTile(
                               leading: const Icon(Icons.storefront),
@@ -236,6 +264,7 @@ class _MerchantBusinessesScreenState
                                     const Icon(Icons.chevron_left)
                                   ]),
                               onTap: () => _open(b))),
+                    ],
                     const SizedBox(height: 16),
                     FilledButton.icon(
                         onPressed: () => _draft(),
