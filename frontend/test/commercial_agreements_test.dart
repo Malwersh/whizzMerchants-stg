@@ -40,6 +40,18 @@ class DeliveryApi extends AgreementApi {
   return result;
  }
 }
+class DatedDeliveryApi extends DeliveryApi {
+ dynamic schemaVersion = 2;
+ @override Future<Map<String,dynamic>> call(String path,{Map<String,dynamic>? body,bool authenticated=true}) async {
+  final result=await super.call(path,body:body,authenticated:authenticated);
+  if(body!=null)return result;
+  final values=result['items'][0]['draft']['values'] as Map;
+  values.remove('limits');values['schemaVersion']=schemaVersion;
+  values['customerRule']['kind']='FIXED_TARIFF';
+  values['commission']={'rate':{'numerator':5,'denominator':100}};
+  return result;
+ }
+}
 void main(){
  Future<void> open(WidgetTester t,AgreementApi api,{String branch='branch-a'})async{await t.pumpWidget(MaterialApp(home:CommercialAgreementsScreen(businessId:branch,service:api)));await t.pumpAndSettle();if(find.byType(ExpansionTile).evaluate().isNotEmpty){await t.tap(find.byType(ExpansionTile).first);await t.pumpAndSettle();}}
  Future<void> consent(WidgetTester t)async{await t.scrollUntilVisible(find.byType(CheckboxListTile),250,scrollable:find.byType(Scrollable).first);await t.pumpAndSettle();await t.tap(find.byType(CheckboxListTile));await t.pumpAndSettle();await t.ensureVisible(find.text('تأكيد الموافقة على النسخة'));await t.pumpAndSettle();await t.tap(find.text('تأكيد الموافقة على النسخة'));await t.pump();}
@@ -79,6 +91,26 @@ void main(){
   await t.tap(find.text('عرض ثان'));await t.pumpAndSettle();
   expect(find.byType(CheckboxListTile),findsOneWidget);
   expect(api.calls,isEmpty);
+ });
+
+ testWidgets('notification opens dated agreement without budget limits and requires explicit consent',(t)async{
+  final api=DatedDeliveryApi();
+  await t.pumpWidget(MaterialApp(home:CommercialAgreementsScreen(businessId:'branch-a',focusSharingId:'contract',focusRequestKind:'DELIVERY',service:api)));
+  await t.pumpAndSettle();expect(t.takeException(),isNull);
+  expect(find.text('اتفاقية أسعار وتوصيل'),findsOneWidget);
+  expect(find.textContaining('5%'),findsOneWidget);
+  expect(find.textContaining('توصيل ثابت للزبون: 1,500'),findsOneWidget);
+  expect(api.calls,isEmpty);
+  await consent(t);await t.pumpAndSettle();
+  expect(api.calls.single['action'],'ACCEPT_DELIVERY');
+  expect(api.calls.single['hash'],'draft-hash');
+  expect(api.calls.single.containsKey('values'),false);
+ });
+ testWidgets('unsupported delivery terms without limits cannot crash or solicit consent',(t)async{
+  final api=DatedDeliveryApi()..schemaVersion=3;await open(t,api);
+  expect(t.takeException(),isNull);
+  expect(find.text('تعذر عرض شروط الاتفاقية'),findsOneWidget);
+  expect(find.byType(CheckboxListTile),findsNothing);expect(api.calls,isEmpty);
  });
 
 }

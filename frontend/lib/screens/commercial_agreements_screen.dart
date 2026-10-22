@@ -273,7 +273,19 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
                 _card(Map<String, dynamic>.from(item as Map)),
             ])),
       );
+  bool _readableDeliveryTerms(dynamic values) {
+    if (values is! Map) return false;
+    final version = values['schemaVersion'];
+    if (version == 2) return values['commission'] is Map && values['limits'] == null;
+    return (version == null || version == 1) && values['limits'] is Map;
+  }
+
   Widget _deliveryTerms(Map<String, dynamic> v) {
+    if (!_readableDeliveryTerms(v)) {
+      return _section('تعذر عرض شروط الاتفاقية', Icons.error_outline, [
+        const Text('حدّث الصفحة للحصول على الشروط الكاملة قبل الموافقة. إذا استمرت المشكلة، راجع المنصة.'),
+      ]);
+    }
     String cash(dynamic x) => '${_number(x['minorAmount'] / 1000)} دينار';
     final c = v['customerRule'], f = v['funding'], e = v['eligibility'], l = v['limits'];
     final customer = switch (c['kind']) {
@@ -284,6 +296,19 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
       'PERCENT_OFF' => 'خصم ${_number(c['numerator'] / c['denominator'] * 100)}% حتى ${cash(c['maximumDiscount'])}',
       _ => 'التوصيل حسب التعرفة المعتادة',
     };
+    if(v['schemaVersion']==2){
+      final rate=v['commission']['rate'];
+      final payer=f['kind']=='MERCHANT'?'المتجر يتحمل الفرق بالكامل':f['kind']=='PLATFORM'?'المنصة تتحمل الفرق بالكامل':'المتجر ${_number(f['merchantNumerator']/f['denominator']*100)}% والمنصة ${_number((f['denominator']-f['merchantNumerator'])/f['denominator']*100)}% من الفرق';
+      return _section('اتفاقية أسعار وتوصيل', Icons.handshake_outlined, [
+        Text(customer), Text(payer),
+        Text('عمولة المنصة خلال الاتفاقية: ${_number(rate['numerator']/rate['denominator']*100)}% من قيمة الأصناف قبل الخصم.'),
+        Text('الحد الأدنى للطلب: ${cash(e['minimumGoods'])} قبل خصم الأصناف.'),
+        Text('تسري في ${e['regionIds'].length} منطقة، من ${_date(v['effectiveFrom'])} إلى ${_date(v['effectiveTo'])}.'),
+        const Text('دون ميزانية حملة أو حد استخدام للزبون. يُحجز تمويل الفرق لكل طلب، وأجرة السائق مستقلة.'),
+        const Text('تعود العمولة والحد الأدنى الأصليان والتوصيل المحسوب بعد انتهاء الاتفاقية. الطلبات المؤكدة تحتفظ بشروطها.'),
+        const Text('موافقتك تفعّل هذه النسخة وفق مدتها دون اعتماد إضافي.'),
+      ]);
+    }
     final funding = switch (f['kind']) {
       'MERCHANT' => 'المتجر يتحمل دعم التوصيل بالكامل',
       'PLATFORM' => 'المنصة تتحمل دعم التوصيل بالكامل',
@@ -414,7 +439,7 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
                       const Text('مرجع الدعم غير متاح؛ أعد تحديث الاتفاقية.',
                           style: TextStyle(fontSize: 14)),
                   ]),
-                if (!published && !accepted) ...[
+                if (!published && !accepted && (!delivery || _readableDeliveryTerms(draft['values']))) ...[
                   const Divider(height: 28),
                   CheckboxListTile(
                       value: _confirmed.contains(draft['hash']),

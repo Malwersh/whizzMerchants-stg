@@ -2842,8 +2842,8 @@ Resources:
         Variables:
           SETTLEMENT_SCHEDULE_ADMIN_ENABLED: 'true'
           COMMERCIAL_ADMIN_ENABLED: !Ref CommercialAdminEnabled
-          FINANCIAL_COD_RETURNS_MODE: 'OFF'
-          FINANCIAL_COD_ASSIGNMENTS_MODE: 'OFF'
+          FINANCIAL_COD_RETURNS_MODE: !If [IsFinancialReturnStaging, 'REQUIRED', 'OFF']
+          FINANCIAL_COD_ASSIGNMENTS_MODE: !If [IsFinancialReturnStaging, 'REQUIRED', 'OFF']
           FINANCIAL_ACCEPT_FUNCTION_ARN: 'arn:aws:lambda:us-east-1:699561669180:function:staging-driver-financial-accept'
           PROFILE_OTP_KEY_PARAM: !Sub '/whizz/${Stage}/otpiq-key'
           PROFILE_OTP_PROVIDER: whatsapp-telegram-sms

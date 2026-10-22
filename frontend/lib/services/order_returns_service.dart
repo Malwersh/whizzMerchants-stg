@@ -1,14 +1,14 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
-import 'app_auth_service.dart';
+import 'token_refresh_service.dart';
 
 class OrderReturnsService {
   final http.Client client;
   final Future<String?> Function() token;
   OrderReturnsService({http.Client? client, Future<String?> Function()? token})
       : client = client ?? http.Client(),
-        token = token ?? AppAuthService.getAccessToken;
+        token = token ?? TokenRefreshService.getValidUserAccessToken;
   Future<Map<String, dynamic>> call(Map<String, dynamic> selectors,
       {Map<String, dynamic>? receipt, bool cancel = false}) async {
     final credential = await token();
@@ -34,9 +34,12 @@ class OrderReturnsService {
             .timeout(const Duration(seconds: 20));
     if (await token() != credential)
       throw Exception('تغيرت الجلسة؛ أعد فتح الصفحة');
-    if (response.statusCode != 200)
-      throw Exception(
-          'تعذر تأكيد حالة العودة. حدّث البيانات قبل إعادة المحاولة');
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error is Map
+          ? error['code'] ?? error['error'] ?? 'RETURN_CONTINUATION_UNAVAILABLE'
+          : 'RETURN_CONTINUATION_UNAVAILABLE');
+    }
     final value = jsonDecode(response.body);
     if (value is! Map<String, dynamic> ||
         value['success'] != true ||

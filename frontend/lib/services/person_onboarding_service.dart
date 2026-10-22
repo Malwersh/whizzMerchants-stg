@@ -21,10 +21,12 @@ class PersonOnboardingService {
         : <String, String>{'Content-Type': 'application/json'};
     // Gateway verifies the ID token; the commercial service independently
     // validates the access token and checks the live Cognito account.
-    if (authenticated && ['commercial-agreements', 'settlement-schedules'].contains(path.split('?').first)) {
+    if (authenticated &&
+        ['commercial-agreements', 'settlement-schedules']
+            .contains(path.split('?').first)) {
       final accessToken = await TokenRefreshService.getValidUserAccessToken();
       if (accessToken == null || accessToken.isEmpty) {
-        throw Exception('أعد تسجيل الدخول لتحميل الاتفاقية التجارية.');
+        throw Exception('أعد تسجيل الدخول لعرض البيانات المالية والاتفاقيات.');
       }
       headers['Access-Token'] = accessToken;
     }
@@ -35,6 +37,34 @@ class PersonOnboardingService {
     final data = Map<String, dynamic>.from(jsonDecode(response.body));
     if (response.statusCode != 200) {
       throw Exception(<String, String>{
+            'PAYOUT_REAUTH_REQUIRED':
+                'أعد تسجيل الدخول برمز هاتف جديد ثم حاول خلال خمس دقائق.',
+            'PAYOUT_DESTINATION_VERIFICATION_REQUIRED':
+                'تحقق من رقم زين كاش لهذا الطلب أولًا.',
+            'PAYOUT_INVALID_PHONE': 'أدخل رقم محفظة زين كاش عراقيًا صحيحًا.',
+            'PAYOUT_INVALID_CODE': 'رمز التحقق غير صحيح.',
+            'PAYOUT_DESTINATION_EXPIRED':
+                'انتهى التحقق أو محاولاته. ابدأ تحققًا جديدًا.',
+            'PAYOUT_DESTINATION_RATE_LIMIT':
+                'انتظر دقيقة قبل إعادة الإرسال. الحد خمس مرات خلال الساعة.',
+            'PAYOUT_CODE_SEND_UNCONFIRMED':
+                'لم نتأكد من إرسال الرمز. أعد المحاولة نفسها؛ قد يصلك الرمز السابق.',
+            'PAYOUT_STATEMENT_ALREADY_CLAIMED':
+                'هذا الكشف مرتبط بطلب صرف قائم. حدّث القائمة.',
+            'PAYOUT_STATE_CHANGED': 'تغيرت حالة الطلب. حدّث القائمة.',
+            'PAYOUT_RECEIPT_AMOUNT_MISMATCH':
+                'تأكيد الاستلام يخص كامل المبلغ المثبت فقط.',
+            'PAYOUT_ACCOUNT_CHANGED':
+                'تغيرت الحركات أثناء التصفح. حدّث الحساب لعرض رصيد متطابق.',
+            'PAYOUT_ACCOUNT_INVALID_FILTER':
+                'اختر تاريخ بداية ونهاية صحيحين، بفترة لا تتجاوز سنة.',
+            'PAYOUT_ACCOUNT_INVALID_CURSOR':
+                'أعد تحديث الحساب قبل تحميل بقية الحركات.',
+            'PAYOUT_OWNER_REQUIRED': 'هذا الإجراء متاح لمالك المطعم فقط.',
+            'PAYOUT_OWNER_CHANGED':
+                'تغير مالك المطعم؛ تحتاج العملية إلى مراجعة الإدارة.',
+            'PAYOUT_STATEMENT_APPROVAL_REQUIRED':
+                'انتظر اعتماد الإدارة للكشف أولًا.',
             'RECENT_SIGN_IN_REQUIRED':
                 'لحماية جهاز الفرع وPIN، أعد تسجيل الدخول برمز هاتف جديد ثم حاول خلال خمس دقائق.',
             'INVALID_ACTIVITY_PERIOD':
@@ -102,15 +132,23 @@ class PersonOnboardingService {
                 'تغيرت بيانات محاولة الإرسال. أعد فتح الشاشة.',
             'INVALID_TEXT': 'أكمل الاسم وسبب التعديل.',
             'BUSINESS_UNAVAILABLE': 'النشاط غير متاح لهذا الحساب.',
-            'SETTLEMENT_SCHEDULE_ADMIN_DISABLED': 'إدارة جداول التسوية لم تُفعّل بعد.',
+            'SETTLEMENT_SCHEDULE_ADMIN_DISABLED':
+                'إدارة جداول التسوية لم تُفعّل بعد.',
             'SCHEDULE_OWNER_REQUIRED': 'موافقة مالك المتجر مطلوبة لهذا الجدول.',
-            'SCHEDULE_PROPOSAL_CONFLICT': 'تغيّر الاقتراح. حدّث الصفحة وراجع البيانات.',
-            'SCHEDULE_FUTURE_BOUNDARY_REQUIRED': 'انقضى تاريخ بداية الاقتراح. يلزم اقتراح جديد.',
-            'SCHEDULE_BASE_VERSION_CONFLICT': 'تغيّر الجدول المعتمد. حدّث الصفحة.',
-            'SCHEDULE_CONFLICT_OR_UNKNOWN_OUTCOME_RETRY_SAME_PROPOSAL': 'تعذر التحقق من النتيجة. أعد المحاولة على الطلب نفسه.',
-            'COMMERCIAL_MANAGEMENT_DISABLED': 'إدارة الاتفاقيات التجارية لم تُفتح بعد على هذه البيئة.',
-            'COMMERCIAL_RECENT_SIGN_IN_REQUIRED': 'أعد تسجيل الدخول لتأكيد موافقتك على الاتفاقية التجارية.',
-            'FUNDING_TERMS_CHANGED': 'تغيرت شروط تمويل الخصم. اطلب مراجعة النسخة الجديدة قبل الموافقة.',
+            'SCHEDULE_PROPOSAL_CONFLICT':
+                'تغيّر الاقتراح. حدّث الصفحة وراجع البيانات.',
+            'SCHEDULE_FUTURE_BOUNDARY_REQUIRED':
+                'انقضى تاريخ بداية الاقتراح. يلزم اقتراح جديد.',
+            'SCHEDULE_BASE_VERSION_CONFLICT':
+                'تغيّر الجدول المعتمد. حدّث الصفحة.',
+            'SCHEDULE_CONFLICT_OR_UNKNOWN_OUTCOME_RETRY_SAME_PROPOSAL':
+                'تعذر التحقق من النتيجة. أعد المحاولة على الطلب نفسه.',
+            'COMMERCIAL_MANAGEMENT_DISABLED':
+                'إدارة الاتفاقيات التجارية لم تُفتح بعد على هذه البيئة.',
+            'COMMERCIAL_RECENT_SIGN_IN_REQUIRED':
+                'أعد تسجيل الدخول لتأكيد موافقتك على الاتفاقية التجارية.',
+            'FUNDING_TERMS_CHANGED':
+                'تغيرت شروط تمويل الخصم. اطلب مراجعة النسخة الجديدة قبل الموافقة.',
             'INVALID_PHONE': 'أدخل رقم هاتف عراقيًا صحيحًا.',
             'REGION_PATH_REQUIRED': 'اختر البلد والمحافظة والقضاء والمنطقة.',
             'REGION_UNAVAILABLE':

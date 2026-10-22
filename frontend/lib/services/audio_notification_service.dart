@@ -1,3 +1,4 @@
+import 'order_alert_cadence.dart';
 import 'dart:async';
 import 'notification_sound_policy.dart';
 import 'dart:convert';
@@ -41,6 +42,7 @@ class AudioNotificationService {
   }
 
   final Map<String, DateTime> _announcedOrders = {};
+  final _orderCadence = OrderAlertCadence();
 
   static const _soundHistoryKey = 'merchant_order_sound_history_v1';
   static Future<bool> markOrderSoundAnnounced(String? orderId) async {
@@ -75,6 +77,12 @@ class AudioNotificationService {
     await playNewOrderSound();
   }
 
+  Future<void> playPendingOrderReminder() async {
+    final seconds = NotificationSoundPolicy.reminderSeconds.clamp(30, 300);
+    if (!_orderCadence.ready(Duration(seconds: seconds))) return;
+    await playNewOrderSound();
+  }
+
   /// Play new order notification sound with IMMEDIATE priority
   Future<void> playNewOrderSound() async {
     if (!_settings.shouldPlaySound('new_order')) {
@@ -83,6 +91,7 @@ class AudioNotificationService {
     }
 
     try {
+      if (!_orderCadence.reserve(const Duration(seconds: 3))) return;
       debugPrint('🚨 IMMEDIATE new order sound starting');
 
       // Stop any currently playing sound IMMEDIATELY

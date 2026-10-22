@@ -3,6 +3,15 @@ import 'package:whizz_merchants/models/order.dart';
 import 'package:whizz_merchants/widgets/order_card.dart';
 
 void main() {
+  test('historical search failure cannot override driver assignment or delivery', () {
+    for (final status in ['assigned','heading_to_store','arrived_at_store','delivered']) {
+      final order = Order.fromJson({'orderId':'order','status':status,'driverId':'driver','driverSearchUnavailable':true});
+      expect(order.driverSearchUnavailable, false);
+    }
+    final waiting = Order.fromJson({'orderId':'order','status':'ready_for_pickup','driverSearchUnavailable':true});
+    expect(waiting.driverSearchUnavailable,true);
+    expect(waiting.copyWith(status:OrderStatus.assigned, driverId:'driver').driverSearchUnavailable,false);
+  });
   test('raw WizzOrders minor pricing displays IQD, including fractions', () {
     final order = Order.fromJson({
       'orderId': 'units',

@@ -1,3 +1,6 @@
+import 'merchant_cancellation_screen.dart';
+import 'customer_cancellation_screen.dart';
+import '../services/merchant_order_tabs.dart';
 import '../services/merchant_order_alerts.dart';
 import '../widgets/preparation_time_sheet.dart';
 import 'order_return_screen.dart';
@@ -45,6 +48,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   final OrderService _orderService = OrderService();
   final RealtimeOrderService _realtimeService = RealtimeOrderService();
   List<Order> _orders = [];
+  OrderStatus? _focusedStatus;
   String _selectedFilter = 'confirmed'; // عرض الطلبات المؤكدة بشكل افتراضي
   bool _isInitializing = true;
   bool _isLoading = true;
@@ -87,6 +91,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       _observedOrderIds.addAll(snapshot.orders.map((o) => o.id));
       setState(() {
         _orders = List<Order>.of(snapshot.orders);
+        _syncFocusedTab();
       });
     });
     if (widget.employeeAccess != null) {
@@ -537,6 +542,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       if (!mounted) return;
       setState(() {
         _orders = orders;
+        _syncFocusedTab();
         _employeeError = null;
       });
     } catch (e) {
@@ -650,6 +656,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           }
 
           _orders = processedOrders;
+        _syncFocusedTab();
           _isLoading = false; // Clear loading state
           AppLogger.success(
               'Orders state updated with ${_orders.length} orders');
@@ -670,9 +677,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
           // Log filtered orders count
           List<Order> currentFilteredOrders = _orders
-              .where((o) => widget.focusOrderId != null
-                  ? o.id == widget.focusOrderId
-                  : _shouldShowInFilter(o, _selectedFilter))
+              .where((o) => _shouldShowInFilter(o, _selectedFilter))
               .toList();
           AppLogger.debug(
               'Filtered orders for $_selectedFilter: ${currentFilteredOrders.length}');
@@ -770,6 +775,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       return;
     }
     try {
+      if(newStatus==OrderStatus.cancelled){final matches=_orders.where((o)=>o.id==orderId);if(matches.isNotEmpty){final route=_merchantCancellationAction(matches.first);if(route!=null){route();return;}}}
       // If it's a cancellation, show bottom sheet to get reason first
       if (newStatus == OrderStatus.cancelled) {
         final reason = await _showCancelReasonBottomSheet();
@@ -820,7 +826,13 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
         await _loadOrders(session.businessId!, preserveNewOrders: true);
       }
 
-      // STEP 5: Show success notification (without tab switching)
+      // Follow the server-confirmed status after a merchant action.
+      if (mounted) {
+        final matches = _orders.where((o) => o.id == orderId);
+        final actual = matches.isEmpty ? newStatus : matches.first.status;
+        setState(() => _selectedFilter = _getRecommendedFilterForStatus(actual) ?? _selectedFilter);
+      }
+      // STEP 5: Show success notification.
       if (mounted) {
         String statusDisplayName =
             _getStatusDisplayNameForNotification(newStatus);
@@ -1018,6 +1030,15 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       case OrderStatus.expired:
         return 'expired';
     }
+  }
+
+  // Notification focus selects the relevant tab, never bypasses its filter.
+  void _syncFocusedTab() {
+    if (widget.focusOrderId == null) return;
+    final matching = _orders.where((o) => o.id == widget.focusOrderId);
+    if (matching.isEmpty || matching.first.status == _focusedStatus) return;
+    _focusedStatus = matching.first.status;
+    _selectedFilter = _getRecommendedFilterForStatus(_focusedStatus!) ?? _selectedFilter;
   }
 
   /// Get the recommended filter tab for a given order status
@@ -1252,53 +1273,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
   /// Check if an order should appear in a specific filter tab
   /// ✅ الطلب يبقى في تبويب "جاهز" حتى يتم تسليمه (delivered)
-  bool _shouldShowInFilter(Order order, String filterValue) {
-    final filter = filterValue.toLowerCase();
-
-    switch (filter) {
-      case 'all':
-        return true; // Show all orders
-
-      case 'pending':
-        return order.status == OrderStatus.pending;
-
-      case 'confirmed':
-        return order.status == OrderStatus.confirmed;
-
-      case 'preparing':
-        return order.status == OrderStatus.preparing;
-
-      case 'ready': // ✅ تبويب "جاهز" يشمل جميع حالات السائق قبل التسليم
-        return order.status == OrderStatus.readyForPickup ||
-            order.status ==
-                OrderStatus.reassigning || // 🔄 Task 6: البحث عن سائق بديل
-            order.status == OrderStatus.assigned ||
-            order.status == OrderStatus.headingToStore ||
-            order.status == OrderStatus.arrivedAtStore ||
-            order.status == OrderStatus.pickedUp ||
-            order.status == OrderStatus.headingToCustomer ||
-            order.status == OrderStatus.arrivedAtCustomer ||
-            order.status == OrderStatus.returning ||
-            order.status == OrderStatus.returnArrived;
-
-      case 'delivered': // تبويب "تم التوصيل" في الأرشيف
-        return order.status == OrderStatus.delivered ||
-            order.status == OrderStatus.completed;
-
-      case 'cancelled':
-        return order.status == OrderStatus.cancelled;
-
-      case 'returned':
-        return order.status == OrderStatus.returned;
-
-      case 'expired':
-        return order.status == OrderStatus.expired;
-
-      default:
-        AppLogger.warning('Unknown filter: $filter');
-        return false;
-    }
-  }
+  bool _shouldShowInFilter(Order order, String filterValue) =>
+      merchantOrderMatchesFilter(order.status, filterValue);
 
   OrderStatus? _getStatusFromString(String value) {
     switch (value.toLowerCase()) {
@@ -1732,9 +1708,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
 
     // Apply filtering logic using _shouldShowInFilter
     List<Order> filteredOrders = _orders
-        .where((o) => widget.focusOrderId != null
-            ? o.id == widget.focusOrderId
-            : _shouldShowInFilter(o, _selectedFilter))
+        .where((o) => _shouldShowInFilter(o, _selectedFilter))
         .toList();
 
     // Sort orders appropriately
@@ -1988,7 +1962,17 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     );
   }
 
+  VoidCallback? _merchantCancellationAction(Order order){
+    if(widget.employeeAccess!=null||order.exceptionPolicyVersion==null||![OrderStatus.pending,OrderStatus.confirmed,OrderStatus.preparing,OrderStatus.ready,OrderStatus.readyForPickup,OrderStatus.reassigning,OrderStatus.assigned,OrderStatus.headingToStore,OrderStatus.arrivedAtStore].contains(order.status))return null;
+    return () async {await Navigator.of(context).push(MaterialPageRoute(builder:(_)=>MerchantCancellationScreen(order:order)));if(mounted)await _loadOrders(order.businessId,preserveNewOrders:true);};
+  }
+
   VoidCallback? _returnAction(Order order) {
+
+    if(widget.employeeAccess == null && order.exceptionCancellation?['state'] == 'REQUESTED') {
+      return () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CustomerCancellationScreen(selectors:{'businessId':order.businessId,'orderId':order.id})));
+    }
+    final ownCancellation=_merchantCancellationAction(order);if(ownCancellation!=null)return ownCancellation;
     final a = order.financialAssignment;
     if (widget.employeeAccess != null || a == null) return null;
     final selectors = {
@@ -2024,7 +2008,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             onTap: _returnAction(order),
             actionLabel: _returnAction(order) == null
                 ? null
-                : order.financialAssignment?['returnId'] != null
+                : order.exceptionCancellation?['state'] == 'REQUESTED' ? 'مراجعة طلب إلغاء الزبون' : order.financialAssignment?['returnId'] != null
                     ? 'متابعة واستلام المرتجع'
                     : 'إلغاء قبل استلام السائق',
             onOrderUpdated: _handleOrderUpdate,
@@ -2054,7 +2038,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           onTap: _returnAction(order),
           actionLabel: _returnAction(order) == null
               ? null
-              : order.financialAssignment?['returnId'] != null
+              : order.exceptionCancellation?['state'] == 'REQUESTED' ? 'مراجعة طلب إلغاء الزبون' : order.financialAssignment?['returnId'] != null
                   ? 'متابعة واستلام المرتجع'
                   : 'إلغاء قبل استلام السائق',
           onOrderUpdated: _handleOrderUpdate,

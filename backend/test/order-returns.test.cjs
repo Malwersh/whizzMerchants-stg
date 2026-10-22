@@ -29,7 +29,7 @@ test('cancellation only accepts owner POST under its independent gate and forwar
  vm.runInNewContext(fs.readFileSync(__dirname+'/../functions/auth/order_returns.js','utf8'),{module,Buffer,process,require:name=>name==='@aws-sdk/lib-dynamodb'?{GetCommand:Command}:{InvokeCommand:Command,LambdaClient:class{}}});
  const run=(ev=event,data=input,sub='owner1')=>module.exports.route({db:f.db,sub},ev,data,f.client);
  await assert.rejects(run(),/COD_RETURNS_DISABLED/);assert.equal(f.invoked,0);
- process.env.FINANCIAL_COD_ASSIGNMENTS_MODE='REQUIRED';await assert.rejects(run({...event,httpMethod:'GET'}),/METHOD_NOT_ALLOWED/);
+ process.env.FINANCIAL_COD_ASSIGNMENTS_MODE='REQUIRED';await assert.rejects(run({...event,httpMethod:'GET'}),/INVALID_COD_RETURN/);
  await assert.rejects(run(event,input,'employee'),/OWNER_REQUIRED/);
  await assert.rejects(run(event,{...input,amount:100}),/INVALID_COD_RETURN/);
  await run();const p=JSON.parse(Buffer.from(f.calls.at(-1).Payload));assert.equal(p.action,'cancel_before_pickup');assert.equal(p.accessToken,'original-token');assert.equal(p.body.branchId,'branch1');assert.equal(p.body.attempt,2);assert.equal(p.body.businessId,undefined);assert.equal(f.invoked,1);

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'merchant_payouts_screen.dart';
+import '../services/branch_settlement_service.dart';
 import 'branch_employee_statement_panel.dart';
 import 'branch_employee_transfer_screen.dart';
 import '../services/branch_employee_access.dart';
@@ -94,6 +96,20 @@ class _WalletState extends State<BranchEmployeeWalletScreen> {
   @override
   Widget build(BuildContext context) =>
       ListView(padding: const EdgeInsets.all(16), children: [
+        if (widget.access.capabilities['readSettlements'] == true)
+          Card(
+              child: ListTile(
+                  leading: const Icon(Icons.receipt_long),
+                  title: const Text('مستحقات المطعم والتسويات'),
+                  subtitle: const Text(
+                      'الكشوف وطلبات الصرف وتأكيد الاستلام حسب صلاحياتك'),
+                  onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => MerchantPayoutsScreen(
+                              businessId: widget.access.businessId,
+                              service:
+                                  BranchSettlementService(widget.access)))))),
         const Text('محفظة الفرع',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         TextButton.icon(

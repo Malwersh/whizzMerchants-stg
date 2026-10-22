@@ -33,6 +33,19 @@ class BranchDeviceException implements Exception {
         'INVALID_PRICE': 'أدخل سعرًا صحيحًا موجبًا بالدينار.',
         'INVALID_MENU_CREATE': 'راجع اسم المنتج وقسمه وبياناته.',
         'PERMISSION_REQUIRED': 'ليس لديك إذن لتنفيذ هذا الإجراء.',
+        'PAYOUT_PERMISSION_REQUIRED': 'ليس لديك تفويض بهذا الإجراء المالي.',
+        'PAYOUT_EXPLICIT_STAFF_GRANT_REQUIRED':
+            'يلزم أن يحدّث المالك منحك المالية الصريحة. لقب المدير وحده لا يمنح صلاحية الصرف.',
+        'PAYOUT_OWNER_REQUIRED':
+            'هذا الإجراء خاص بالمالك؛ لا تستخدم جلسة الموظف لتغيير جهة الدفع.',
+        'PAYOUT_BRANCH_SCOPE_REQUIRED': 'المستحقات تخص فرعًا آخر.',
+        'PAYOUT_STATE_CHANGED': 'تغيرت حالة الصرف؛ حدّث القائمة.',
+        'PAYOUT_STATEMENT_ALREADY_CLAIMED':
+            'الكشف مرتبط بطلب صرف قائم. حدّث القائمة.',
+        'PAYOUT_RECEIPT_AMOUNT_MISMATCH':
+            'تأكيد الاستلام يتطلب كامل المبلغ المسجل.',
+        'PAYOUT_DESTINATION_VERIFICATION_REQUIRED':
+            'يحتاج المالك إلى توثيق جهة زين كاش أولًا.',
         'VERSION_OR_STATE_CONFLICT':
             'تغيرت البيانات. حدّث الشاشة ثم حاول مجددًا.',
       }[code] ??

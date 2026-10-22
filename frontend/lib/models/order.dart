@@ -97,6 +97,8 @@ class OrderItem {
 class Order {
   final bool driverSearchUnavailable;
   final Map<String,dynamic>? financialAssignment;
+  final Map<String,dynamic>? exceptionCancellation;
+  final String? exceptionPolicyVersion;
   DateTime? merchantAcceptanceDeadlineAt;
   int? estimatedPreparationTime;
   String id;
@@ -129,6 +131,8 @@ class Order {
   Order({
     this.driverSearchUnavailable = false,
     this.financialAssignment,
+    this.exceptionCancellation,
+    this.exceptionPolicyVersion,
     this.merchantAcceptanceDeadlineAt,
     this.estimatedPreparationTime,
     required this.id,
@@ -186,7 +190,11 @@ class Order {
 
     return Order(
       id: orderId,
-      driverSearchUnavailable: json['driverSearchUnavailable'] == true,
+      driverSearchUnavailable: json['driverSearchUnavailable'] == true &&
+          json['driverId'] == null && json['assignedDriverId'] == null &&
+          ['ready', 'ready_for_pickup', 'reassigning'].contains(json['status']),
+      exceptionPolicyVersion: json['exceptionPolicyVersion']?.toString(),
+      exceptionCancellation: json['exceptionCancellation'] is Map ? Map<String,dynamic>.unmodifiable(json['exceptionCancellation']) : null,
       financialAssignment: json['financialAssignment'] is Map ? Map<String,dynamic>.unmodifiable(json['financialAssignment']) : null,
       merchantAcceptanceDeadlineAt: _parseDateTime(json['merchantAcceptanceDeadlineAt']),
       estimatedPreparationTime: (json['estimatedPreparationTime'] as num?)?.toInt(),
@@ -388,6 +396,8 @@ class Order {
       'id': id,
       'driverSearchUnavailable': driverSearchUnavailable,
       if(financialAssignment!=null) 'financialAssignment': financialAssignment,
+      if(exceptionCancellation!=null) 'exceptionCancellation': exceptionCancellation,
+      if(exceptionPolicyVersion!=null) 'exceptionPolicyVersion': exceptionPolicyVersion,
       'merchantAcceptanceDeadlineAt': merchantAcceptanceDeadlineAt?.toIso8601String(),
       'estimatedPreparationTime': estimatedPreparationTime,
       'paymentMethod': paymentMethod,
@@ -432,8 +442,12 @@ class Order {
   }) {
     return Order(
       id: id ?? this.id,
-      driverSearchUnavailable: driverSearchUnavailable,
+      driverSearchUnavailable: driverSearchUnavailable &&
+          (driverId ?? this.driverId) == null &&
+          [OrderStatus.ready, OrderStatus.readyForPickup, OrderStatus.reassigning].contains(status ?? this.status),
       financialAssignment: financialAssignment,
+      exceptionCancellation: exceptionCancellation,
+      exceptionPolicyVersion: exceptionPolicyVersion,
       merchantAcceptanceDeadlineAt: merchantAcceptanceDeadlineAt,
       estimatedPreparationTime: estimatedPreparationTime,
       businessId: businessId ?? this.businessId,

@@ -26,8 +26,10 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
     with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _push;
   StreamSubscription<Order>? _socket;
+  StreamSubscription<Map<String, dynamic>>? _updates;
   Timer? _timer;
   final _shown = <String>{};
+  final _resolved = <String>{};
   bool _busy = false, _foreground = true, _hasSnapshot = false;
   List<Order> _pending = [];
   DateTime? _lastReminder;
@@ -43,6 +45,14 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
       if (o.businessId == widget.businessId &&
           o.status == OrderStatus.pending &&
           !o.shouldAutoReject()) _receive(o.id);
+    });
+    _updates = RealtimeOrderService().orderUpdateStream.listen((update) {
+      final id = update['orderId']?.toString(), status = update['status']?.toString();
+      if (id == null || status == null || status == 'pending') return;
+      _resolved.add(id);
+      _pending.removeWhere((o) => o.id == id);
+      _shown.add(id);
+      if (_pending.isEmpty) _lastReminder = null;
     });
     _refresh();
     _timer = Timer.periodic(
@@ -61,11 +71,13 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
     try {
       final orders = await widget.load();
       if (!mounted || !_foreground) return;
+      _resolved.addAll(orders.where((o) => o.status != OrderStatus.pending).map((o) => o.id));
       _pending = orders
           .where(
-              (o) => o.status == OrderStatus.pending && !o.shouldAutoReject())
+              (o) => o.status == OrderStatus.pending && !_resolved.contains(o.id) && !o.shouldAutoReject())
           .toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _shown.addAll(orders.where((o) => o.status != OrderStatus.pending).map((o) => o.id));
       MerchantOrderAlerts.publishSnapshot(widget.businessId, orders);
       if (!_hasSnapshot) {
         _hasSnapshot = true;
@@ -85,7 +97,7 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
               DateTime.now().difference(_lastReminder!).inSeconds >=
                   NotificationSoundPolicy.reminderSeconds)) {
         _lastReminder = DateTime.now();
-        await AudioNotificationService().playNewOrderSound();
+        await AudioNotificationService().playPendingOrderReminder();
       }
     } catch (_) {
       _pending = [];
@@ -123,6 +135,7 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
     WidgetsBinding.instance.removeObserver(this);
     _push?.cancel();
     _socket?.cancel();
+    _updates?.cancel();
     _timer?.cancel();
     _pending = [];
     super.dispose();

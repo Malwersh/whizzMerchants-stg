@@ -80,7 +80,7 @@ function normalizeOrderForFrontend(order) {
     const businessId = resolveBusinessId(order);
     const id = order.orderId || order.id;
     const {financeRollout,financialSnapshot,commercialPricing,financialAcceptance,codFinancialEvidence,financialSearch,...view}=order;
-    return { ...view, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment:financialOrderAssignment(order),id, orderId: id, businessId };
+    return { ...view, exceptionPolicyVersion:order.exceptionPolicy?.version||null, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment:financialOrderAssignment(order),id, orderId: id, businessId };
 }
 
 /**
@@ -453,7 +453,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             });
             
             return {
-                driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment: financialOrderAssignment(order),
+                exceptionPolicyVersion:order.exceptionPolicy?.version||null, exceptionCancellation:order.exceptionCancellation||null, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment: financialOrderAssignment(order),
                 id: order.orderId, // alias for frontend models expecting `id`
                 orderId: order.orderId,
                 orderNumber: orderNumber,
@@ -653,7 +653,7 @@ async function handleRejectOrder(orderId, data) {
             if(!actor||actor.businessId!==(currentOrder.storeId||currentOrder.businessId)||actor.deviceGuards&&(!actor.deviceOrder||actor.deviceOrder.id!==orderId||actor.deviceOrder.targetStatus!=='rejected'))return createResponse(403,{success:false,code:'ORDER_BUSINESS_SCOPE_INVALID'});
             const adapter=require('./merchant_pending_response');
             const responseDb=currentOrder.financialSnapshot||currentOrder.commercialPricing?adapter.createFinanceRollout({db:lifecycleRawDb}).db:lifecycleRawDb;
-            const engine=adapter.createMerchantPendingResponse({db:responseDb,enableDeliveryFunding:process.env.FINANCIAL_DELIVERY_FUNDING_MODE==='REQUIRED',authenticate:async()=>({kind:'MERCHANT',subjectId:actor.sub,businessId:actor.businessId,ownerId:actor.ownerId||actor.sub,guards:actor.deviceGuards||[]})});
+            const engine=adapter.createMerchantPendingResponse({db:responseDb,enableDeliveryFunding:process.env.FINANCIAL_DELIVERY_FUNDING_MODE==='REQUIRED',enableFullCash:process.env.FINANCIAL_SETTLEMENT_MODEL==='FULL_CASH_AT_DELIVERY_V1',authenticate:async()=>({kind:'MERCHANT',subjectId:actor.sub,businessId:actor.businessId,ownerId:actor.ownerId||actor.sub,guards:actor.deviceGuards||[]})});
             const result=await engine.run(orderId,'REJECT',reason);
             const updated=(await lifecycleRawDb.send(new GetCommand({TableName:ORDERS_TABLE,Key:{PK:'ORDER#'+orderId,SK:'META'},ConsistentRead:true}))).Item;
             if(!result.replayed){await publishOrderStatusUpdate(updated,'ORDER_REJECTED');await notifyCentralPlatform(updated,'cancelled');}
