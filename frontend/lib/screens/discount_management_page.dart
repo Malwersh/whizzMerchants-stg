@@ -3307,6 +3307,14 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       child: Column(
         children: [
           // Filter chips
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton.icon(
+              onPressed: _isLoading ? null : _showCreateDiscountDialog,
+              icon: const Icon(Icons.add_rounded),
+              label: Text(loc.createDiscount),
+            ),
+          ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
