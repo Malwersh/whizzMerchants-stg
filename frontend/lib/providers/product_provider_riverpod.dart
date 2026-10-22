@@ -201,9 +201,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         categoryId: product.categoryId,
         imageUrl: product.imageUrls.isNotEmpty ? product.imageUrls.first : null,
         isAvailable: product.isAvailable,
-        additionalData: globalProductId != null
-            ? {'globalProductId': globalProductId}
-            : null,
+        additionalData: {'optionGroups': product.optionGroups, if(globalProductId != null) 'globalProductId':globalProductId},
       );
 
       if (result['success'] == true && result['product'] != null) {
@@ -266,6 +264,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         categoryId: product.categoryId,
         imageUrl: product.imageUrls.isNotEmpty ? product.imageUrls.first : null,
         isAvailable: product.isAvailable,
+        additionalData: {'optionGroups':product.optionGroups},
       );
 
       if (result['success'] == true && result['product'] != null) {

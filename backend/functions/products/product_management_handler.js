@@ -1,3 +1,4 @@
+const {readBranchProductOptions}=require('../shared/branch-product-options');
 const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const {
@@ -176,7 +177,10 @@ async function handleCreateProduct(event) {
     }
 
     try {
-        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode } = JSON.parse(event.body);
+        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode, optionGroups } = JSON.parse(event.body);
+        let branchOptions;
+        try { if(optionGroups!==undefined)branchOptions=readBranchProductOptions(optionGroups); }
+        catch { return createResponse(400,{success:false,message:'INVALID_BRANCH_PRODUCT_OPTIONS'}); }
 
         if (price == null) {
             return createResponse(400, { success: false, message: 'price is required' });
@@ -229,6 +233,7 @@ async function handleCreateProduct(event) {
         const newItem = {
             productId,
             businessId,
+            ...(branchOptions!==undefined?{optionGroups:branchOptions}:{}),
             globalProductId: globalItem?.globalProductId || null,
             name: finalName,
             description: description || globalItem?.description || '',
@@ -380,6 +385,10 @@ async function handleUpdateProduct(event) {
 
     const { productId } = event.pathParameters;
     const updates = JSON.parse(event.body);
+    if(Object.hasOwn(updates,'optionGroups')){
+        try { updates.optionGroups=readBranchProductOptions(updates.optionGroups); }
+        catch { return createResponse(400,{success:false,message:'INVALID_BRANCH_PRODUCT_OPTIONS'}); }
+    }
 
     if (Object.hasOwn(updates, 'categoryId')) {
         const { Item: category } = await docClient.send(new GetCommand({
@@ -418,8 +427,9 @@ async function handleUpdateProduct(event) {
             TableName: PRODUCTS_TABLE,
             Key: { productId: productId },
             UpdateExpression: updateExpression,
-            ExpressionAttributeNames: expressionAttributeNames,
-            ExpressionAttributeValues: expressionAttributeValues,
+            ConditionExpression: '#branchOwner = :branchOwner',
+            ExpressionAttributeNames: {...expressionAttributeNames,'#branchOwner':'businessId'},
+            ExpressionAttributeValues: {...expressionAttributeValues,':branchOwner':businessId},
             ReturnValues: 'ALL_NEW',
         };
 

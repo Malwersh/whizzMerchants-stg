@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../l10n/app_localizations.dart';
 import '../models/business.dart';
 import '../models/discount.dart';
@@ -7,12 +9,15 @@ import '../models/product.dart';
 import '../services/app_state.dart';
 import '../services/api_service.dart';
 import '../services/app_auth_service.dart';
+import '../services/image_upload_service.dart';
 import '../services/product_service.dart';
 import '../screens/auth/auth_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../core/utils/app_logger.dart';
 import '../core/exceptions/auth_exceptions.dart';
+import '../widgets/discount_funding_notice.dart';
+import 'commercial_agreements_screen.dart';
 
 /// Formats a discount value without unnecessary trailing zeros.
 /// 10.0 -> "10", 10.5 -> "10.5".
@@ -1117,6 +1122,18 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   void _showDiscountDialog({Discount? discount}) {
+    // The goods editor has no delivery policy controls. Preserve legacy delivery
+    // offers instead of silently converting them into percentage discounts.
+    if (discount?.type == DiscountType.freeDelivery) {
+      showDialog<void>(context: context, builder: (dialog) => AlertDialog(
+        content: SingleChildScrollView(child: DiscountFundingNotice(delivery: true,
+          onReview: () => Navigator.of(dialog).push(MaterialPageRoute(
+            builder: (_) => CommercialAgreementsScreen(businessId: widget.business.id))))),
+        actions: [TextButton(onPressed: () => Navigator.of(dialog).pop(),
+          child: Text(MaterialLocalizations.of(dialog).closeButtonLabel))],
+      ));
+      return;
+    }
     final isEditing = discount != null;
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: discount?.title ?? '');
@@ -1125,10 +1142,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     final minOrderController = TextEditingController(
         text: discount?.minimumOrderAmount.toString() ?? '');
 
-    // If editing a free delivery discount, default the main type to percentage
-    var discountType = discount?.type == DiscountType.freeDelivery
-        ? DiscountType.percentage
-        : (discount?.type ?? DiscountType.percentage);
+    var discountType = discount?.type ?? DiscountType.percentage;
 
     // Handle discount applicability
     var applicability =
@@ -1152,6 +1166,13 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     var startDate = discount?.validFrom ?? DateTime.now();
     var endDate =
         discount?.validTo ?? DateTime.now().add(const Duration(days: 7));
+
+    // Optional discount image state
+    final imagePicker = ImagePicker();
+    File? _pickedImage;
+    String? _existingImageUrl = discount?.imageUrl;
+    bool _uploadingImage = false;
+    void Function(void Function())? sheetSetState;
 
     showModalBottomSheet(
       context: context,
@@ -1283,6 +1304,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                   Expanded(
                     child: StatefulBuilder(
                       builder: (context, setState) {
+                        sheetSetState = setState;
                         return Form(
                           key: formKey,
                           child: SingleChildScrollView(
@@ -1293,6 +1315,12 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 // Section: Basic Information
+                                DiscountFundingNotice(
+                                  editing: isEditing,
+                                  delivery: discountType == DiscountType.freeDelivery,
+                                  onReview: () => Navigator.of(context).push(MaterialPageRoute(
+                                    builder: (_) => CommercialAgreementsScreen(businessId: widget.business.id))),
+                                ),
                                 Text(
                                   AppLocalizations.of(context)!
                                       .basicInformation,
@@ -1380,6 +1408,159 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                   ),
                                 ),
                                 SizedBox(height: AppSpacing.lg),
+
+                                // Section: Discount Image (optional)
+                                Text(
+                                  AppLocalizations.of(context)!.uploadImage,
+                                  style: AppTypography.titleMedium.copyWith(
+                                    color: WhizzColors.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(height: AppSpacing.sm),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Preview of picked file or existing URL
+                                    Container(
+                                      width: 72,
+                                      height: 72,
+                                      decoration: BoxDecoration(
+                                        color: WhizzColors.grey50,
+                                        borderRadius: BorderRadius.circular(
+                                            AppDimensions.borderRadiusMD),
+                                        border: Border.all(
+                                          color: WhizzColors.grey200,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: _pickedImage != null
+                                          ? Image.file(
+                                              _pickedImage!,
+                                              fit: BoxFit.cover,
+                                              width: 72,
+                                              height: 72,
+                                            )
+                                          : (_existingImageUrl != null &&
+                                                  _existingImageUrl!.isNotEmpty)
+                                              ? Image.network(
+                                                  _existingImageUrl!,
+                                                  fit: BoxFit.cover,
+                                                  width: 72,
+                                                  height: 72,
+                                                  errorBuilder: (context,
+                                                          error,
+                                                          stackTrace) =>
+                                                      Icon(
+                                                    Icons
+                                                        .broken_image_outlined,
+                                                    color: WhizzColors.grey400,
+                                                  ),
+                                                )
+                                              : Icon(
+                                                  Icons.image_outlined,
+                                                  color: WhizzColors.grey400,
+                                                  size: AppDimensions
+                                                      .iconSizeLG,
+                                                ),
+                                    ),
+                                    SizedBox(width: AppSpacing.sm),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          OutlinedButton.icon(
+                                            onPressed: _uploadingImage
+                                                ? null
+                                                : () async {
+                                                    try {
+                                                      final XFile?
+                                                          pickedFile =
+                                                          await imagePicker
+                                                              .pickImage(
+                                                        source: ImageSource
+                                                            .gallery,
+                                                        maxWidth: 1080,
+                                                        maxHeight: 1080,
+                                                        imageQuality: 85,
+                                                      );
+                                                      if (pickedFile != null) {
+                                                        setState(() {
+                                                          _pickedImage = File(
+                                                              pickedFile.path);
+                                                          _existingImageUrl =
+                                                              null;
+                                                        });
+                                                      }
+                                                    } catch (e) {
+                                                      AppLogger.error(
+                                                          '[DiscountManagement] Error picking image: $e');
+                                                      if (context.mounted) {
+                                                        showAdaptiveSnackBar(
+                                                          context: context,
+                                                          message:
+                                                              '${AppLocalizations.of(context)!.errorPickingImage}: $e',
+                                                          type:
+                                                              AdaptiveSnackBarType
+                                                                  .error,
+                                                        );
+                                                      }
+                                                    }
+                                                  },
+                                            icon: Icon(
+                                              Icons.photo_library_outlined,
+                                              size: AppDimensions.iconSizeSM,
+                                            ),
+                                            label: Text(
+                                              (_pickedImage != null ||
+                                                      (_existingImageUrl !=
+                                                              null &&
+                                                          _existingImageUrl!
+                                                              .isNotEmpty))
+                                                  ? AppLocalizations.of(
+                                                          context)!
+                                                      .changeImage
+                                                  : AppLocalizations.of(
+                                                          context)!
+                                                      .uploadImage,
+                                            ),
+                                          ),
+                                          if (_pickedImage != null ||
+                                              (_existingImageUrl != null &&
+                                                  _existingImageUrl!
+                                                      .isNotEmpty)) ...[
+                                            SizedBox(height: AppSpacing.xs),
+                                            TextButton.icon(
+                                              onPressed: _uploadingImage
+                                                  ? null
+                                                  : () {
+                                                      setState(() {
+                                                        _pickedImage = null;
+                                                        _existingImageUrl =
+                                                            null;
+                                                      });
+                                                    },
+                                              icon: Icon(
+                                                Icons.close_rounded,
+                                                size: AppDimensions.iconSizeSM,
+                                                color: WhizzColors.error,
+                                              ),
+                                              label: Text(
+                                                AppLocalizations.of(context)!
+                                                    .delete,
+                                                style: TextStyle(
+                                                    color: WhizzColors.error),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: AppSpacing.lg),
                                 // Section: Discount Configuration
                                 Text(
                                   AppLocalizations.of(context)!
@@ -1455,7 +1636,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                           ),
                                           isExpanded: true,
                                           items:
-                                              DiscountType.values.map((type) {
+                                              DiscountType.values.where((type) => [DiscountType.percentage, DiscountType.fixedAmount, DiscountType.freeDelivery].contains(type) || type == discount?.type).map((type) {
                                             String label;
                                             switch (type) {
                                               case DiscountType.percentage:
@@ -2697,6 +2878,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       }
                                     }
 
+                                    if (![DiscountType.percentage, DiscountType.fixedAmount, DiscountType.freeDelivery].contains(discountType)) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('هذا النوع من العروض غير مدعوم حالياً.')));
+                                      return;
+                                    }
                                     // Prepare conditional parameters for Buy X Get Y and Conditional discounts
                                     Map<String, dynamic> conditionalParams = {};
                                     ConditionalDiscountRule? conditionalRule;
@@ -2750,6 +2935,35 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       };
                                     }
 
+                                    // Upload the picked image first (if any) so
+                                    // the returned URL can be stored on the
+                                    // discount record as imageUrl.
+                                    String? imageUrl = _existingImageUrl;
+                                    if (_pickedImage != null) {
+                                      sheetSetState?.call(() {
+                                        _uploadingImage = true;
+                                      });
+                                      final uploadResult = await ImageUploadService
+                                          .uploadProductImage(_pickedImage!);
+                                      sheetSetState?.call(() {
+                                        _uploadingImage = false;
+                                      });
+                                      if (uploadResult['success'] == true) {
+                                        imageUrl =
+                                            uploadResult['imageUrl'] as String?;
+                                      } else {
+                                        if (context.mounted) {
+                                          showAdaptiveSnackBar(
+                                            context: context,
+                                            message:
+                                                '${AppLocalizations.of(context)!.imageUploadFailed}: ${uploadResult['message']}',
+                                            type: AdaptiveSnackBarType.error,
+                                          );
+                                        }
+                                        return;
+                                      }
+                                    }
+
                                     final newDiscount = Discount(
                                       revision: discount?.revision,
                                       id: discount?.id ??
@@ -2779,6 +2993,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       status: DiscountStatus.active,
                                       conditionalRule: conditionalRule,
                                       conditionalParameters: conditionalParams,
+                                      imageUrl: imageUrl,
                                     );
 
                                     Navigator.of(context).pop();
@@ -3589,6 +3804,7 @@ class DiscountCard extends StatelessWidget {
               child: Column(
                 children: [
                   // Details grid
+                  DiscountFundingNotice(delivery: discount.type == DiscountType.freeDelivery),
                   Row(
                     children: [
                       Expanded(

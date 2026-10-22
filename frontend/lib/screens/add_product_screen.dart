@@ -1,3 +1,4 @@
+import '../widgets/branch_options_editor.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
@@ -25,6 +26,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
+  List<Map<String,dynamic>> _optionGroups = [];
   final _priceController = TextEditingController();
   
   String? _selectedCategoryId;
@@ -165,6 +167,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
 
                             // Product Details Section
                           _buildProductDetailsSection(productState, l10n),
+                          BranchOptionsEditor(value:_optionGroups,enabled:!isLoading,onChanged:(v)=>setState(()=>_optionGroups=v)),
                           SizedBox(height: AppSpacing.xl),
 
                             // Add Product Button
@@ -219,6 +222,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim(),
         price: double.parse(_priceController.text),
+        optionGroups:_optionGroups,
         categoryId: _selectedCategoryId!,
         imageUrls: [imageUrl], // Use the uploaded image URL
         isAvailable: true,
