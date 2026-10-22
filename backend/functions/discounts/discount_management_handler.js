@@ -1,3 +1,5 @@
+const discountEngine=require('../shared/discount-engine');
+const {patchTerms,supported,hasDiscountCustomizations,discountGoodsSelection}=require('../shared/discount-contract');
 const {revision,fence}=require('../shared/campaign-version');
 const {merchantLifecycleClient,merchantHandler,merchantRequestContext}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
@@ -159,26 +161,40 @@ async function getBusinessInfoForUser(dynamodb, userInfo) {
     return (await dynamodb.send(new GetCommand({TableName:BUSINESSES_TABLE,Key:{businessId:verified.businessId},ConsistentRead:true}))).Item;
 }
 
+// Both views read the same branch index and must never report a partial page as complete.
+async function readBusinessDiscounts(dynamodb, businessId) {
+    const discounts = [];
+    let cursor;
+    for (let page = 0; page < 100; page++) {
+        const result = await dynamodb.send(new QueryCommand({
+            TableName: DISCOUNTS_TABLE,
+            IndexName: 'BusinessIdIndex',
+            KeyConditionExpression: '#business = :business',
+            ExpressionAttributeNames: { '#business': 'businessId' },
+            ExpressionAttributeValues: { ':business': businessId },
+            Limit: 100,
+            ...(cursor ? { ExclusiveStartKey: cursor } : {})
+        }));
+        discounts.push(...(result.Items || []).filter(row => row.businessId === businessId));
+        cursor = result.LastEvaluatedKey;
+        if (!cursor) return discounts;
+    }
+    throw Object.assign(Error('DISCOUNT_LIST_INCOMPLETE'), { statusCode: 503 });
+}
+
 // GET /discounts - Get all discounts for a business
 async function handleGetDiscounts(dynamodb, businessId) {
     try {
-        const params = {
-            TableName: DISCOUNTS_TABLE,
-            FilterExpression: 'businessId = :businessId',
-            ExpressionAttributeValues: {
-                ':businessId': businessId
-            }
-        };
-        const result = await dynamodb.send(new ScanCommand(params));
+        const discounts = await readBusinessDiscounts(dynamodb, businessId);
 
         return createResponse(200, {
             success: true,
-            discounts: (result.Items || []).map(row=>({...row,revision:revision(row)})),
-            count: result.Items?.length || 0
+            discounts: discounts.map(row=>({...row,revision:revision(row)})),
+            count: discounts.length
         });
     } catch (error) {
         console.error('Error getting discounts:', error);
-        return createResponse(500, { success: false, message: 'Failed to retrieve discounts', error: error.message });
+        return createResponse(error.statusCode || 500, { success: false, message: 'Failed to retrieve discounts', error: error.message });
     }
 }
 
@@ -207,7 +223,7 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
         }
 
         // Validate discount type
-        const validTypes = ['percentage', 'fixedAmount', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const validTypes = ['percentage', 'fixedAmount', 'freeDelivery'];
         if (!validTypes.includes(discountData.type)) {
             return createResponse(400, {
                 success: false,
@@ -278,10 +294,12 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
             status: discountData.status || 'active',
             conditional_rule: discountData.conditionalRule || null,
             conditional_parameters: discountData.conditionalParameters || {},
+            imageUrl: discountData.imageUrl || null,
             created_at: now,
             updated_at: now
         };
 
+        if(!supported(discount)||!discountEngine.validShape(discountEngine.normalizeDiscount(discount),Number.MAX_SAFE_INTEGER)) return createResponse(400,{success:false,message:'INVALID_DISCOUNT_TERMS'});
         const params = {
             TableName: DISCOUNTS_TABLE,
             Item: discount
@@ -351,7 +369,7 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
         const expressionAttributeValues = {
             ':timestamp': new Date().toISOString()
         };
-        const validTypes = ['percentage', 'fixedAmount', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const validTypes = ['percentage', 'fixedAmount', 'freeDelivery'];
         const effectiveType = updateData.type !== undefined
             ? updateData.type
             : JSON.parse(existingDiscount.body).discount?.type;
@@ -453,8 +471,18 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
             expressionAttributeNames['#conditional_parameters'] = 'conditional_parameters';
             expressionAttributeValues[':conditional_parameters'] = updateData.conditionalParameters;
         }
+        if (updateData.imageUrl !== undefined) {
+            updateExpression += ', #imageUrl = :imageUrl';
+            expressionAttributeNames['#imageUrl'] = 'imageUrl';
+            expressionAttributeValues[':imageUrl'] = updateData.imageUrl;
+        }
 
-        const original=fence(JSON.parse(existingDiscount.body).discount,'view');
+        const old=JSON.parse(existingDiscount.body).discount;
+        const fieldMap={minimumOrderAmount:'minimum_order_amount',validFrom:'valid_from',validTo:'valid_to',usageLimit:'usage_limit',applicableItemIds:'applicable_item_ids',applicableCategoryIds:'applicable_category_ids',conditionalRule:'conditional_rule',conditionalParameters:'conditional_parameters'};
+        const patch=Object.fromEntries(Object.entries(updateData).filter(([key])=>['title','description','type','value','applicability',...Object.keys(fieldMap),'status','imageUrl'].includes(key)).map(([key,value])=>[fieldMap[key]||key,value]));
+        const next=patchTerms(old,patch,'merchant');
+        if(!supported(next)||!discountEngine.validShape(discountEngine.normalizeDiscount(next),Number.MAX_SAFE_INTEGER))return createResponse(400,{success:false,message:'INVALID_DISCOUNT_TERMS'});
+        const original=fence(old,'view');
         const params = {
             TableName: DISCOUNTS_TABLE,
             Key: {
@@ -582,25 +610,15 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
 // validation/calculation logic expects. The table stores snake_case
 // (valid_from, minimum_order_amount, usage_limit, ...), so reading the
 // camelCase names directly would silently disable those checks.
-function normalizeDiscount(d) {
-    if (!d) return d;
-    return {
-        ...d,
-        validFrom: d.validFrom || d.valid_from,
-        validTo: d.validTo || d.valid_to,
-        minimumOrderAmount: d.minimumOrderAmount ?? d.minimum_order_amount ?? 0,
-        usageLimit: d.usageLimit ?? d.usage_limit ?? null,
-        usageCount: d.usageCount ?? d.usage_count ?? 0,
-        conditionalParameters: d.conditionalParameters || d.conditional_parameters || {},
-    };
-}
+function normalizeDiscount(d) { return discountEngine.normalizeDiscount(d); }
 
 // POST /discounts/validate-discount - Validate if discount can be applied to an order
 async function handleValidateDiscount(dynamodb, businessId, orderData) {
     try {
         const { discountId, orderTotal, items, deliveryFee } = orderData;
+        if(hasDiscountCustomizations(items))return createResponse(409,{success:false,valid:false,message:'UNSUPPORTED_DISCOUNT_ITEMS'});
 
-        if (!discountId || orderTotal === undefined || !items) {
+        if (!discountId || orderTotal === undefined || !Array.isArray(items)) {
             return createResponse(400, {
                 success: false,
                 message: 'Missing required fields: discountId, orderTotal, items'
@@ -627,57 +645,34 @@ async function handleValidateDiscount(dynamodb, businessId, orderData) {
             return createResponse(403, { success: false, message: 'Access denied to this discount' });
         }
 
-        // Validate discount is active
-        if (discount.status !== 'active') {
-            return createResponse(400, {
-                success: false,
-                message: 'Discount is not active',
-                valid: false
+        let totalMinor;
+        let selected;
+        {
+            const catalog=await require('../shared/branch-product-pricing').createStagingOrderGoodsPricing({db:dynamodb}).price({branchId:businessId,items:items.map(i=>discountGoodsSelection({...i,id:i.id||i.itemId||i.dishId}))});
+            totalMinor=catalog.goodsGross.minorAmount;
+            selected=catalog.lines.map(line=>{
+                const check=catalog.conditions.find(c=>c.ConditionCheck?.Key?.productId===line.productId)?.ConditionCheck;
+                const alias=Object.keys(check?.ExpressionAttributeNames||{}).find(k=>check.ExpressionAttributeNames[k]==='categoryId');
+                return {itemId:line.productId,...(line.lineId?{lineId:line.lineId}:{}),quantity:line.quantity,price:line.unitPrice.minorAmount,categoryId:alias?check.ExpressionAttributeValues[':'+alias.slice(1)]:null};
             });
         }
-
-        // Validate date range
-        const now = new Date();
-        const validFrom = new Date(discount.validFrom);
-        const validTo = new Date(discount.validTo);
-
-        if (now < validFrom || now > validTo) {
-            return createResponse(400, {
-                success: false,
-                message: 'Discount is not valid for current date',
-                valid: false
-            });
-        }
-
-        // Validate minimum order amount
-        if (orderTotal < discount.minimumOrderAmount) {
-            return createResponse(400, {
-                success: false,
-                message: `Order must be at least $${discount.minimumOrderAmount}`,
-                valid: false
-            });
-        }
-
-        // Validate usage limit
-        if (discount.usageLimit && discount.usageCount >= discount.usageLimit) {
-            return createResponse(400, {
-                success: false,
-                message: 'Discount usage limit reached',
-                valid: false
-            });
-        }
-
-        // Calculate discount amount
-        const discountAmount = calculateDiscountAmount(discount, orderTotal, items, deliveryFee);
-
+        const validation=discountEngine.validateDiscount(discount,totalMinor);
+        if(!validation.valid)return createResponse(400,{success:false,valid:false,message:validation.message});
+        const scoped=selected.filter(i=>discount.applicability==='specificItems'?(discount.applicable_item_ids||[]).includes(i.itemId):discount.applicability==='specificCategories'?(discount.applicable_category_ids||[]).includes(i.categoryId):true);
+        if(['specificItems','specificCategories'].includes(discount.applicability)&&!scoped.length)return createResponse(400,{success:false,valid:false,message:'NO_ELIGIBLE_ITEMS'});
+        const discountAmount=discountEngine.calculateCheckoutDiscountAmount(discount,totalMinor,selected,discountEngine.decimalThousand(deliveryFee||0))/1000;
+        if(discountAmount===0)return createResponse(409,{success:false,valid:false,message:'OFFER_NO_SAVINGS'});
         return createResponse(200, {
             success: true,
             valid: true,
             discountAmount,
+            previewOnly:true,
+            eligibilityRequiresCustomer:true,
             discount
         });
     } catch (error) {
         console.error('Error validating discount:', error);
+        if(['INVALID_GOODS_SELECTION','GOODS_UNAVAILABLE','GOODS_PRICING_UNSUPPORTED','GOODS_PRICING_UNAVAILABLE'].includes(error.code))return createResponse(error.code==='GOODS_PRICING_UNAVAILABLE'?503:409,{success:false,valid:false,message:error.code});
         return createResponse(500, { success: false, message: 'Failed to validate discount' });
     }
 }
@@ -691,28 +686,18 @@ async function handleApplyDiscount() {
 // GET /discounts/stats - Get discount statistics
 async function handleGetDiscountStats(dynamodb, businessId) {
     try {
-        const params = {
-            TableName: DISCOUNTS_TABLE,
-            IndexName: 'BusinessIdIndex',
-            KeyConditionExpression: 'businessId = :businessId',
-            ExpressionAttributeValues: {
-                ':businessId': businessId
-            }
-        };
-
-        const result = await dynamodb.send(new QueryCommand(params));
-        const discounts = result.Items || [];
+        const discounts = await readBusinessDiscounts(dynamodb, businessId);
 
         const stats = {
             totalDiscounts: discounts.length,
             activeDiscounts: discounts.filter(d => d.status === 'active').length,
-            expiredDiscounts: discounts.filter(d => new Date(d.validTo) < new Date()).length,
-            totalUsage: discounts.reduce((sum, d) => sum + (d.usageCount || 0), 0),
+            expiredDiscounts: discounts.filter(d => new Date(d.validTo || d.valid_to) <= new Date()).length,
+            totalUsage: discounts.reduce((sum, d) => sum + (d.usageCount ?? d.usage_count ?? 0), 0),
             discountsByType: {}
         };
 
         // Group by type
-        const types = ['percentage', 'conditional', 'freeDelivery', 'buyXGetY'];
+        const types = ['percentage', 'fixedAmount', 'freeDelivery'];
         types.forEach(type => {
             stats.discountsByType[type] = discounts.filter(d => d.type === type).length;
         });
@@ -723,90 +708,7 @@ async function handleGetDiscountStats(dynamodb, businessId) {
         });
     } catch (error) {
         console.error('Error getting discount stats:', error);
-        return createResponse(500, { success: false, message: 'Failed to retrieve discount statistics' });
-    }
-}
-
-// Helper function to calculate discount amount
-function calculateDiscountAmount(discount, orderTotal, items, deliveryFee) {
-    let discountableAmount = 0;
-
-    // Determine discountable amount based on applicability
-    switch (discount.applicability) {
-        case 'allItems':
-            discountableAmount = orderTotal;
-            break;
-        case 'specificItems':
-            discountableAmount = items
-                .filter(item => discount.applicable_item_ids.includes(item.dishId || item.id))
-                .reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            break;
-        case 'specificCategories':
-            discountableAmount = items
-                .filter(item => discount.applicable_category_ids.includes(item.categoryId))
-                .reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            break;
-        case 'minimumOrder':
-            discountableAmount = orderTotal;
-            break;
-        default:
-            discountableAmount = orderTotal;
-    }
-
-    // Calculate discount based on type
-    switch (discount.type) {
-        case 'percentage':
-            // Clamp: never discount more than the discountable amount
-            return Math.min(discountableAmount * (discount.value / 100), discountableAmount);
-        case 'fixedAmount':
-            return Math.min(discount.value, discountableAmount);
-        case 'buyXGetY':
-        case 'conditional':
-            // For Buy X Get Y, implement specific logic based on items
-            return calculateBuyXGetYDiscount(discount, items);
-        case 'freeDelivery':
-            // Waive the delivery fee; item prices are untouched
-            return Math.max(0, deliveryFee || 0);
-        default:
-            return 0; // Default to 0 for unknown types
-    }
-}
-
-// Helper function for Buy X Get Y discount calculation
-function calculateBuyXGetYDiscount(discount, items) {
-    const params = discount.conditionalParameters || {};
-    const buyItemId = params.buyItemId;
-    const buyQuantity = params.buyQuantity;
-    const getItemId = params.getItemId;
-    const getQuantity = params.getQuantity;
-
-    if (!buyItemId || !buyQuantity || !getItemId || !getQuantity) {
-        return 0;
-    }
-
-    // Find buy item in order
-    const buyItem = items.find(item => (item.dishId || item.id) === buyItemId);
-    if (!buyItem || buyItem.quantity < buyQuantity) {
-        return 0;
-    }
-
-    // Find get item in order
-    const getItem = items.find(item => (item.dishId || item.id) === getItemId);
-    if (!getItem) {
-        return 0;
-    }
-
-    // Calculate how many free items customer gets
-    const setsEligible = Math.floor(buyItem.quantity / buyQuantity);
-    const freeItems = Math.min(setsEligible * getQuantity, getItem.quantity);
-
-    // Calculate discount amount
-    if (discount.value === 0) {
-        // Free items
-        return freeItems * getItem.price;
-    } else {
-        // Percentage discount on get items
-        return freeItems * getItem.price * (discount.value / 100);
+        return createResponse(error.statusCode || 500, { success: false, message: 'Failed to retrieve discount statistics' });
     }
 }
 
