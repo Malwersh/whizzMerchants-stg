@@ -292,11 +292,18 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
           onOrderUpdated: _onOrderUpdated,
         );
       case 3:
-        return DiscountManagementPage(
-          business: business,
-          orders: _orders,
-          onNavigateToOrders: () => _onNavigate(0),
-          onOrderUpdated: _onOrderUpdated,
+        return Localizations.override(
+          context: context,
+          locale: const Locale('ar'),
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: DiscountManagementPage(
+              business: business,
+              orders: _orders,
+              onNavigateToOrders: () => _onNavigate(0),
+              onOrderUpdated: _onOrderUpdated,
+            ),
+          ),
         );
       case 4:
         return ProfileSettingsPage(
