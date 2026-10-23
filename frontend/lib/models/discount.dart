@@ -29,6 +29,7 @@ enum ConditionalDiscountRule {
 
 class Discount {
   final String id;
+  final String? revision;
   final String name;
   final String title; // Alias for name for backward compatibility
   final String description;
@@ -55,6 +56,7 @@ class Discount {
 
   Discount({
     required this.id,
+    this.revision,
     required this.name,
     String? title,
     required this.description,
@@ -84,23 +86,38 @@ class Discount {
 
   factory Discount.fromJson(Map<String, dynamic> json) {
     return Discount(
-      id: json['id'] ?? json['discount_id'] ?? '',
-      name: json['name'] ?? '',
+      revision: json['revision'] as String?,
+      id: json['discountId'] ?? json['id'] ?? json['discount_id'] ?? '',
+      name: json['title'] ?? json['name'] ?? '',
       description: json['description'] ?? '',
       type: _parseDiscountType(json['type']),
       value: (json['value'] ?? 0).toDouble(),
       applicability: _parseDiscountApplicability(json['applicability']),
       status: _parseDiscountStatus(json['status']),
-      startDate:
-          DateTime.tryParse(json['startDate'] ?? json['start_date'] ?? '') ??
-              DateTime.now(),
-      endDate: DateTime.tryParse(json['endDate'] ?? json['end_date'] ?? '') ??
+      startDate: DateTime.tryParse(json['valid_from'] ??
+              json['validFrom'] ??
+              json['startDate'] ??
+              json['start_date'] ??
+              '') ??
+          DateTime.now(),
+      endDate: DateTime.tryParse(json['valid_to'] ??
+              json['validTo'] ??
+              json['endDate'] ??
+              json['end_date'] ??
+              '') ??
           DateTime.now().add(const Duration(days: 30)),
-      minimumOrderAmount: json['minimumOrderAmount'] != null
-          ? (json['minimumOrderAmount']).toDouble()
-          : null,
-      maxUsage: json['maxUsage'] ?? json['max_usage'],
-      currentUsage: json['currentUsage'] ?? json['current_usage'] ?? 0,
+      minimumOrderAmount:
+          (json['minimum_order_amount'] ?? json['minimumOrderAmount'])
+              ?.toDouble(),
+      maxUsage: json['usage_limit'] ??
+          json['usageLimit'] ??
+          json['maxUsage'] ??
+          json['max_usage'],
+      currentUsage: json['usage_count'] ??
+          json['usageCount'] ??
+          json['currentUsage'] ??
+          json['current_usage'] ??
+          0,
       applicableItemIds: List<String>.from(
           json['applicableItemIds'] ?? json['applicable_item_ids'] ?? []),
       applicableCategoryIds: List<String>.from(json['applicableCategoryIds'] ??
@@ -108,8 +125,10 @@ class Discount {
           []),
       conditionalRule: _parseConditionalRule(
           json['conditionalRule'] ?? json['conditional_rule']),
-      conditionalRuleData:
-          json['conditionalRuleData'] ?? json['conditional_rule_data'],
+      conditionalRuleData: json['conditional_parameters'] ??
+          json['conditionalParameters'] ??
+          json['conditionalRuleData'] ??
+          json['conditional_rule_data'],
       businessId: json['businessId'] ?? json['business_id'] ?? '',
       createdAt:
           DateTime.tryParse(json['createdAt'] ?? json['created_at'] ?? '') ??
@@ -169,6 +188,7 @@ class Discount {
       case 'expired':
         return DiscountStatus.expired;
       case 'inactive':
+      case 'paused':
         return DiscountStatus.inactive;
       default:
         return DiscountStatus.active;
@@ -194,6 +214,11 @@ class Discount {
     }
   }
 
+  static String _wireDate(DateTime value) =>
+      DateTime.fromMillisecondsSinceEpoch(value.millisecondsSinceEpoch,
+              isUtc: true)
+          .toIso8601String();
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -204,10 +229,10 @@ class Discount {
       'value': value,
       'applicability': applicability.name,
       'status': status.name,
-      'startDate': startDate.toIso8601String(),
-      'endDate': endDate.toIso8601String(),
-      'validFrom': validFrom.toIso8601String(), // Backend expects validFrom
-      'validTo': validTo.toIso8601String(), // Backend expects validTo
+      'startDate': _wireDate(startDate),
+      'endDate': _wireDate(endDate),
+      'validFrom': _wireDate(validFrom), // Backend expects validFrom
+      'validTo': _wireDate(validTo), // Backend expects validTo
       'minimumOrderAmount': minimumOrderAmount,
       'maxUsage': maxUsage,
       'currentUsage': currentUsage,
@@ -218,8 +243,8 @@ class Discount {
       'conditionalParameters':
           conditionalParameters, // Add this field for backend validation
       'businessId': businessId,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
+      'createdAt': _wireDate(createdAt),
+      'updatedAt': _wireDate(updatedAt),
     };
   }
 

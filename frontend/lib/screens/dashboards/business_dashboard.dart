@@ -1,3 +1,11 @@
+import '../order_reception_settings_page.dart';
+import '../../widgets/merchant_order_attention.dart';
+import '../../widgets/commercial_requests_banner.dart';
+import '../branch_employee_discounts_screen.dart';
+import '../../widgets/branch_employee_status_control.dart';
+import '../branch_employee_wallet_screen.dart';
+import '../../services/branch_employee_access.dart';
+import '../branch_device_tasks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../orders_page.dart';
@@ -24,10 +32,12 @@ import '../../services/token_refresh_service.dart';
 
 class BusinessDashboard extends ConsumerStatefulWidget {
   final Business? initialBusiness;
+  final BranchEmployeeAccess? employeeAccess;
 
   const BusinessDashboard({
     super.key,
     this.initialBusiness,
+    this.employeeAccess,
   });
 
   @override
@@ -47,6 +57,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
   @override
   void initState() {
     super.initState();
+    if (widget.employeeAccess != null) return;
     _appState.addListener(_onAppStateChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeData();
@@ -55,7 +66,8 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
 
   @override
   void dispose() {
-    _appState.removeListener(_onAppStateChanged);
+    if (widget.employeeAccess == null)
+      _appState.removeListener(_onAppStateChanged);
     super.dispose();
   }
 
@@ -123,7 +135,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
     debugPrint('🔄 Tab changed to index: $index - validating session...');
     final sessionNotifier = ref.read(sessionProvider.notifier);
     await sessionNotifier.onAppResumed();
-    
+
     setState(() {
       _selectedIndex = index;
     });
@@ -141,10 +153,10 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
 
       // Create API service instance
       final apiService = ApiService();
-      
+
       // Get current user info
       final user = await apiService.getMerchantDetails();
-      
+
       // Call API to update online status
       await apiService.updateBusinessOnlineStatus(
         session.businessId!,
@@ -156,7 +168,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
       setState(() {
         _isOnline = isOnline;
       });
-      
+
       // Update AppState
       _appState.updateOnlineStatus(isOnline);
 
@@ -172,14 +184,13 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
             : AdaptiveSnackBarType.warning,
         duration: const Duration(seconds: 2),
       );
-
     } on AuthTokenExpiredException catch (e) {
       await _handleAuthFailure('Toggling online status (token expired)', e);
     } on UnauthorizedException catch (e) {
       await _handleAuthFailure('Toggling online status (unauthorized)', e);
     } catch (error) {
       debugPrint('❌ Toggle status error: $error');
-      
+
       // Show error message
       if (!mounted) return;
       showAdaptiveSnackBar(
@@ -269,7 +280,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
 
   Widget _buildDashboardBody(Business business) {
     switch (_selectedIndex) {
-            case 0:
+      case 0:
         return OrdersPage(businessId: business.id);
       case 1:
         return ProductsManagementScreen(business: business);
@@ -281,11 +292,18 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
           onOrderUpdated: _onOrderUpdated,
         );
       case 3:
-        return DiscountManagementPage(
-          business: business,
-          orders: _orders,
-          onNavigateToOrders: () => _onNavigate(0),
-          onOrderUpdated: _onOrderUpdated,
+        return Localizations.override(
+          context: context,
+          locale: const Locale('ar'),
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: DiscountManagementPage(
+              business: business,
+              orders: _orders,
+              onNavigateToOrders: () => _onNavigate(0),
+              onOrderUpdated: _onOrderUpdated,
+            ),
+          ),
         );
       case 4:
         return ProfileSettingsPage(
@@ -300,6 +318,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
   Widget _buildMobileLayout(Business business) {
     return Scaffold(
       appBar: TopAppBar(
+        businessId: business.id,
         title: business.name,
         isOnline: _isOnline,
         onToggleStatus: (value) async => await _toggleOnlineStatus(value),
@@ -307,16 +326,13 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
         onNavigate: (index) => _onNavigate(index),
         isLoading: _loadingOrders,
       ),
-      body: _buildDashboardBody(business),
+      body: Column(children: [CommercialRequestsBanner(businessId: business.id, businessName: business.name), Expanded(child: _buildDashboardBody(business))]),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: WhizzColors.white,
           border: Border(
             top: BorderSide(
-              color: Theme.of(context)
-                  .colorScheme
-                  .secondary
-                  .withOpacity(0.1),
+              color: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
               width: 2,
             ),
           ),
@@ -451,8 +467,108 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
     );
   }
 
+  Widget _employeeDashboard(BranchEmployeeAccess access) {
+    final menu =
+        (access.capabilities['readMenu'] ?? access.capabilities['editMenu']) ==
+            true;
+    final hours = (access.capabilities['readHours'] ??
+            access.capabilities['editHours']) ==
+        true;
+    final wallet = access.capabilities['readWalletBalance'] == true ||
+        access.capabilities['readWalletTransactions'] == true ||
+        access.capabilities['readSalesReports'] == true;
+    final destinations = <String>[
+      if (access.canOrders) 'الطلبات',
+      if (menu) 'المنتجات',
+      if (wallet) 'المحفظة',
+      if (access.capabilities['readDiscounts'] == true) 'الخصومات',
+      'الإعدادات',
+    ];
+    final index = _selectedIndex < destinations.length ? _selectedIndex : 0;
+    final selected = destinations[index];
+    Widget tasks(String tab) => SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: BranchDeviceTasks(
+              key: ValueKey(tab),
+              api: access.api,
+              token: access.token,
+              session: access.session,
+              businessId: access.businessId,
+              capabilities: access.capabilities,
+              role: access.profile['staff']?['role'] ?? '',
+              initialTab: tab,
+              showTabs: false),
+        );
+    final settings = ListView(padding: const EdgeInsets.all(16), children: [
+      Card(child:ListTile(leading:const Icon(Icons.tune_rounded),title:const Text('استقبال الطلبات والصوت'),onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>OrderReceptionSettingsPage(businessId:access.businessId,access:access))))),
+      if (hours)
+        Card(
+            child: ExpansionTile(
+          leading: const Icon(Icons.schedule),
+          title: const Text('ساعات العمل'),
+          children: [tasks('hours')],
+        )),
+      Card(
+          child: ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('قفل مهامي'),
+              subtitle: const Text('يستمر الجهاز في استقبال الطلبات'),
+              onTap: access.lock)),
+    ]);
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: Text(access.profile['business']?['businessName'] ??
+            access.profile['business']?['name'] ??
+            'المطعم'),
+        actions: [
+          if (access.capabilities['editStatus'] == true)
+            BranchEmployeeStatusControl(access: access),
+          IconButton(
+              onPressed: access.lock,
+              tooltip: 'قفل مهامي',
+              icon: const Icon(Icons.lock_outline))
+        ],
+      ),
+      body: selected == 'الطلبات'
+          ? OrdersPage(businessId: access.businessId, employeeAccess: access)
+          : selected == 'المنتجات'
+              ? tasks('menu')
+              : selected == 'الخصومات'
+                  ? BranchEmployeeDiscountsScreen(
+                      key: ValueKey(access.businessId), access: access)
+                  : selected == 'المحفظة'
+                      ? BranchEmployeeWalletScreen(
+                          key: ValueKey(access.businessId), access: access)
+                      : settings,
+      bottomNavigationBar: destinations.length < 2
+          ? null
+          : BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              currentIndex: index,
+              onTap: (value) => setState(() => _selectedIndex = value),
+              selectedItemColor: const Color(0xFF00296B),
+              items: destinations
+                  .map((label) => BottomNavigationBarItem(
+                      icon: Icon(label == 'الطلبات'
+                          ? Icons.receipt_long_outlined
+                          : label == 'المنتجات'
+                              ? Icons.inventory_2_outlined
+                              : label == 'الخصومات'
+                                  ? Icons.local_offer_outlined
+                                  : label == 'المحفظة'
+                                      ? Icons.account_balance_wallet_outlined
+                                      : Icons.settings_outlined),
+                      label: label))
+                  .toList(),
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.employeeAccess != null)
+      return widget.employeeAccess!.canOrders ? MerchantOrderAttention(key:ValueKey('attention_${widget.employeeAccess!.businessId}'),businessId:widget.employeeAccess!.businessId,load:widget.employeeAccess!.orders,open:(id)=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>OrdersPage(employeeAccess:widget.employeeAccess,focusOrderId:id))),child:_employeeDashboard(widget.employeeAccess!)) : _employeeDashboard(widget.employeeAccess!);
     final businessAsync = ref.watch(businessProvider);
 
     return businessAsync.when(
@@ -473,14 +589,14 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
                     AppLocalizations.of(context)!.noBusinessFound,
                     style: AppTypography.headlineSmall.copyWith(
                       color: WhizzColors.onSurfaceVariant,
-                        ),
+                    ),
                   ),
                   SizedBox(height: AppSpacing.sm),
                   Text(
                     AppLocalizations.of(context)!.contactSupport,
                     style: AppTypography.bodyMedium.copyWith(
                       color: WhizzColors.textSecondary,
-                        ),
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -489,11 +605,15 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
           );
         }
 
-        return ResponsiveHelper.isMobile(context)
+        return MerchantOrderAttention(
+          key:ValueKey('attention_${business.id}'),businessId:business.id,
+          load:()=>_orderService.getMerchantOrders(business.id),
+          open:(id)=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>OrdersPage(businessId:business.id,focusOrderId:id))),
+          child: ResponsiveHelper.isMobile(context)
             ? _buildMobileLayout(business)
             : ResponsiveHelper.isTablet(context)
                 ? _buildTabletLayout(business)
-                : _buildDesktopLayout(business);
+                : _buildDesktopLayout(business));
       },
       loading: () => const Scaffold(
         body: Center(
@@ -515,14 +635,14 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
                 AppLocalizations.of(context)!.error,
                 style: AppTypography.headlineSmall.copyWith(
                   color: WhizzColors.error,
-                    ),
+                ),
               ),
               SizedBox(height: AppSpacing.sm),
               Text(
                 error.toString(),
                 style: AppTypography.bodyMedium.copyWith(
                   color: WhizzColors.onSurfaceVariant,
-                    ),
+                ),
                 textAlign: TextAlign.center,
               ),
               SizedBox(height: AppSpacing.md),

@@ -77,12 +77,19 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
       }
     } catch (e) {
       if (mounted) {
-        final loc = AppLocalizations.of(context)!;
-        showAdaptiveSnackBar(
-          context: context,
-          message: '${loc.failedToLoadPosSettings}: $e',
-          type: AdaptiveSnackBarType.error,
-        );
+        // Fall back to defaults so the form is usable even if the endpoint
+        // is missing or the backend is not yet deployed.
+        setState(() {
+          _apiEndpointController.text = '';
+          _apiKeyController.text = '';
+          _locationIdController.text = '';
+          _isEnabled = false;
+          _testMode = false;
+          _autoSendOrders = false;
+          _autoAcceptOrders = true;
+          _systemType = 'genericApi';
+          _timeoutSeconds = 30;
+        });
       }
     } finally {
       if (mounted) {

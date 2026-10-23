@@ -125,6 +125,12 @@ class SecureTokenStorage {
   }
 
   /// Store business ID securely
+  static Future<void> clearBusinessId() async {
+    await _secureStorage.delete(key: _businessIdKey);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('business_id');
+  }
+
   static Future<void> setBusinessId(String businessId) async {
     try {
       if (businessId.isEmpty) {

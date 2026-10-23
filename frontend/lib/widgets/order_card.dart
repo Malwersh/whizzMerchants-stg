@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/order.dart';
 import '../utils/responsive_helper.dart';
@@ -6,22 +7,30 @@ import '../core/design_system/design_system.dart';
 import '../l10n/app_localizations.dart';
 import 'circular_order_timer.dart';
 
+String formatOrderCardIqd(double amount) =>
+    '${NumberFormat('#,##0.###', 'en').format(amount)} د.ع';
+
 class OrderCard extends ConsumerWidget {
   final Order order;
   final VoidCallback? onTap;
+  final String? actionLabel;
+  final bool Function(OrderStatus)? canUpdateStatus;
+  bool allows(OrderStatus status) => canUpdateStatus?.call(status) ?? true;
   final Function(String, OrderStatus) onOrderUpdated;
 
   const OrderCard({
     super.key,
     required this.order,
     this.onTap,
+    this.actionLabel,
+    this.canUpdateStatus,
     required this.onOrderUpdated,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isMobile = ResponsiveHelper.isMobile(context);
-    
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -51,40 +60,39 @@ class OrderCard extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
+                  Expanded(
+                      child: Row(
                     children: [
-                      Text(
+                      Expanded(
+                          child: Text(
                         '#${order.displayOrderNumber}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TypographySystem.titleMedium.copyWith(
                           fontWeight: FontWeight.bold,
                           color: const Color(0xFF00296B),
                         ),
-                      ),
+                      )),
                       // Add circular timer for pending orders
-                      if (order.status == OrderStatus.pending) ...[
+                      if (order.status == OrderStatus.pending &&
+                          (allows(OrderStatus.cancelled) ||
+                              allows(OrderStatus.confirmed))) ...[
                         SizedBox(width: GoldenRatio.md),
                         CircularOrderTimer(
                           orderId: order.id,
                           createdAt: order.createdAt,
-                          totalMinutes: 10,
+                          totalMinutes: 5,
+                          deadlineAt: order.merchantAcceptanceDeadlineAt,
                           size: 40.0,
                           onTimeUp: () {
                             // Handle timeout - visual indication
                             debugPrint('⏰ Order ${order.id} timed out!');
                           },
-                          onAutoReject: (orderId) async {
-                            // Auto-expire the order via API (set status to expired)
-                            debugPrint('⏰ Auto-expiring order $orderId due to timeout');
-                            try {
-                              await onOrderUpdated(orderId, OrderStatus.expired);
-                            } catch (e) {
-                              debugPrint('❌ Failed to auto-expire order $orderId: $e');
-                            }
-                          },
                         ),
                       ],
                     ],
-                  ),
+                  )),
+                  SizedBox(width: GoldenRatio.sm),
                   Container(
                     padding: EdgeInsets.symmetric(
                         horizontal: GoldenRatio.lg, vertical: GoldenRatio.xs),
@@ -104,11 +112,20 @@ class OrderCard extends ConsumerWidget {
               ),
               SizedBox(height: GoldenRatio.lg),
 
+              if (actionLabel != null && onTap != null)
+                OutlinedButton(onPressed: onTap, child: Text(actionLabel!)),
+              if (order.driverSearchUnavailable)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text(
+                      'تعذر العثور على سائق. الطلب ما زال قائمًا ويحتاج متابعة من المنصة.'),
+                ),
               // Customer Info
               Row(
                 children: [
                   Icon(Icons.person,
-                      size: GoldenRatio.lg, color: WhizzColors.onSurfaceVariant),
+                      size: GoldenRatio.lg,
+                      color: WhizzColors.onSurfaceVariant),
                   SizedBox(width: GoldenRatio.md),
                   Expanded(
                     child: Text(
@@ -153,7 +170,7 @@ class OrderCard extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Items (${order.items.length})',
+                      'الأصناف (${order.items.fold<int>(0, (n, i) => n + i.quantity)} قطعة)',
                       style: TypographySystem.titleSmall.copyWith(
                         fontWeight: FontWeight.w600,
                         color: WhizzColors.primary,
@@ -168,14 +185,14 @@ class OrderCard extends ConsumerWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  '${item.quantity}x ${item.name}',
+                                  '${item.quantity} × ${item.name}${item.modifiers.isNotEmpty ? '\n${item.modifiers.join('، ')}' : ''}${item.notes?.isNotEmpty == true ? '\nملاحظة: ${item.notes}' : ''}',
                                   style: TypographySystem.bodySmall.copyWith(
                                     color: WhizzColors.onSurface,
                                   ),
                                 ),
                               ),
                               Text(
-                                '${((item.price * item.quantity) / 1000).toStringAsFixed(0)} IQD',
+                                formatOrderCardIqd(item.price * item.quantity),
                                 style: TypographySystem.bodySmall.copyWith(
                                   fontWeight: FontWeight.w500,
                                   color: WhizzColors.onSurface,
@@ -184,16 +201,24 @@ class OrderCard extends ConsumerWidget {
                             ],
                           ),
                         )),
-                    if (order.items.length > 3) ...[
-                      SizedBox(height: GoldenRatio.xs),
-                      Text(
-                        '+ ${order.items.length - 3} more items',
-                        style: TypographySystem.bodySmall.copyWith(
-                          color: WhizzColors.onSurfaceVariant,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
+                    if (order.items.length > 3)
+                      ExpansionTile(
+                          title: Text(
+                              'عرض بقية الأصناف (${order.items.length - 3})'),
+                          children: order.items
+                              .skip(3)
+                              .map((item) => ListTile(
+                                  title:
+                                      Text('${item.quantity} × ${item.name}'),
+                                  subtitle: Text([
+                                    if (item.modifiers.isNotEmpty)
+                                      item.modifiers.join('، '),
+                                    if (item.notes?.isNotEmpty == true)
+                                      item.notes!
+                                  ].join('\n')),
+                                  trailing: Text(formatOrderCardIqd(
+                                      item.price * item.quantity))))
+                              .toList()),
                   ],
                 ),
               ),
@@ -204,14 +229,14 @@ class OrderCard extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Total',
+                    'الإجمالي',
                     style: TypographySystem.titleMedium.copyWith(
                       fontWeight: FontWeight.bold,
                       color: WhizzColors.primary,
                     ),
                   ),
                   Text(
-                    '${(order.totalAmount / 1000).toStringAsFixed(0)} IQD',
+                    formatOrderCardIqd(order.totalAmount),
                     style: TypographySystem.titleMedium.copyWith(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -222,6 +247,25 @@ class OrderCard extends ConsumerWidget {
               ),
               SizedBox(height: GoldenRatio.lg),
 
+              Row(children: [
+                const Icon(Icons.payments_outlined, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: Text(['cash', 'cod']
+                            .contains(order.paymentMethod.toLowerCase())
+                        ? 'الدفع نقدًا عند الاستلام'
+                        : 'طريقة الدفع: ${order.paymentMethod}'))
+              ]),
+              if (order.notes?.isNotEmpty == true)
+                Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text('ملاحظات الطلب: ${order.notes}')),
+              if (order.deliveryInstructions?.isNotEmpty == true)
+                Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child:
+                        Text('تعليمات التوصيل: ${order.deliveryInstructions}')),
+              const SizedBox(height: 8),
               // Time
               Text(
                 'Ordered ${_formatTime(order.createdAt)}',
@@ -231,58 +275,73 @@ class OrderCard extends ConsumerWidget {
               ),
 
               // Action Buttons - MERCHANT SCOPE ONLY (pending → confirmed → preparing → ready)
-              if (order.status == OrderStatus.pending) ...[
+              if (order.status == OrderStatus.pending &&
+                  (allows(OrderStatus.cancelled) ||
+                      allows(OrderStatus.confirmed))) ...[
                 SizedBox(height: GoldenRatio.xl),
                 Row(
                   children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => onOrderUpdated(order.id, OrderStatus.cancelled),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: WhizzColors.error,
-                          side: BorderSide(color: WhizzColors.error),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(GoldenRatio.md),
+                    if (allows(OrderStatus.cancelled))
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              onOrderUpdated(order.id, OrderStatus.cancelled),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: WhizzColors.error,
+                            side: BorderSide(color: WhizzColors.error),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(GoldenRatio.md),
+                            ),
+                            padding:
+                                EdgeInsets.symmetric(vertical: GoldenRatio.lg),
                           ),
-                          padding: EdgeInsets.symmetric(vertical: GoldenRatio.lg),
-                        ),
-                        child: Text(
-                          'Reject',
-                          style: TypographySystem.labelLarge.copyWith(
-                            color: WhizzColors.error,
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: GoldenRatio.lg),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => onOrderUpdated(order.id, OrderStatus.confirmed),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: WhizzColors.primary,
-                          foregroundColor: WhizzColors.onPrimary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(GoldenRatio.md),
-                          ),
-                          padding:
-                              EdgeInsets.symmetric(vertical: GoldenRatio.lg),
-                        ),
-                        child: Text(
-                          'Accept',
-                          style: TypographySystem.labelLarge.copyWith(
-                            color: WhizzColors.onPrimary,
+                          child: Text(
+                            'رفض',
+                            style: TypographySystem.labelLarge.copyWith(
+                              color: WhizzColors.error,
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    if (allows(OrderStatus.cancelled) &&
+                        allows(OrderStatus.confirmed))
+                      SizedBox(width: GoldenRatio.lg),
+                    if (allows(OrderStatus.confirmed))
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: order.shouldAutoReject()
+                              ? null
+                              : () => onOrderUpdated(
+                                  order.id, OrderStatus.confirmed),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: WhizzColors.primary,
+                            foregroundColor: WhizzColors.onPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(GoldenRatio.md),
+                            ),
+                            padding:
+                                EdgeInsets.symmetric(vertical: GoldenRatio.lg),
+                          ),
+                          child: Text(
+                            'قبول',
+                            style: TypographySystem.labelLarge.copyWith(
+                              color: WhizzColors.onPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
-              ] else if (order.status == OrderStatus.confirmed) ...[
+              ] else if (order.status == OrderStatus.confirmed &&
+                  allows(OrderStatus.preparing)) ...[
                 SizedBox(height: GoldenRatio.xl),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () => onOrderUpdated(order.id, OrderStatus.preparing),
+                    onPressed: () =>
+                        onOrderUpdated(order.id, OrderStatus.preparing),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: WhizzColors.secondary,
                       foregroundColor: WhizzColors.onPrimary,
@@ -306,12 +365,14 @@ class OrderCard extends ConsumerWidget {
                     ),
                   ),
                 ),
-              ] else if (order.status == OrderStatus.preparing) ...[
+              ] else if (order.status == OrderStatus.preparing &&
+                  allows(OrderStatus.readyForPickup)) ...[
                 SizedBox(height: GoldenRatio.xl),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () => onOrderUpdated(order.id, OrderStatus.readyForPickup),
+                    onPressed: () =>
+                        onOrderUpdated(order.id, OrderStatus.readyForPickup),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: WhizzColors.success,
                       foregroundColor: WhizzColors.onPrimary,
@@ -335,7 +396,8 @@ class OrderCard extends ConsumerWidget {
                     ),
                   ),
                 ),
-              ] else if (order.status == OrderStatus.ready || order.status == OrderStatus.readyForPickup) ...[
+              ] else if (order.status == OrderStatus.ready ||
+                  order.status == OrderStatus.readyForPickup) ...[
                 SizedBox(height: GoldenRatio.xl),
                 Container(
                   width: double.infinity,
@@ -355,7 +417,8 @@ class OrderCard extends ConsumerWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.delivery_dining, color: WhizzColors.success, size: 20),
+                          Icon(Icons.delivery_dining,
+                              color: WhizzColors.success, size: 20),
                           SizedBox(width: GoldenRatio.md),
                           Text(
                             'جاهز للاستلام',
@@ -370,9 +433,11 @@ class OrderCard extends ConsumerWidget {
                   ),
                 ),
               ],
-              
+
               // 🚗 عرض معلومات السائق في جميع حالات التوصيل (ready → delivered)
-              if (order.driverId != null && order.driverName != null && _shouldShowDriverInfo(order.status)) ...[
+              if (order.driverId != null &&
+                  order.driverName != null &&
+                  _shouldShowDriverInfo(order.status)) ...[
                 SizedBox(height: GoldenRatio.lg),
                 Container(
                   width: double.infinity,
@@ -422,35 +487,35 @@ class OrderCard extends ConsumerWidget {
                         ),
                       ),
                       SizedBox(height: GoldenRatio.md),
-                      
+
                       // معلومات السائق
                       _buildDriverInfoRow(
                         icon: Icons.person,
                         label: 'السائق',
                         value: order.driverName!,
                       ),
-                      
+
                       if (order.vehicleType != null)
                         _buildDriverInfoRow(
                           icon: Icons.directions_car,
                           label: 'نوع المركبة',
                           value: order.vehicleType!,
                         ),
-                      
+
                       if (order.vehiclePlate != null)
                         _buildDriverInfoRow(
                           icon: Icons.pin,
                           label: 'رقم اللوحة',
                           value: order.vehiclePlate!,
                         ),
-                      
+
                       if (order.driverPhone != null)
                         _buildDriverInfoRow(
                           icon: Icons.phone,
                           label: 'رقم الهاتف',
                           value: order.driverPhone!,
                         ),
-                      
+
                       // وقت التعيين
                       if (order.driverAssignedAt != null) ...[
                         SizedBox(height: GoldenRatio.sm),
@@ -466,7 +531,7 @@ class OrderCard extends ConsumerWidget {
                   ),
                 ),
               ],
-              
+
               // DELIVERY STATES (onTheWay, delivered) - READ-ONLY for merchant
               if (order.status == OrderStatus.onTheWay) ...[
                 SizedBox(height: GoldenRatio.xl),
@@ -484,7 +549,8 @@ class OrderCard extends ConsumerWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.local_shipping, color: WhizzColors.primary, size: 20),
+                      Icon(Icons.local_shipping,
+                          color: WhizzColors.primary, size: 20),
                       SizedBox(width: GoldenRatio.md),
                       Text(
                         'Out for Delivery',
@@ -526,7 +592,8 @@ class OrderCard extends ConsumerWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.done_all, color: WhizzColors.secondary, size: 20),
+                      Icon(Icons.done_all,
+                          color: WhizzColors.secondary, size: 20),
                       SizedBox(width: GoldenRatio.md),
                       Text(
                         'Delivered',
@@ -598,7 +665,8 @@ class OrderCard extends ConsumerWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.timer_off, color: WhizzColors.warning, size: 20),
+                      Icon(Icons.timer_off,
+                          color: WhizzColors.warning, size: 20),
                       SizedBox(width: GoldenRatio.md),
                       Text(
                         'Order Expired',
@@ -628,10 +696,10 @@ class OrderCard extends ConsumerWidget {
         return WhizzColors.statusPreparing;
       case OrderStatus.ready:
         return WhizzColors.statusReady;
-      case OrderStatus.readyForPickup:  // ✅ الحالة الجديدة
+      case OrderStatus.readyForPickup: // ✅ الحالة الجديدة
         return WhizzColors.statusReady;
-      case OrderStatus.reassigning:  // 🔄 جاري البحث عن سائق بديل
-        return WhizzColors.warning;  // لون برتقالي للتنبيه
+      case OrderStatus.reassigning: // 🔄 جاري البحث عن سائق بديل
+        return WhizzColors.warning; // لون برتقالي للتنبيه
       case OrderStatus.completed:
         return WhizzColors.statusDelivered;
       case OrderStatus.cancelled:
@@ -655,6 +723,8 @@ class OrderCard extends ConsumerWidget {
         return WhizzColors.statusDelivered;
       case OrderStatus.delivered:
         return WhizzColors.statusDelivered;
+      case OrderStatus.returning:
+      case OrderStatus.returnArrived:
       case OrderStatus.returned:
         return WhizzColors.statusReturned;
     }
@@ -671,9 +741,9 @@ class OrderCard extends ConsumerWidget {
         return loc.orderStatusPreparing;
       case OrderStatus.ready:
         return loc.orderStatusReady;
-      case OrderStatus.readyForPickup:  // ✅ الحالة الجديدة
-        return 'جاهز للاستلام';  // أو loc.orderStatusReadyForPickup إذا أضفته في الترجمة
-      case OrderStatus.reassigning:  // 🔄 جاري البحث عن سائق بديل
+      case OrderStatus.readyForPickup: // ✅ الحالة الجديدة
+        return 'جاهز للاستلام'; // أو loc.orderStatusReadyForPickup إذا أضفته في الترجمة
+      case OrderStatus.reassigning: // 🔄 جاري البحث عن سائق بديل
         return 'جاري البحث عن سائق...';
       // 🚗 حالات السائق - Driver states text
       case OrderStatus.assigned:
@@ -698,6 +768,10 @@ class OrderCard extends ConsumerWidget {
         return loc.orderStatusOnTheWay;
       case OrderStatus.delivered:
         return loc.orderStatusDelivered;
+      case OrderStatus.returning:
+        return 'جاري إرجاع الطلب';
+      case OrderStatus.returnArrived:
+        return 'بانتظار تأكيد استلام المرتجع';
       case OrderStatus.returned:
         return loc.orderStatusReturned;
     }
@@ -726,17 +800,17 @@ class OrderCard extends ConsumerWidget {
     if (status == OrderStatus.reassigning) {
       return false;
     }
-    
+
     return status == OrderStatus.readyForPickup ||
-           status == OrderStatus.ready ||
-           status == OrderStatus.assigned ||
-           status == OrderStatus.headingToStore ||
-           status == OrderStatus.arrivedAtStore ||
-           status == OrderStatus.pickedUp ||
-           status == OrderStatus.headingToCustomer ||
-           status == OrderStatus.arrivedAtCustomer ||
-           status == OrderStatus.delivered ||
-           status == OrderStatus.completed;
+        status == OrderStatus.ready ||
+        status == OrderStatus.assigned ||
+        status == OrderStatus.headingToStore ||
+        status == OrderStatus.arrivedAtStore ||
+        status == OrderStatus.pickedUp ||
+        status == OrderStatus.headingToCustomer ||
+        status == OrderStatus.arrivedAtCustomer ||
+        status == OrderStatus.delivered ||
+        status == OrderStatus.completed;
   }
 
   /// Helper method لعرض صف معلومات السائق

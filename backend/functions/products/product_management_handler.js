@@ -1,3 +1,5 @@
+const {readBranchProductOptions}=require('../shared/branch-product-options');
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const {
   DynamoDBDocumentClient,
@@ -21,11 +23,12 @@ const DYNAMODB_REGION = process.env.DYNAMODB_REGION || 'us-east-1';
 const COGNITO_REGION = process.env.COGNITO_REGION || 'us-east-1';
 
 const client = new DynamoDBClient({ region: DYNAMODB_REGION });
-const docClient = DynamoDBDocumentClient.from(client);
+const lifecycleRawDb = DynamoDBDocumentClient.from(client);
+const docClient = merchantLifecycleClient(lifecycleRawDb);
 
 const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 
@@ -39,74 +42,8 @@ function createResponse(statusCode, body) {
 }
 
 async function getBusinessId(event) {
-    try {
-        const authHeader = event.headers?.Authorization || event.headers?.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            console.log("Authorization header is missing or invalid");
-            return null;
-        }
-
-        const token = authHeader.replace('Bearer ', '');
-
-        // Decode the JWT token (ID token or Access token) to get email
-        // JWT format: header.payload.signature
-        const parts = token.split('.');
-        if (parts.length !== 3) {
-            console.log("Invalid JWT token format");
-            return null;
-        }
-
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-        console.log('Decoded token payload:', JSON.stringify(payload, null, 2));
-        
-        // Phone-only users: ID tokens may have no 'email'. Prefer email-index when present,
-        // otherwise look up by Cognito user id (sub == cognitoUserId/ownerId on the business).
-        const email = payload.email;
-        const userSub = payload.sub;
-
-        if (!email && !userSub) {
-            console.log("Neither email nor sub found in token payload. Available fields:", Object.keys(payload));
-            return null;
-        }
-
-        if (!email) {
-            const scanResult = await docClient.send(new ScanCommand({
-                TableName: BUSINESSES_TABLE,
-                FilterExpression: 'cognitoUserId = :sub OR ownerId = :sub',
-                ExpressionAttributeValues: { ':sub': userSub },
-            }));
-            const item = scanResult.Items && scanResult.Items[0];
-            return item ? (item.businessId || item.id) : null;
-        }
-
-        console.log(`Getting business for user: ${email}`);
-
-        // Query businesses by email using the email-index (case-insensitive)
-        const normalizedEmail = email.toLowerCase().trim();
-        const queryParams = {
-            TableName: BUSINESSES_TABLE,
-            IndexName: 'email-index',
-            KeyConditionExpression: 'email = :email',
-            ExpressionAttributeValues: {
-                ':email': normalizedEmail
-            }
-        };
-
-        console.log(`Querying business with normalized email: ${normalizedEmail} (v2)`);
-        const result = await docClient.send(new QueryCommand(queryParams));
-
-        if (result.Items && result.Items.length > 0) {
-            const businessId = result.Items[0].businessId || result.Items[0].id;
-            console.log(`Found business ID: ${businessId}`);
-            return businessId;
-        }
-
-        console.log("No business found for this user");
-        return null;
-    } catch (error) {
-        console.error('Error getting business ID:', error);
-        return null;
-    }
+    const actor = require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    return actor?.businessId || null;
 }
 
 // --- Product Handlers ---
@@ -172,7 +109,10 @@ async function handleCreateProduct(event) {
     }
 
     try {
-        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode } = JSON.parse(event.body);
+        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode, optionGroups } = JSON.parse(event.body);
+        let branchOptions;
+        try { if(optionGroups!==undefined)branchOptions=readBranchProductOptions(optionGroups); }
+        catch { return createResponse(400,{success:false,message:'INVALID_BRANCH_PRODUCT_OPTIONS'}); }
 
         if (price == null) {
             return createResponse(400, { success: false, message: 'price is required' });
@@ -199,6 +139,13 @@ async function handleCreateProduct(event) {
             });
         }
 
+        const { Item: category } = await docClient.send(new GetCommand({
+            TableName: CATEGORIES_TABLE, Key: { categoryId: finalCategoryId }, ConsistentRead: true,
+        }));
+        if (!category || category.isActive === false || category.is_active === false) {
+            return createResponse(400, { success: false, message: 'اختر قسماً متاحاً من القائمة الحالية.' });
+        }
+
         // 2) New product: dedupe by barcode, else add it to the catalog for others to reuse.
         if (!globalItem) {
             globalItem = await findOrCreateGlobalProduct({
@@ -218,6 +165,7 @@ async function handleCreateProduct(event) {
         const newItem = {
             productId,
             businessId,
+            ...(branchOptions!==undefined?{optionGroups:branchOptions}:{}),
             globalProductId: globalItem?.globalProductId || null,
             name: finalName,
             description: description || globalItem?.description || '',
@@ -369,6 +317,19 @@ async function handleUpdateProduct(event) {
 
     const { productId } = event.pathParameters;
     const updates = JSON.parse(event.body);
+    if(Object.hasOwn(updates,'optionGroups')){
+        try { updates.optionGroups=readBranchProductOptions(updates.optionGroups); }
+        catch { return createResponse(400,{success:false,message:'INVALID_BRANCH_PRODUCT_OPTIONS'}); }
+    }
+
+    if (Object.hasOwn(updates, 'categoryId')) {
+        const { Item: category } = await docClient.send(new GetCommand({
+            TableName: CATEGORIES_TABLE, Key: { categoryId: updates.categoryId }, ConsistentRead: true,
+        }));
+        if (!category || category.isActive === false || category.is_active === false) {
+            return createResponse(400, { success: false, message: 'اختر قسماً متاحاً من القائمة الحالية.' });
+        }
+    }
 
     // Ensure businessId and productId are not being changed
     delete updates.businessId;
@@ -398,8 +359,9 @@ async function handleUpdateProduct(event) {
             TableName: PRODUCTS_TABLE,
             Key: { productId: productId },
             UpdateExpression: updateExpression,
-            ExpressionAttributeNames: expressionAttributeNames,
-            ExpressionAttributeValues: expressionAttributeValues,
+            ConditionExpression: '#branchOwner = :branchOwner',
+            ExpressionAttributeNames: {...expressionAttributeNames,'#branchOwner':'businessId'},
+            ExpressionAttributeValues: {...expressionAttributeValues,':branchOwner':businessId},
             ReturnValues: 'ALL_NEW',
         };
 
@@ -440,7 +402,9 @@ async function handleDeleteProduct(event) {
 async function handleGetCategories(event) {
     try {
         const { Items } = await docClient.send(new ScanCommand({ TableName: CATEGORIES_TABLE }));
-        return createResponse(200, { success: true, categories: Items || [] });
+        const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+        const categories=actor?.deviceGuards?(Items||[]).filter(c=>c.isActive!==false&&c.is_active!==false&&(!c.businessId||c.businessId===actor.businessId)).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','isActive','is_active'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]))):Items||[];
+        return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories:', error);
         return createResponse(500, { success: false, message: 'Failed to get categories', error: error.message });
@@ -479,7 +443,7 @@ async function handleGetCategoriesByBusinessType(event) {
 }
 
 module.exports.handler = async (event) => {
-    console.log('Received event in Product Management Handler:', JSON.stringify(event, null, 2));
+    console.log('Received event in Product Management Handler:', {method:event.httpMethod,path:event.path});
     const { httpMethod, path } = event;
 
     if (httpMethod === 'OPTIONS') {
@@ -487,6 +451,11 @@ module.exports.handler = async (event) => {
     }
 
     try {
+    const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    if(actor?.deviceGuards&&['POST','PUT','DELETE'].includes(httpMethod)){
+        const result=await require('../shared/branch-device-menu').mutate(lifecycleRawDb,actor,event);
+        return {...result,headers};
+    }
     // Route products endpoints
         if (path.startsWith('/products/global-search')) {
             return handleGlobalSearch(event);
@@ -514,7 +483,17 @@ module.exports.handler = async (event) => {
 
         return createResponse(404, { success: false, message: 'Route Not Found in Product Handler' });
     } catch (error) {
+        if(error.status)return createResponse(error.status,{success:false,code:error.message});
         console.error('Unhandled error in product handler:', error);
         return createResponse(500, { success: false, message: 'Internal server error' });
     }
+};
+
+const protectedProductHandler = merchantHandler(module.exports.handler,{db:lifecycleRawDb,deviceMenu:true});
+module.exports.handler = (event, context) => {
+    // Reference reads still verify the caller and the explicitly selected branch.
+    if (event.httpMethod === 'GET' && event.path?.startsWith('/categories') && event.queryStringParameters?.businessId) {
+        event = {...event, body: JSON.stringify({businessId: event.queryStringParameters.businessId})};
+    }
+    return protectedProductHandler(event, context);
 };

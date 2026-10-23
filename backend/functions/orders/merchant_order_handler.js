@@ -1,3 +1,4 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, BatchGetCommand } = require('@aws-sdk/lib-dynamodb');
 const { SNSClient, PublishCommand, CreatePlatformEndpointCommand } = require('@aws-sdk/client-sns');
@@ -5,6 +6,7 @@ const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws
 
 const { sendMerchantOrderPush } = require('./central_push_service');
 const { triggerDriverAssignment } = require('./central-platform-integration');
+const { forwardAcceptedOrder } = require('./pos_forwarding_service');
 
 // Environment variables
 const ORDERS_TABLE = process.env.ORDERS_TABLE;
@@ -19,7 +21,8 @@ const cloudwatch = new CloudWatchClient({ region: process.env.AWS_REGION || 'us-
 
 // Initialize AWS clients
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb=DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb=merchantLifecycleClient(lifecycleRawDb);
 const sns = new SNSClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
 async function getBusinessOwnerId(businessId) {
@@ -50,7 +53,7 @@ function createResponse(statusCode, body) {
         headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Staff-Session,X-Api-Key,X-Amz-Security-Token',
             'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
         },
         body: JSON.stringify(body)
@@ -67,12 +70,17 @@ function resolveCustomerId(order) {
     return order?.customerId || order?.userId;
 }
 
+function financialOrderAssignment(order) {
+    return order.financialAcceptance ? {offerId:order.financialAcceptance.offerId,attempt:order.assignmentAttemptCounter,returnId:order.returnCaseId||null,returnStatus:order.returnStatus||null} : null;
+}
+
 // Helper: normalize order shape for frontend (adds id alias + businessId)
 function normalizeOrderForFrontend(order) {
     if (!order) return order;
     const businessId = resolveBusinessId(order);
     const id = order.orderId || order.id;
-    return { ...order, id, orderId: id, businessId };
+    const {financeRollout,financialSnapshot,commercialPricing,financialAcceptance,codFinancialEvidence,financialSearch,...view}=order;
+    return { ...view, exceptionPolicyVersion:order.exceptionPolicy?.version||null, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment:financialOrderAssignment(order),id, orderId: id, businessId };
 }
 
 /**
@@ -114,7 +122,8 @@ async function isBusinessOnline(businessId) {
  * Following the ecosystem architecture plan
  */
 exports.handler = async (event) => {
-    console.log('Merchant Order Handler - Event:', JSON.stringify(event, null, 2));
+    if(event.httpMethod==='OPTIONS')return createResponse(204,{});
+    console.log('Merchant Order Handler - Event:', {method:event.httpMethod,path:event.path});
 
     const { httpMethod, path, pathParameters, headers, body } = event;
 
@@ -203,7 +212,7 @@ exports.handler = async (event) => {
 
     } catch (error) {
         console.error('Error in merchant order handler:', error);
-        return createResponse(500, { success: false, message: 'Internal server error' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Internal server error' });
     }
 };
 
@@ -228,13 +237,13 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
         let statusesToQuery = [];
         if (!status) {
             // If no status specified, get all common active order statuses
-            statusesToQuery = ['pending', 'confirmed', 'preparing', 'ready', 'ready_for_pickup', 'on_the_way', 'delivered'];
+            statusesToQuery = ['pending', 'confirmed', 'preparing', 'ready', 'ready_for_pickup', 'assigned', 'heading_to_store', 'arrived_at_store', 'picked_up', 'heading_to_customer', 'arrived_at_customer', 'returning', 'return_arrived', 'on_the_way', 'delivered'];
         } else if (status === 'expired' || status === 'cancelled') {
             // For expired/cancelled, query all cancellation types
             statusesToQuery = ['cancelled', 'canceled_by_user', 'canceled_by_store', 'canceled_by_system', 'expired'];
         } else if (status === 'completed' || status === 'delivered') {
             // For completed orders
-            statusesToQuery = ['delivered', 'completed'];
+            statusesToQuery = ['delivered', 'completed', 'returned'];
         } else {
             // Single status query
             statusesToQuery = [status];
@@ -407,8 +416,8 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             
             // Extract pricing data from the correct database structure
             const pricing = order.pricing || {};
-            const totalAmount = pricing.total || 0;
-            const deliveryFee = pricing.deliveryFee || 0;
+            const totalAmount = pricing.total != null ? Number(pricing.total) / 1000 : Number(order.totalAmount ?? order.total ?? 0);
+            const deliveryFee = pricing.deliveryFee != null ? Number(pricing.deliveryFee) / 1000 : Number(order.deliveryFee ?? order.delivery_fee ?? 0);
             
             // ⚡ DEBUG: Log the raw pricing data from database
             console.log('🔍 Raw order data from DB:', {
@@ -444,6 +453,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             });
             
             return {
+                exceptionPolicyVersion:order.exceptionPolicy?.version||null, exceptionCancellation:order.exceptionCancellation||null, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment: financialOrderAssignment(order),
                 id: order.orderId, // alias for frontend models expecting `id`
                 orderId: order.orderId,
                 orderNumber: orderNumber,
@@ -461,6 +471,10 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                 deliveryInstructions: order.deliveryInstructions,
                 paymentMethod: order.paymentMethod,
                 paymentStatus: order.paymentStatus,
+                merchantAcceptanceDeadlineAt: order.merchantAcceptanceDeadlineAt,
+                estimatedPreparationTime: order.estimatedPreparationTime,
+                estimatedReadyAt: order.estimatedReadyAt,
+                estimatedDeliveryTime: order.estimatedDeliveryTime,
                 createdAt: order.createdAt,
                 updatedAt: order.updatedAt,
                 notes: order.notes || order.cancelReason,
@@ -490,7 +504,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
 
     } catch (error) {
         console.error('Error getting orders for business:', error);
-        return createResponse(500, { success: false, message: 'Failed to get orders' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to get orders' });
     }
 }
 
@@ -559,11 +573,11 @@ async function handleAcceptOrder(orderId, data) {
             ReturnValues: 'ALL_NEW'
         };
 
-        // Add estimated preparation time if provided
-        if (estimatedPreparationTime) {
-            updateParams.UpdateExpression += ', estimatedPreparationTime = :prepTime';
-            updateParams.ExpressionAttributeValues[':prepTime'] = estimatedPreparationTime;
-        }
+        require('../shared/merchant-response-policy').applyAcceptance(updateParams, currentOrder,
+            estimatedPreparationTime ?? 20, timestamp);
+        const responder=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+        if(responder){updateParams.UpdateExpression+=', merchantResponseActor=:responder';updateParams.ExpressionAttributeValues[':responder']={kind:'MERCHANT',subjectId:responder.sub,role:responder.deviceGuards?'STAFF':'OWNER',roleName:responder.roleName||(responder.deviceGuards?'موظف الفرع':'المالك')};}
+
 
         console.log(`🔄 Confirming order with storeStatus: ${newStoreStatus}`);
 
@@ -578,6 +592,16 @@ async function handleAcceptOrder(orderId, data) {
         // Notify Central Platform
         await notifyCentralPlatform(updatedOrder, 'confirmed');
 
+        // Forward accepted order to external POS if configured (best effort)
+        try {
+            const posResult = await forwardAcceptedOrder(updatedOrder);
+            if (posResult && !posResult.skipped) {
+                console.log(`🛒 POS forward result for order ${orderId}:`, posResult.success ? 'success' : 'failed');
+            }
+        } catch (posError) {
+            console.error(`❌ POS forward error for order ${orderId}:`, posError);
+        }
+
         return createResponse(200, {
             success: true,
             message: 'Order confirmed successfully',
@@ -591,7 +615,7 @@ async function handleAcceptOrder(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error accepting order:', error);
-        return createResponse(500, { success: false, message: 'Failed to accept order' });
+        return createResponse(error.status || (error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500), { success: false, code:error.code || 'ORDER_CONFIRMATION_FAILED', message: 'تعذر تأكيد الطلب. حدّث قائمة الطلبات وأعد المحاولة.' });
     }
 }
 
@@ -624,6 +648,18 @@ async function handleRejectOrder(orderId, data) {
         }
 
         const currentOrder = currentOrderResult.Item;
+        if(currentOrder.merchantResponsePolicy?.schemaVersion===1){
+            const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+            if(!actor||actor.businessId!==(currentOrder.storeId||currentOrder.businessId)||actor.deviceGuards&&(!actor.deviceOrder||actor.deviceOrder.id!==orderId||actor.deviceOrder.targetStatus!=='rejected'))return createResponse(403,{success:false,code:'ORDER_BUSINESS_SCOPE_INVALID'});
+            const adapter=require('./merchant_pending_response');
+            const responseDb=currentOrder.financialSnapshot||currentOrder.commercialPricing?adapter.createFinanceRollout({db:lifecycleRawDb}).db:lifecycleRawDb;
+            const engine=adapter.createMerchantPendingResponse({db:responseDb,enableDeliveryFunding:process.env.FINANCIAL_DELIVERY_FUNDING_MODE==='REQUIRED',enableFullCash:process.env.FINANCIAL_SETTLEMENT_MODEL==='FULL_CASH_AT_DELIVERY_V1',authenticate:async()=>({kind:'MERCHANT',subjectId:actor.sub,businessId:actor.businessId,ownerId:actor.ownerId||actor.sub,guards:actor.deviceGuards||[]})});
+            const result=await engine.run(orderId,'REJECT',reason);
+            const updated=(await lifecycleRawDb.send(new GetCommand({TableName:ORDERS_TABLE,Key:{PK:'ORDER#'+orderId,SK:'META'},ConsistentRead:true}))).Item;
+            if(!result.replayed){await publishOrderStatusUpdate(updated,'ORDER_REJECTED');await notifyCentralPlatform(updated,'cancelled');}
+            return createResponse(200,{success:true,orderId,status:result.status,replayed:result.replayed});
+        }
+
         console.log(`📄 Current order status: ${currentOrder.status}`);
 
         const storeKey = currentOrder.storeId || currentOrder.businessId || currentOrder.merchantId;
@@ -687,7 +723,7 @@ async function handleRejectOrder(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error rejecting order:', error);
-        return createResponse(500, { success: false, message: 'Failed to reject order' });
+        return createResponse(error.status || (error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'||error.code==='ORDER_ALREADY_HANDLED'||String(error.code||'').startsWith('MERCHANT_RESPONSE_')?409:500), { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to reject order' });
     }
 }
 
@@ -857,13 +893,13 @@ async function handleUpdateOrderStatus(orderId, data) {
             id: orderId,
             orderId: orderId,
             businessId: resolveBusinessId(updatedOrder),
-            status: status,
+            status: updatedOrder.status,
             updatedAt: timestamp
         });
 
     } catch (error) {
         console.error('❌ Error updating order status:', error);
-        return createResponse(500, { success: false, message: 'Failed to update order status' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to update order status' });
     }
 }
 
@@ -1042,7 +1078,7 @@ async function handleIncomingOrder(orderData) {
 
     } catch (error) {
         console.error('Error handling incoming order:', error);
-        return createResponse(500, { success: false, message: 'Failed to process incoming order' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to process incoming order' });
     }
 }
 
@@ -1133,7 +1169,7 @@ async function handleCancelOrderByUser(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error cancelling order by user:', error);
-        return createResponse(500, { success: false, message: 'Failed to cancel order by user' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to cancel order by user' });
     }
 }
 
@@ -1224,7 +1260,7 @@ async function handleCancelOrderByStore(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error cancelling order by store:', error);
-        return createResponse(500, { success: false, message: 'Failed to cancel order by store' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to cancel order by store' });
     }
 }
 
@@ -1315,7 +1351,7 @@ async function handleCancelOrderBySystem(orderId, data) {
 
     } catch (error) {
         console.error('❌ Error cancelling order by system:', error);
-        return createResponse(500, { success: false, message: 'Failed to cancel order by system' });
+        return createResponse(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?409:500, { success: false, ...(error.code==='FINANCIAL_ORDER_WORKFLOW_REQUIRED'?{code:error.code}:{}), message: 'Failed to cancel order by system' });
     }
 }
 
@@ -1370,7 +1406,7 @@ async function notifyCentralPlatform(order, status) {
             orderNumber: order.orderNumber || order.orderId,
             businessId,
             status,
-            total: (order.pricing && order.pricing.total) || order.total || 0,
+            total: order.pricing?.total != null ? Number(order.pricing.total) / 1000 : Number(order.total ?? order.totalAmount ?? 0),
             timestamp: new Date().toISOString()
         };
         console.log('📤 Notifying Central Platform:', notification);
@@ -1713,3 +1749,21 @@ async function handleTimeoutLog(orderId, requestData) {
         });
     }
 }
+
+const originalMerchantHandler=module.exports.handler;
+const authenticatedMerchantHandler=merchantHandler(originalMerchantHandler,{db:lifecycleRawDb,deviceOrders:true});
+module.exports.handler=async(event,context)=>{
+ if(event.path?.includes('/webhooks/orders')&&event.httpMethod==='POST'){
+  const expected=process.env.MERCHANT_WEBHOOK_INTERNAL_KEY;
+  const supplied=event.headers?.['x-merchant-webhook-key']||event.headers?.['X-Merchant-Webhook-Key'];
+  if(!expected||typeof supplied!=='string'||supplied.length!==expected.length||!require('node:crypto').timingSafeEqual(Buffer.from(supplied),Buffer.from(expected)))return createResponse(401,{code:'UNAUTHORIZED'});
+  let body;try{body=JSON.parse(event.body||'{}');}catch(_){return createResponse(400,{code:'INVALID_BODY'});}
+  const order=(await lifecycleRawDb.send(new GetCommand({TableName:ORDERS_TABLE,Key:{PK:'ORDER#'+body.orderId,SK:'META'},ConsistentRead:true}))).Item;
+  const businessId=resolveBusinessId(order);
+  if(!order||businessId!==body.storeId)return createResponse(403,{code:'ORDER_BUSINESS_SCOPE_INVALID'});
+  const business=(await lifecycleRawDb.send(new GetCommand({TableName:'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}))).Item;
+  if(!business||business.deletionRequestId||!business.ownerId||business.ownerId!==business.cognitoUserId)return createResponse(409,{code:'BUSINESS_UNAVAILABLE'});
+  return require('../shared/merchant-lifecycle').merchantRequestContext.run({sub:business.ownerId,businessId},()=>originalMerchantHandler(event,context));
+ }
+ return authenticatedMerchantHandler(event,context);
+};

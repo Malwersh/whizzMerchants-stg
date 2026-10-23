@@ -1,3 +1,4 @@
+import 'merchant_order_alerts.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -13,6 +14,7 @@ import '../config/app_config.dart';
 import 'order_service.dart';
 import 'app_auth_service.dart';
 import 'audio_notification_service.dart';
+import 'merchant_notification_inbox.dart';
 import 'secure_token_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app_state.dart';
@@ -154,6 +156,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
         _newOrderController != null &&
         !_newOrderController!.isClosed) {
       _newOrderController!.add(order);
+      MerchantOrderAlerts.receive({'orderId':order.id,'businessId':order.businessId});
+      unawaited(MerchantNotificationInbox.recordPush({'businessId':order.businessId,'orderId':order.id,
+        'action':'new_order','updatedAt':order.createdAt.toIso8601String()},
+        title:'طلب جديد #${order.orderNumber ?? order.id}',body:order.customerName).catchError((Object _) {}));
       
       // Play sound notification for new order (with deduplication)
       _playNewOrderNotificationSoundOnce(order);
@@ -195,7 +201,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       bool isUrgent = order.totalAmount > 100.0; // Orders over $100 are urgent
 
       // Play appropriate sound based on urgency
-      _audioService.playNotificationSound('new_order', isUrgent: isUrgent);
+      _audioService.playNewOrderSoundOnce(order.id);
 
       debugPrint(
           '🔊 Sound notification played for order: ${order.id} (${isUrgent ? 'URGENT' : 'NORMAL'})');
