@@ -64,13 +64,13 @@ class ProductService {
     }
     http.Response resp = await http.get(uri, headers: _authHeaders(token));
 
-    if (resp.statusCode == 401 || resp.statusCode == 403) {
+    if (resp.statusCode == 401) {
       await TokenRefreshService.refreshTokens();
       token = await _getPreferredIdToken();
       token ??= await _getAccessTokenRaw();
       if (token == null) return resp;
       resp = await http.get(uri, headers: _authHeaders(token));
-      if (resp.statusCode == 401 || resp.statusCode == 403) {
+      if (resp.statusCode == 401) {
         final accessOnly = await _getAccessTokenRaw();
         if (accessOnly != null && accessOnly != token) {
           resp = await http.get(uri, headers: _authHeaders(accessOnly));
@@ -91,28 +91,35 @@ class ProductService {
   /// Get all products for the authenticated business (resilient auth)
   /// ✅ FIXED: Using /products endpoint (wizzbussiness shared backend)
   ///     wizzuser endpoint requires wizzuser token (403 error)
-  static Future<Map<String, dynamic>> getProducts() async {
+  static Future<Map<String, dynamic>> getProducts({String? businessId}) async {
     try {
-      final businessId = await _getBusinessId();
-      if (businessId == null) {
+      final selectedBusinessId = businessId ?? await _getBusinessId();
+      if (selectedBusinessId == null || selectedBusinessId.isEmpty) {
         AppLogger.error('[ProductService] No businessId found in session');
         return {'success': false, 'message': 'No business ID found - please login again'};
       }
       
       // Use wizzbussiness endpoint (shared backend) instead of wizzuser
-      final uri = Uri.parse('$baseUrl/products');
+      final uri = Uri.parse('$baseUrl/products').replace(
+          queryParameters: {'businessId': selectedBusinessId});
       final response = await _resilientGet(uri);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {'success': true, 'products': data['products'] ?? []};
-      } else if (response.statusCode == 401 || response.statusCode == 403) {
+      } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception thrown
         AppLogger.warning('[ProductService] Auth error ${response.statusCode} - user needs to re-login (wizzuser approach)');
         return {
           'success': false,
           'message': 'Authentication required - please re-login',
           'isAuthError': true,
+        };
+      } else if (response.statusCode == 403) {
+        return {
+          'success': false,
+          'message': 'تعذر تحميل منتجات هذا الفرع. تحقق من الفرع المختار وصلاحية الوصول إليه.',
+          'isAuthError': false,
         };
       } else if (response.statusCode >= 500) {
         return {

@@ -183,8 +183,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _loadProducts() async {
+    final businessId = widget.business.id;
     try {
-      final result = await ProductService.getProducts();
+      final result = await ProductService.getProducts(businessId: businessId);
+      if (!mounted || widget.business.id != businessId) return;
 
       if (result['success'] && result['products'] != null) {
         final productsList = result['products'] as List;
@@ -225,7 +227,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       if (mounted) {
         showAdaptiveSnackBar(
           context: context,
-          message: 'Failed to load products: $e',
+          message: 'تعذر تحميل المنتجات: ${e.toString().replaceFirst('Exception: ', '')}',
           type: AdaptiveSnackBarType.error,
         );
       }

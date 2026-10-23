@@ -42,76 +42,8 @@ function createResponse(statusCode, body) {
 }
 
 async function getBusinessId(event) {
-    const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
-    if(actor?.deviceGuards)return actor.businessId;
-    try {
-        const authHeader = event.headers?.Authorization || event.headers?.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            console.log("Authorization header is missing or invalid");
-            return null;
-        }
-
-        const token = authHeader.replace('Bearer ', '');
-
-        // Decode the JWT token (ID token or Access token) to get email
-        // JWT format: header.payload.signature
-        const parts = token.split('.');
-        if (parts.length !== 3) {
-            console.log("Invalid JWT token format");
-            return null;
-        }
-
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-        console.log('Decoded token payload:', JSON.stringify(payload, null, 2));
-        
-        // Phone-only users: ID tokens may have no 'email'. Prefer email-index when present,
-        // otherwise look up by Cognito user id (sub == cognitoUserId/ownerId on the business).
-        const email = payload.email;
-        const userSub = payload.sub;
-
-        if (!email && !userSub) {
-            console.log("Neither email nor sub found in token payload. Available fields:", Object.keys(payload));
-            return null;
-        }
-
-        if (!email) {
-            const scanResult = await docClient.send(new ScanCommand({
-                TableName: BUSINESSES_TABLE,
-                FilterExpression: 'cognitoUserId = :sub OR ownerId = :sub',
-                ExpressionAttributeValues: { ':sub': userSub },
-            }));
-            const item = scanResult.Items && scanResult.Items[0];
-            return item ? (item.businessId || item.id) : null;
-        }
-
-        console.log(`Getting business for user: ${email}`);
-
-        // Query businesses by email using the email-index (case-insensitive)
-        const normalizedEmail = email.toLowerCase().trim();
-        const queryParams = {
-            TableName: BUSINESSES_TABLE,
-            IndexName: 'email-index',
-            KeyConditionExpression: 'email = :email',
-            ExpressionAttributeValues: {
-                ':email': normalizedEmail
-            }
-        };
-
-        console.log(`Querying business with normalized email: ${normalizedEmail} (v2)`);
-        const result = await docClient.send(new QueryCommand(queryParams));
-
-        if (result.Items && result.Items.length > 0) {
-            const businessId = result.Items[0].businessId || result.Items[0].id;
-            console.log(`Found business ID: ${businessId}`);
-            return businessId;
-        }
-
-        console.log("No business found for this user");
-        return null;
-    } catch (error) {
-        console.error('Error getting business ID:', error);
-        return null;
-    }
+    const actor = require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    return actor?.businessId || null;
 }
 
 // --- Product Handlers ---
