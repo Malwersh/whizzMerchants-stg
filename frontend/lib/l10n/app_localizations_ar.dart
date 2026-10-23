@@ -965,21 +965,19 @@ class AppLocalizationsAr extends AppLocalizations {
   String get expiredDiscounts => 'الخصومات المنتهية الصلاحية';
 
   @override
-  String get createDiscount => 'Create Discount';
+  String get createDiscount => 'إنشاء خصم';
 
   @override
-  String get noDiscountsCreated => 'No discounts created yet';
+  String get noDiscountsCreated => 'لا توجد خصومات بعد';
 
   @override
-  String get createYourFirstDiscount =>
-      'Create your first discount to start attracting customers';
+  String get createYourFirstDiscount => 'أنشئ عرضك الأول ليظهر هنا';
 
   @override
-  String get deleteDiscount => 'Delete Discount';
+  String get deleteDiscount => 'حذف الخصم';
 
   @override
-  String get areYouSureYouWantToDeleteThisDiscount =>
-      'Are you sure you want to delete this discount?';
+  String get areYouSureYouWantToDeleteThisDiscount => 'هل تريد حذف هذا الخصم؟';
 
   @override
   String get cancel => 'إلغاء';
@@ -988,13 +986,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get delete => 'حذف';
 
   @override
-  String get editDiscount => 'Edit Discount';
+  String get editDiscount => 'تعديل الخصم';
 
   @override
-  String get title => 'Title';
+  String get title => 'اسم العرض';
 
   @override
-  String get pleaseEnterTitle => 'Please enter a title';
+  String get pleaseEnterTitle => 'أدخل اسم العرض';
 
   @override
   String get discountType => 'نوع الخصم';
@@ -1009,7 +1007,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get conditional => 'مشروط';
 
   @override
-  String get buyXGetY => 'اشتري X واحصل على Y';
+  String get buyXGetY => 'اشترِ كمية واحصل على أخرى';
 
   @override
   String get freeDelivery => 'توصيل مجاني';
@@ -1042,17 +1040,17 @@ class AppLocalizationsAr extends AppLocalizations {
   String get others => 'أخرى';
 
   @override
-  String get value => 'Value';
+  String get value => 'قيمة الخصم';
 
   @override
-  String get pleaseEnterValue => 'Please enter a value';
+  String get pleaseEnterValue => 'أدخل قيمة الخصم';
 
   @override
-  String get pleaseEnterValidNumber => 'Please enter a valid number';
+  String get pleaseEnterValidNumber => 'أدخل رقمًا صحيحًا';
 
   @override
   String minimumOrderAmount(Object amount) {
-    return 'Minimum order amount: $amount';
+    return 'الحد الأدنى للطلب: $amount';
   }
 
   @override
@@ -1065,13 +1063,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get endDate => 'تاريخ النهاية';
 
   @override
-  String get saveChanges => 'Save Changes';
+  String get saveChanges => 'حفظ التغييرات';
 
   @override
-  String get create => 'Create';
+  String get create => 'إنشاء';
 
   @override
-  String get off => 'off';
+  String get off => 'خصم';
 
   @override
   String get discount => 'discount';
@@ -1291,7 +1289,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get accept => 'قبول';
 
   @override
-  String get required => 'Required';
+  String get required => 'مطلوب';
 
   @override
   String get changeFile => 'Change File';
@@ -1652,7 +1650,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get conditionalDiscountConfiguration => 'إعداد الخصم المشروط';
 
   @override
-  String get buyXGetYConfiguration => 'إعداد اشتري X واحصل على Y';
+  String get buyXGetYConfiguration => 'إعداد الأصناف والكميات المجانية';
 
   @override
   String get buyConfiguration => 'إعداد الشراء';
@@ -2176,31 +2174,32 @@ class AppLocalizationsAr extends AppLocalizations {
   String get supportPhone => '07831367435';
 
   @override
-  String get discountApplicability => 'Discount Applicability';
+  String get discountApplicability => 'الأصناف المشمولة بالخصم';
 
   @override
-  String get allItems => 'All Items';
+  String get allItems => 'جميع الأصناف';
 
   @override
-  String get specificItems => 'Specific Items';
+  String get specificItems => 'أصناف محددة';
 
   @override
-  String get specificCategories => 'Specific Categories';
+  String get specificCategories => 'فئات محددة';
 
   @override
-  String get selectItems => 'Select Items';
+  String get selectItems => 'اختيار الأصناف';
 
   @override
-  String get noItemsSelected => 'No items selected';
+  String get noItemsSelected => 'لم تُحدد أصناف بعد';
 
   @override
-  String get selectCategories => 'Select Categories';
+  String get selectCategories => 'اختيار الفئات';
 
   @override
-  String get noCategoriesSelected => 'No categories selected';
+  String get noCategoriesSelected => 'لم تُحدد فئات بعد';
 
   @override
-  String get conflictingDiscounts => 'Conflicting Discounts';
+  String get conflictingDiscounts =>
+      'توجد خصومات نشطة على الأصناف المختارة. راجعها قبل إنشاء عرض آخر.';
 
   @override
   String get kwd => 'د.ك';
@@ -3213,13 +3212,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get confirmAccountButton => 'Confirm Account';
 
   @override
-  String get basicInformation => 'Basic Information';
+  String get basicInformation => 'معلومات العرض';
 
   @override
-  String get discountConfiguration => 'Discount Configuration';
+  String get discountConfiguration => 'نوع الخصم وقيمته';
 
   @override
-  String get quantityShort => 'Qty';
+  String get quantityShort => 'الكمية';
 
   @override
   String get merchants => 'Merchants';

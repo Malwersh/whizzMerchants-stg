@@ -1,3 +1,4 @@
+import '../widgets/merchant_discount_value_fields.dart';
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/business.dart';
@@ -853,7 +854,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                 child: Column(
                   children: [
                     Text(
-                      'Boost Your Sales with Discounts',
+                      'عروض تساعدك على زيادة الطلبات',
                       style: TypographySystem.titleMedium.copyWith(
                         fontWeight: FontWeight.bold,
                         color: WhizzColors.onSurface,
@@ -866,8 +867,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                         Expanded(
                           child: _buildBenefitItem(
                             icon: Icons.trending_up_rounded,
-                            title: 'Increase Orders',
-                            subtitle: 'Attract more customers',
+                            title: 'زيادة الطلبات',
+                            subtitle: 'الوصول إلى زبائن أكثر',
                             color: WhizzColors.success,
                           ),
                         ),
@@ -875,8 +876,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                         Expanded(
                           child: _buildBenefitItem(
                             icon: Icons.favorite_rounded,
-                            title: 'Customer Loyalty',
-                            subtitle: 'Reward repeat customers',
+                            title: 'ولاء الزبائن',
+                            subtitle: 'مكافأة الزبائن الدائمين',
                             color: WhizzColors.secondary,
                           ),
                         ),
@@ -884,8 +885,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                         Expanded(
                           child: _buildBenefitItem(
                             icon: Icons.schedule_rounded,
-                            title: 'Smart Timing',
-                            subtitle: 'Schedule promotions',
+                            title: 'جدولة العروض',
+                            subtitle: 'اختيار وقت بداية العرض ونهايته',
                             color: WhizzColors.warning,
                           ),
                         ),
@@ -931,7 +932,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                           ),
                           SizedBox(width: GoldenRatio.spacing12),
                           Text(
-                            loc.createDiscount,
+                            'إنشاء خصم',
                             style: TypographySystem.titleMedium.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -1116,6 +1117,14 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     );
   }
 
+  Future<T?> _showArabicOfferDialog<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+  }) => showDialog<T>(
+    context: context,
+    builder: (routeContext) => arabicMerchantDiscountContent(routeContext, builder),
+  );
+
   void _showDiscountDialog({Discount? discount}) {
     final isEditing = discount != null;
     final formKey = GlobalKey<FormState>();
@@ -1129,6 +1138,9 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     var discountType = discount?.type == DiscountType.freeDelivery
         ? DiscountType.percentage
         : (discount?.type ?? DiscountType.percentage);
+    if (discountType == DiscountType.percentage && valueController.text.isEmpty) {
+      valueController.text = '10';
+    }
 
     // Handle discount applicability
     var applicability =
@@ -1163,7 +1175,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         vsync: Navigator.of(context),
         duration: AppAnimations.bottomSheetSlide,
       ),
-      builder: (context) {
+      builder: (routeContext) => arabicMerchantDiscountContent(routeContext, (context) {
         return DraggableScrollableSheet(
           initialChildSize: 0.9,
           minChildSize: 0.5,
@@ -1172,6 +1184,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
           builder: (_, scrollController) {
             return AnimatedContainer(
               duration: AppAnimations.normal,
+              padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
               decoration: BoxDecoration(
                 color: WhizzColors.white,
                 borderRadius: BorderRadius.only(
@@ -1391,381 +1404,15 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                 ),
                                 SizedBox(height: AppSpacing.sm),
 
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 2,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: WhizzColors.grey50,
-                                          borderRadius: BorderRadius.circular(
-                                              AppDimensions.borderRadiusMD),
-                                          border: Border.all(
-                                            color: WhizzColors.grey200,
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: DropdownButtonFormField<
-                                            DiscountType>(
-                                          value: discountType,
-                                          style:
-                                              AppTypography.bodyLarge.copyWith(
-                                            color: WhizzColors.textPrimary,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                          dropdownColor: WhizzColors.white,
-                                          decoration: InputDecoration(
-                                            labelText:
-                                                AppLocalizations.of(context)!
-                                                    .discountType,
-                                            labelStyle: AppTypography.bodyMedium
-                                                .copyWith(
-                                              color: WhizzColors.grey600,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                            floatingLabelStyle: AppTypography
-                                                .bodySmall
-                                                .copyWith(
-                                              color: WhizzColors.primary,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                            border: InputBorder.none,
-                                            enabledBorder: InputBorder.none,
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                      AppDimensions
-                                                          .borderRadiusMD),
-                                              borderSide: BorderSide(
-                                                color: WhizzColors.primary,
-                                                width: 2,
-                                              ),
-                                            ),
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                              horizontal: AppSpacing.md,
-                                              vertical: AppSpacing.sm,
-                                            ),
-                                            filled: false,
-                                            prefixIcon: Icon(
-                                              Icons.discount_rounded,
-                                              color: WhizzColors.grey600,
-                                              size: AppDimensions.iconSizeMD,
-                                            ),
-                                          ),
-                                          isExpanded: true,
-                                          items:
-                                              DiscountType.values.map((type) {
-                                            String label;
-                                            switch (type) {
-                                              case DiscountType.percentage:
-                                                label = AppLocalizations.of(
-                                                        context)!
-                                                    .percentage;
-                                                break;
-                                              case DiscountType.fixedAmount:
-                                                label = AppLocalizations.of(
-                                                        context)!
-                                                    .fixedAmount;
-                                                break;
-                                              case DiscountType.conditional:
-                                                label = AppLocalizations.of(
-                                                        context)!
-                                                    .conditional;
-                                                break;
-                                              case DiscountType.buyXGetY:
-                                                label = AppLocalizations.of(
-                                                        context)!
-                                                    .buyXGetY;
-                                                break;
-                                              case DiscountType.freeDelivery:
-                                                label = AppLocalizations.of(
-                                                        context)!
-                                                    .freeDelivery;
-                                                break;
-                                            }
-                                            return DropdownMenuItem<
-                                                DiscountType>(
-                                              value: type,
-                                              child: Text(
-                                                label,
-                                                overflow: TextOverflow.ellipsis,
-                                                maxLines: 1,
-                                              ),
-                                            );
-                                          }).toList(),
-                                          onChanged: (value) {
-                                            if (value != null) {
-                                              setState(() {
-                                                discountType = value;
-                                                // Initialize value controller based on discount type
-                                                if (value ==
-                                                        DiscountType
-                                                            .percentage &&
-                                                    valueController
-                                                        .text.isEmpty) {
-                                                  valueController.text = '10';
-                                                } else if (value ==
-                                                    DiscountType.fixedAmount) {
-                                                  // User enters the amount manually
-                                                  valueController.text = '';
-                                                } else if (value !=
-                                                    DiscountType.percentage) {
-                                                  // Set to 0.0 for all non-percentage types
-                                                  valueController.text = '0';
-                                                }
-                                              });
-                                            }
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                    SizedBox(width: AppSpacing.sm),
-                                    Expanded(
-                                      flex: 1,
-                                      child: discountType ==
-                                              DiscountType.percentage
-                                          ? Container(
-                                              decoration: BoxDecoration(
-                                                color: WhizzColors.primary
-                                                    .withValues(alpha: 0.1),
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                        AppDimensions
-                                                            .borderRadiusMD),
-                                                border: Border.all(
-                                                  color: WhizzColors.primary
-                                                      .withValues(alpha: 0.3),
-                                                  width: 1,
-                                                ),
-                                              ),
-                                              child: DropdownButtonFormField<
-                                                  double>(
-                                                value: () {
-                                                  double? parsed =
-                                                      double.tryParse(
-                                                          valueController.text);
-                                                  List<double> validValues = [
-                                                    10.0,
-                                                    15.0,
-                                                    20.0,
-                                                    25.0,
-                                                    30.0,
-                                                    35.0,
-                                                    40.0,
-                                                    45.0,
-                                                    50.0
-                                                  ];
-                                                  if (parsed != null &&
-                                                      validValues
-                                                          .contains(parsed)) {
-                                                    return parsed;
-                                                  }
-                                                  if (valueController
-                                                      .text.isEmpty) {
-                                                    valueController.text = '10';
-                                                  }
-                                                  return 10.0;
-                                                }(),
-                                                style: AppTypography.bodyLarge
-                                                    .copyWith(
-                                                  color:
-                                                      WhizzColors.textPrimary,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                                dropdownColor:
-                                                    WhizzColors.white,
-                                                decoration: InputDecoration(
-                                                  labelText:
-                                                      AppLocalizations.of(
-                                                              context)!
-                                                          .value,
-                                                  labelStyle: AppTypography
-                                                      .bodySmall
-                                                      .copyWith(
-                                                    color: WhizzColors.grey600,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                  floatingLabelStyle:
-                                                      AppTypography.bodySmall
-                                                          .copyWith(
-                                                    color: WhizzColors.primary,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                  border: InputBorder.none,
-                                                  enabledBorder:
-                                                      InputBorder.none,
-                                                  focusedBorder:
-                                                      OutlineInputBorder(
-                                                    borderRadius: BorderRadius
-                                                        .circular(AppDimensions
-                                                            .borderRadiusMD),
-                                                    borderSide: BorderSide(
-                                                      color:
-                                                          WhizzColors.primary,
-                                                      width: 2,
-                                                    ),
-                                                  ),
-                                                  contentPadding:
-                                                      EdgeInsets.symmetric(
-                                                    horizontal: AppSpacing.md,
-                                                    vertical: AppSpacing.sm,
-                                                  ),
-                                                  filled: false,
-                                                  prefixIcon: Icon(
-                                                    Icons.percent_rounded,
-                                                    color: WhizzColors.primary,
-                                                    size: AppDimensions
-                                                        .iconSizeSM,
-                                                  ),
-                                                ),
-                                                items: [
-                                                  10,
-                                                  15,
-                                                  20,
-                                                  25,
-                                                  30,
-                                                  35,
-                                                  40,
-                                                  45,
-                                                  50
-                                                ]
-                                                    .map((percent) =>
-                                                        DropdownMenuItem<
-                                                            double>(
-                                                          value: percent
-                                                              .toDouble(),
-                                                          child: Text(
-                                                            '$percent%',
-                                                            style: AppTypography
-                                                                .bodyLarge
-                                                                .copyWith(
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                            ),
-                                                          ),
-                                                        ))
-                                                    .toList(),
-                                                onChanged: (value) {
-                                                  if (value != null) {
-                                                    setState(() {
-                                                      valueController.text =
-                                                          value.toString();
-                                                    });
-                                                  }
-                                                },
-                                                validator: (value) {
-                                                  if (value == null) {
-                                                    return AppLocalizations.of(
-                                                            context)!
-                                                        .pleaseEnterValue;
-                                                  }
-                                                  return null;
-                                                },
-                                              ),
-                                            )
-                                          : Container(
-                                              decoration: BoxDecoration(
-                                                color: WhizzColors.grey100,
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                        AppDimensions
-                                                            .borderRadiusMD),
-                                                border: Border.all(
-                                                  color: WhizzColors.grey300,
-                                                  width: 1,
-                                                ),
-                                              ),
-                                              child: TextFormField(
-                                                controller: valueController,
-                                                enabled: discountType ==
-                                                    DiscountType.fixedAmount,
-                                                keyboardType: discountType ==
-                                                        DiscountType.fixedAmount
-                                                    ? TextInputType.number
-                                                    : null,
-                                                style: AppTypography.bodyLarge
-                                                    .copyWith(
-                                                  color: discountType ==
-                                                          DiscountType
-                                                              .fixedAmount
-                                                      ? WhizzColors.textPrimary
-                                                      : WhizzColors.grey500,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                                validator: (value) {
-                                                  if (discountType ==
-                                                      DiscountType
-                                                          .fixedAmount) {
-                                                    final parsed =
-                                                        double.tryParse(
-                                                            value ?? '');
-                                                    if (parsed == null ||
-                                                        parsed <= 0) {
-                                                      return AppLocalizations
-                                                              .of(context)!
-                                                          .pleaseEnterValue;
-                                                    }
-                                                  }
-                                                  return null;
-                                                },
-                                                decoration: InputDecoration(
-                                                  labelText:
-                                                      AppLocalizations.of(
-                                                              context)!
-                                                          .value,
-                                                  labelStyle: AppTypography
-                                                      .bodySmall
-                                                      .copyWith(
-                                                    color: WhizzColors.grey500,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                  border: InputBorder.none,
-                                                  disabledBorder:
-                                                      InputBorder.none,
-                                                  hintText: discountType ==
-                                                          DiscountType
-                                                              .fixedAmount
-                                                      ? 'Amount (IQD)'
-                                                      : discountType ==
-                                                              DiscountType
-                                                                  .freeDelivery
-                                                          ? 'Free Delivery'
-                                                          : discountType ==
-                                                                  DiscountType
-                                                                      .buyXGetY
-                                                              ? 'Buy X Get Y'
-                                                              : 'Conditional',
-                                                  hintStyle: AppTypography
-                                                      .bodyMedium
-                                                      .copyWith(
-                                                    color: WhizzColors.grey400,
-                                                    fontStyle: FontStyle.italic,
-                                                  ),
-                                                  filled: false,
-                                                  contentPadding:
-                                                      EdgeInsets.symmetric(
-                                                    horizontal: AppSpacing.md,
-                                                    vertical: AppSpacing.sm,
-                                                  ),
-                                                  prefixIcon: Icon(
-                                                    discountType ==
-                                                            DiscountType
-                                                                .fixedAmount
-                                                        ? Icons
-                                                            .payments_outlined
-                                                        : Icons
-                                                            .lock_outline_rounded,
-                                                    color: WhizzColors.grey400,
-                                                    size: AppDimensions
-                                                        .iconSizeSM,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                  ],
+                                MerchantDiscountValueFields(
+                                  type: discountType,
+                                  controller: valueController,
+                                  onTypeChanged: (value) => setState(() {
+                                    discountType = value;
+                                    valueController.text = value == DiscountType.percentage
+                                        ? '10'
+                                        : value == DiscountType.fixedAmount ? '' : '0';
+                                  }),
                                 ),
                                 const SizedBox(height: 10),
 
@@ -2059,7 +1706,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                 controller:
                                                     getYQuantityController,
                                                 decoration: InputDecoration(
-                                                  labelText: 'Quantity',
+                                                  labelText: 'الكمية',
                                                   border:
                                                       const OutlineInputBorder(),
                                                   isDense: true,
@@ -2673,7 +2320,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                           selectedItemIds,
                                           selectedCategoryIds,
                                           discount?.id)) {
-                                        showDialog(
+                                        _showArabicOfferDialog(
                                           context: context,
                                           builder: (context) => AlertDialog(
                                             title: Text(
@@ -2706,7 +2353,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                             DiscountType.conditional) {
                                       if (selectedBuyItemId == null ||
                                           selectedGetItemId == null) {
-                                        showDialog(
+                                        _showArabicOfferDialog(
                                           context: context,
                                           builder: (context) => AlertDialog(
                                             title: Text(
@@ -2889,7 +2536,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
             );
           },
         );
-      },
+      }),
     );
   }
 
@@ -2950,7 +2597,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         (cat) => cat.id == product.categoryId,
         orElse: () => ProductCategory(
           id: '',
-          name: 'Unknown',
+          name: 'بدون فئة',
           businessType: '',
           sortOrder: 0,
           createdAt: DateTime.now(),
@@ -2975,7 +2622,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       return;
     }
 
-    showDialog(
+    _showArabicOfferDialog(
       context: context,
       builder: (context) {
         List<String> tempSelected = List.from(selectedItemIds);
@@ -3065,7 +2712,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       return;
     }
 
-    showDialog(
+    _showArabicOfferDialog(
       context: context,
       builder: (context) {
         List<String> tempSelected = List.from(selectedCategoryIds);
@@ -3179,7 +2826,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         (cat) => cat.id == product.categoryId,
         orElse: () => ProductCategory(
           id: '',
-          name: 'Unknown',
+          name: 'بدون فئة',
           businessType: '',
           sortOrder: 0,
           createdAt: DateTime.now(),
@@ -3204,7 +2851,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       return;
     }
 
-    showDialog(
+    _showArabicOfferDialog(
       context: context,
       builder: (context) {
         String? tempSelected = selectedItemId;
@@ -3312,7 +2959,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
             child: TextButton.icon(
               onPressed: _isLoading ? null : _showCreateDiscountDialog,
               icon: const Icon(Icons.add_rounded),
-              label: Text(loc.createDiscount),
+              label: Text('إنشاء خصم'),
             ),
           ),
           SingleChildScrollView(
@@ -3614,7 +3261,7 @@ class DiscountCard extends StatelessWidget {
                             context,
                             icon: Icons.shopping_cart_outlined,
                             label:
-                                'Min: \$${(discount.minimumOrderAmount ?? 0).toStringAsFixed(2)}',
+                                'الحد الأدنى: ${_formatDiscountValue(discount.minimumOrderAmount ?? 0)} د.ع',
                           ),
                         ),
                     ],
