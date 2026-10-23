@@ -656,7 +656,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           }
 
           _orders = processedOrders;
-        _syncFocusedTab();
+          _syncFocusedTab();
           _isLoading = false; // Clear loading state
           AppLogger.success(
               'Orders state updated with ${_orders.length} orders');
@@ -775,7 +775,16 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       return;
     }
     try {
-      if(newStatus==OrderStatus.cancelled){final matches=_orders.where((o)=>o.id==orderId);if(matches.isNotEmpty){final route=_merchantCancellationAction(matches.first);if(route!=null){route();return;}}}
+      if (newStatus == OrderStatus.cancelled) {
+        final matches = _orders.where((o) => o.id == orderId);
+        if (matches.isNotEmpty) {
+          final route = _merchantCancellationAction(matches.first);
+          if (route != null) {
+            route();
+            return;
+          }
+        }
+      }
       // If it's a cancellation, show bottom sheet to get reason first
       if (newStatus == OrderStatus.cancelled) {
         final reason = await _showCancelReasonBottomSheet();
@@ -806,7 +815,12 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       } else {
         // Convert OrderStatus enum to string for backend for other status updates
         String statusString = _convertOrderStatusToString(newStatus);
-        await _orderService.updateMerchantOrderStatus(orderId, statusString);
+        final selectedBranchId = branchId;
+        if (selectedBranchId == null || selectedBranchId.isEmpty) {
+          throw StateError('اختر الفرع قبل تحديث الطلب');
+        }
+        await _orderService.updateMerchantOrderStatus(orderId, statusString,
+            businessId: selectedBranchId);
       }
 
       // STEP 3: Send WebSocket notification to customers about order status update
@@ -830,7 +844,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       if (mounted) {
         final matches = _orders.where((o) => o.id == orderId);
         final actual = matches.isEmpty ? newStatus : matches.first.status;
-        setState(() => _selectedFilter = _getRecommendedFilterForStatus(actual) ?? _selectedFilter);
+        setState(() => _selectedFilter =
+            _getRecommendedFilterForStatus(actual) ?? _selectedFilter);
       }
       // STEP 5: Show success notification.
       if (mounted) {
@@ -1038,7 +1053,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     final matching = _orders.where((o) => o.id == widget.focusOrderId);
     if (matching.isEmpty || matching.first.status == _focusedStatus) return;
     _focusedStatus = matching.first.status;
-    _selectedFilter = _getRecommendedFilterForStatus(_focusedStatus!) ?? _selectedFilter;
+    _selectedFilter =
+        _getRecommendedFilterForStatus(_focusedStatus!) ?? _selectedFilter;
   }
 
   /// Get the recommended filter tab for a given order status
@@ -1707,9 +1723,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     final loc = AppLocalizations.of(context)!;
 
     // Apply filtering logic using _shouldShowInFilter
-    List<Order> filteredOrders = _orders
-        .where((o) => _shouldShowInFilter(o, _selectedFilter))
-        .toList();
+    List<Order> filteredOrders =
+        _orders.where((o) => _shouldShowInFilter(o, _selectedFilter)).toList();
 
     // Sort orders appropriately
     if (_selectedFilter == 'pending') {
@@ -1962,17 +1977,38 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     );
   }
 
-  VoidCallback? _merchantCancellationAction(Order order){
-    if(widget.employeeAccess!=null||order.exceptionPolicyVersion==null||![OrderStatus.pending,OrderStatus.confirmed,OrderStatus.preparing,OrderStatus.ready,OrderStatus.readyForPickup,OrderStatus.reassigning,OrderStatus.assigned,OrderStatus.headingToStore,OrderStatus.arrivedAtStore].contains(order.status))return null;
-    return () async {await Navigator.of(context).push(MaterialPageRoute(builder:(_)=>MerchantCancellationScreen(order:order)));if(mounted)await _loadOrders(order.businessId,preserveNewOrders:true);};
+  VoidCallback? _merchantCancellationAction(Order order) {
+    if (widget.employeeAccess != null ||
+        order.exceptionPolicyVersion == null ||
+        ![
+          OrderStatus.pending,
+          OrderStatus.confirmed,
+          OrderStatus.preparing,
+          OrderStatus.ready,
+          OrderStatus.readyForPickup,
+          OrderStatus.reassigning,
+          OrderStatus.assigned,
+          OrderStatus.headingToStore,
+          OrderStatus.arrivedAtStore
+        ].contains(order.status)) return null;
+    return () async {
+      await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => MerchantCancellationScreen(order: order)));
+      if (mounted) await _loadOrders(order.businessId, preserveNewOrders: true);
+    };
   }
 
   VoidCallback? _returnAction(Order order) {
-
-    if(widget.employeeAccess == null && order.exceptionCancellation?['state'] == 'REQUESTED') {
-      return () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CustomerCancellationScreen(selectors:{'businessId':order.businessId,'orderId':order.id})));
+    if (widget.employeeAccess == null &&
+        order.exceptionCancellation?['state'] == 'REQUESTED') {
+      return () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => CustomerCancellationScreen(selectors: {
+                'businessId': order.businessId,
+                'orderId': order.id
+              })));
     }
-    final ownCancellation=_merchantCancellationAction(order);if(ownCancellation!=null)return ownCancellation;
+    final ownCancellation = _merchantCancellationAction(order);
+    if (ownCancellation != null) return ownCancellation;
     final a = order.financialAssignment;
     if (widget.employeeAccess != null || a == null) return null;
     final selectors = {
@@ -2008,9 +2044,11 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             onTap: _returnAction(order),
             actionLabel: _returnAction(order) == null
                 ? null
-                : order.exceptionCancellation?['state'] == 'REQUESTED' ? 'مراجعة طلب إلغاء الزبون' : order.financialAssignment?['returnId'] != null
-                    ? 'متابعة واستلام المرتجع'
-                    : 'إلغاء قبل استلام السائق',
+                : order.exceptionCancellation?['state'] == 'REQUESTED'
+                    ? 'مراجعة طلب إلغاء الزبون'
+                    : order.financialAssignment?['returnId'] != null
+                        ? 'متابعة واستلام المرتجع'
+                        : 'إلغاء قبل استلام السائق',
             onOrderUpdated: _handleOrderUpdate,
             canUpdateStatus: widget.employeeAccess?.canUpdate,
           ),
@@ -2038,9 +2076,11 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           onTap: _returnAction(order),
           actionLabel: _returnAction(order) == null
               ? null
-              : order.exceptionCancellation?['state'] == 'REQUESTED' ? 'مراجعة طلب إلغاء الزبون' : order.financialAssignment?['returnId'] != null
-                  ? 'متابعة واستلام المرتجع'
-                  : 'إلغاء قبل استلام السائق',
+              : order.exceptionCancellation?['state'] == 'REQUESTED'
+                  ? 'مراجعة طلب إلغاء الزبون'
+                  : order.financialAssignment?['returnId'] != null
+                      ? 'متابعة واستلام المرتجع'
+                      : 'إلغاء قبل استلام السائق',
           onOrderUpdated: _handleOrderUpdate,
           canUpdateStatus: widget.employeeAccess?.canUpdate,
         );
