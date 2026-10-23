@@ -1,3 +1,4 @@
+import 'session_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/utils/app_logger.dart';
 import '../core/exceptions/auth_exceptions.dart';
@@ -53,23 +54,26 @@ class ProductError {
 class ProductNotifier extends StateNotifier<ProductState> {
   final Ref ref;
 
-  ProductNotifier(this.ref) : super(const ProductState());
+  final String? businessId;
+  ProductNotifier(this.ref, {this.businessId}) : super(const ProductState());
 
   Future<void> loadProducts() async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.getProducts();
+      final result = await ProductService.getProducts(businessId: businessId);
       if (result['success'] == true && result['products'] != null) {
         final productsList = result['products'] as List;
         final products = productsList.map((json) => Product.fromJson(json)).toList();
         
+        if (!mounted) return;
         state = state.copyWith(
           products: products,
           isLoading: false,
           error: null,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           error: ProductError(
@@ -81,6 +85,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
       AppLogger.error('[ProductProvider] Auth token expired: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession on token expiry - just log
       AppLogger.warning('[ProductProvider] Token expired - user will need to re-login (wizzuser approach)');
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Token expired - please re-login', isAuth: true),
@@ -89,6 +94,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
       AppLogger.error('[ProductProvider] Unauthorized: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession on 401 - just log
       AppLogger.warning('[ProductProvider] Unauthorized - user will need to re-login (wizzuser approach)');
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Unauthorized - please re-login', isAuth: true),
@@ -96,6 +102,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
     } catch (e) {
       AppLogger.error('[ProductProvider] Error loading products: $e');
       // Don't clear session on network/server errors
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: e.toString(), isNetwork: true),
@@ -112,7 +119,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.getCategoriesForBusinessType(businessType);
+      final result = await ProductService.getCategoriesForBusinessType(businessType, businessId: businessId);
       if (result['success'] == true && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
         List<ProductCategory> categories = categoriesList.map((json) => ProductCategory.fromJson(json)).toList();
@@ -128,12 +135,14 @@ class ProductNotifier extends StateNotifier<ProductState> {
             'ProductProvider: Loaded ${categories.length} unique categories');
 
         
+        if (!mounted) return;
         state = state.copyWith(
           categories: categories,
           isLoading: false,
           error: null,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           error: ProductError(
@@ -142,6 +151,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: e.toString(), isNetwork: true),
@@ -153,7 +163,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.getCategoriesForBusinessType(businessType);
+      final result = await ProductService.getCategoriesForBusinessType(businessType, businessId: businessId);
       if (result['success'] == true && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
         List<ProductCategory> categories = categoriesList.map((json) => ProductCategory.fromJson(json)).toList();
@@ -169,12 +179,14 @@ class ProductNotifier extends StateNotifier<ProductState> {
             'ProductProvider: Force loaded ${categories.length} unique categories');
 
         
+        if (!mounted) return;
         state = state.copyWith(
           categories: categories,
           isLoading: false,
           error: null,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           error: ProductError(
@@ -183,6 +195,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: e.toString(), isNetwork: true),
@@ -195,7 +208,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
 
     try {
       final result = await ProductService.createProduct(
-        name: product.name,
+        businessId: businessId,        name: product.name,
         description: product.description,
         price: product.price,
         categoryId: product.categoryId,
@@ -210,6 +223,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         final newProduct = Product.fromJson(result['product']);
         final updatedProducts = [...state.products, newProduct];
         
+        if (!mounted) return false;
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
@@ -217,6 +231,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
         return true;
       } else {
+        if (!mounted) return false;
         state = state.copyWith(
           isLoading: false,
           error: ProductError(
@@ -230,6 +245,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
           '[ProductProvider] Auth token expired during addProduct: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession - just log
       AppLogger.warning('[ProductProvider] Token expired - user will need to re-login (wizzuser approach)');
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Token expired - please re-login', isAuth: true),
@@ -240,12 +256,14 @@ class ProductNotifier extends StateNotifier<ProductState> {
           '[ProductProvider] Unauthorized during addProduct: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession - just log
       AppLogger.warning('[ProductProvider] Unauthorized - user will need to re-login (wizzuser approach)');
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Unauthorized - please re-login', isAuth: true),
       );
       return false;
     } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: e.toString(), isNetwork: true),
@@ -259,7 +277,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
 
     try {
       final result = await ProductService.updateProduct(
-        productId: product.id,
+        businessId: businessId,        productId: product.id,
         name: product.name,
         description: product.description,
         price: product.price,
@@ -274,6 +292,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
           return p.id == product.id ? updatedProduct : p;
         }).toList();
         
+        if (!mounted) return false;
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
@@ -281,6 +300,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
         return true;
       } else {
+        if (!mounted) return false;
         state = state.copyWith(
           isLoading: false,
           error: ProductError(
@@ -294,6 +314,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
           '[ProductProvider] Auth token expired during updateProduct: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession - just log
       AppLogger.warning('[ProductProvider] Token expired - user will need to re-login (wizzuser approach)');
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Token expired - please re-login', isAuth: true),
@@ -304,12 +325,14 @@ class ProductNotifier extends StateNotifier<ProductState> {
           '[ProductProvider] Unauthorized during updateProduct: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession - just log
       AppLogger.warning('[ProductProvider] Unauthorized - user will need to re-login (wizzuser approach)');
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Unauthorized - please re-login', isAuth: true),
       );
       return false;
     } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: e.toString(), isNetwork: true),
@@ -322,11 +345,12 @@ class ProductNotifier extends StateNotifier<ProductState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.deleteProduct(productId);
+      final result = await ProductService.deleteProduct(productId, businessId: businessId);
       
       if (result['success'] == true) {
         final updatedProducts = state.products.where((p) => p.id != productId).toList();
         
+        if (!mounted) return false;
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
@@ -334,6 +358,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
         return true;
       } else {
+        if (!mounted) return false;
         state = state.copyWith(
           isLoading: false,
           error: ProductError(
@@ -347,6 +372,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
           '[ProductProvider] Auth token expired during deleteProduct: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession - just log
       AppLogger.warning('[ProductProvider] Token expired - user will need to re-login (wizzuser approach)');
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Token expired - please re-login', isAuth: true),
@@ -357,12 +383,14 @@ class ProductNotifier extends StateNotifier<ProductState> {
           '[ProductProvider] Unauthorized during deleteProduct: ${e.message}');
       // ⚠️ Following wizzuser: NO clearSession - just log
       AppLogger.warning('[ProductProvider] Unauthorized - user will need to re-login (wizzuser approach)');
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: 'Unauthorized - please re-login', isAuth: true),
       );
       return false;
     } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: ProductError(message: e.toString(), isNetwork: true),
@@ -395,7 +423,8 @@ class ProductNotifier extends StateNotifier<ProductState> {
 
 // Provider for product management
 final productProviderRiverpod = StateNotifierProvider<ProductNotifier, ProductState>((ref) {
-  return ProductNotifier(ref);
+  final businessId = ref.watch(sessionProvider.select((session) => session.businessId));
+  return ProductNotifier(ref, businessId: businessId ?? '');
 });
 
 // Convenience providers for specific data

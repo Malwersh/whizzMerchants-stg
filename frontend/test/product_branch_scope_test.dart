@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:async';
+import 'package:whizz_merchants/services/merchant_branch_scope.dart';
+import 'package:whizz_merchants/providers/product_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,4 +46,65 @@ void main() {
     expect(result['isAuthError'], false);
     expect(result['message'], contains('الفرع'));
   });
+  test('all product operations carry the selected branch; payload cannot override it', () async {
+    final methods = <String>[];
+    final client = MockClient((request) async {
+      methods.add(request.method);
+      expect(request.url.queryParameters['businessId'], 'stored-branch');
+      if (['POST','PUT'].contains(request.method)) {
+        expect(jsonDecode(request.body)['businessId'], 'stored-branch');
+      }
+      return http.Response('{"products":[],"product":{"productId":"p"},"categories":[]}', request.method == 'POST' ? 201 : 200);
+    });
+    await http.runWithClient(() async {
+      await ProductService.createProduct(name:'p',description:'',price:1000,categoryId:'c',additionalData:{'businessId':'foreign'});
+      await ProductService.updateProduct(productId:'p',price:1250,additionalData:{'businessId':'foreign'});
+      await ProductService.deleteProduct('p');
+      await ProductService.searchProducts('food');
+      await ProductService.getProduct('p');
+      await ProductService.searchGlobalCatalog('food');
+      await ProductService.getAllCategories();
+      await ProductService.getCategoriesForBusinessType('restaurant');
+    }, () => client);
+    expect(methods, ['POST','PUT','DELETE','GET','GET','GET','GET','GET']);
+  });
+  test('captured request scope stays stable across branch changes; new request uses new branch', () async {
+    final first = await MerchantBranchScope.capture();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('business_id','second');
+    final second = await MerchantBranchScope.capture();
+    expect(first.businessId,'stored-branch');
+    expect(second.businessId,'second');
+    expect(first.body({'businessId':'foreign'})['businessId'],'stored-branch');
+  });
+  test('missing selection stops requests before network access', () async {
+    SharedPreferences.setMockInitialValues({});
+    var calls = 0;
+    final client = MockClient((_) async { calls++; return http.Response('{}',200); });
+    final result = await http.runWithClient(() => ProductService.getProducts(), () => client);
+    expect(result['success'],false);
+    expect(calls,0);
+  });
+  test('late product response does not update a disposed branch notifier', () async {
+    final response = Completer<http.Response>();
+    final notifier = ProductNotifier();
+    final client = MockClient((_) => response.future);
+    final pending = http.runWithClient(notifier.loadProducts, () => client);
+    await Future<void>.delayed(const Duration(milliseconds:20));
+    notifier.dispose();
+    response.complete(http.Response('{"products":[]}',200));
+    await pending;
+  });
+
+  test('branch notifier uses its captured branch even before session persistence catches up', () async {
+    final client = MockClient((request) async {
+      expect(request.url.queryParameters['businessId'],'new-branch');
+      return http.Response('{"products":[]}',200);
+    });
+    final notifier=ProductNotifier(businessId:'new-branch');
+    await http.runWithClient(notifier.loadProducts,()=>client);
+    expect(notifier.state.error,isNull);
+    notifier.dispose();
+  });
+
 }

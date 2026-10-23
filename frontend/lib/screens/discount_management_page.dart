@@ -80,12 +80,26 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant DiscountManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.business.id != widget.business.id) {
+      _discounts = [];
+      _products = [];
+      _categories = [];
+      _isInitializing = true;
+      _isLoading = false;
+      _validateAuthenticationAndInitialize();
+    }
+  }
+
+  @override
   void dispose() {
     _appState.removeListener(_onAppStateChanged);
     super.dispose();
   }
 
   Future<void> _validateAuthenticationAndInitialize() async {
+    final businessId = widget.business.id;
     try {
       // Check if we have a valid business ID first
       if (widget.business.id == 'unknown-id' || widget.business.id.isEmpty) {
@@ -107,7 +121,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         _loadCategories(),
       ]);
 
-      if (mounted) {
+      if (mounted && widget.business.id == businessId) {
         setState(() {
           _isInitializing = false;
         });
@@ -200,6 +214,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         throw Exception(result['message'] ?? 'Failed to load products');
       }
     } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Auth token expired loading products: ${e.message}',
       );
@@ -212,6 +227,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Unauthorized loading products: ${e.message}',
       );
@@ -224,6 +240,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       if (mounted) {
         showAdaptiveSnackBar(
           context: context,
@@ -235,11 +252,13 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _loadCategories() async {
+    final businessId = widget.business.id;
     try {
       final businessTypeString =
           _getBusinessTypeString(widget.business.businessType);
       final result =
-          await ProductService.getCategoriesForBusinessType(businessTypeString);
+          await ProductService.getCategoriesForBusinessType(businessTypeString, businessId: businessId);
+      if (!mounted || widget.business.id != businessId) return;
 
       if (result['success'] && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
@@ -263,6 +282,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         throw Exception(result['message'] ?? 'Failed to load categories');
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       // ✅ PERMANENT FIX: Check for session expiry after auto-refresh attempt
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('401') ||

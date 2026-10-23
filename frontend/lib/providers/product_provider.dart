@@ -1,3 +1,4 @@
+import 'session_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/product.dart';
 import '../services/product_service.dart';
@@ -37,23 +38,26 @@ class ProductState {
 
 // StateNotifier for managing product state
 class ProductNotifier extends StateNotifier<ProductState> {
-  ProductNotifier() : super(const ProductState());
+  final String? businessId;
+  ProductNotifier({this.businessId}) : super(const ProductState());
 
   Future<void> loadProducts() async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.getProducts();
+      final result = await ProductService.getProducts(businessId: businessId);
       if (result['success'] == true && result['products'] != null) {
         final productsList = result['products'] as List;
         final products =
             productsList.map((json) => Product.fromJson(json)).toList();
+        if (!mounted) return;
         state = state.copyWith(
           products: products,
           isLoading: false,
           error: null,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           error: result['message'] ?? 'Failed to load products',
@@ -61,6 +65,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -74,18 +79,20 @@ class ProductNotifier extends StateNotifier<ProductState> {
 
     try {
       final result =
-          await ProductService.getCategoriesForBusinessType('restaurant');
+          await ProductService.getCategoriesForBusinessType('restaurant', businessId: businessId);
       if (result['success'] == true && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
         final categories = categoriesList
             .map((json) => ProductCategory.fromJson(json))
             .toList();
+        if (!mounted) return;
         state = state.copyWith(
           categories: categories,
           isLoading: false,
           error: null,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           error: result['message'] ?? 'Failed to load categories',
@@ -93,6 +100,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -106,7 +114,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
 
     try {
       final result = await ProductService.createProduct(
-        name: product.name,
+        businessId: businessId,        name: product.name,
         description: product.description,
         price: product.price,
         categoryId: product.categoryId,
@@ -117,6 +125,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
       if (result['success'] == true && result['product'] != null) {
         final newProduct = Product.fromJson(result['product']);
         final updatedProducts = [...state.products, newProduct];
+        if (!mounted) return false;
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
@@ -124,6 +133,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
         return true;
       } else {
+        if (!mounted) return false;
         state = state.copyWith(
           isLoading: false,
           error: result['message'] ?? 'Failed to create product',
@@ -131,6 +141,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         return false;
       }
     } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -144,7 +155,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
 
     try {
       final result = await ProductService.updateProduct(
-        productId: product.id,
+        businessId: businessId,        productId: product.id,
         name: product.name,
         description: product.description,
         price: product.price,
@@ -159,6 +170,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
             .map((p) => p.id == product.id ? updatedProduct : p)
             .toList();
 
+        if (!mounted) return false;
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
@@ -166,6 +178,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
         return true;
       } else {
+        if (!mounted) return false;
         state = state.copyWith(
           isLoading: false,
           error: result['message'] ?? 'Failed to update product',
@@ -173,6 +186,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         return false;
       }
     } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -185,11 +199,12 @@ class ProductNotifier extends StateNotifier<ProductState> {
     state = state.copyWith(isLoading: true);
 
     try {
-      final result = await ProductService.deleteProduct(productId);
+      final result = await ProductService.deleteProduct(productId, businessId: businessId);
 
       if (result['success'] == true) {
         final updatedProducts =
             state.products.where((p) => p.id != productId).toList();
+        if (!mounted) return false;
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
@@ -197,6 +212,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         );
         return true;
       } else {
+        if (!mounted) return false;
         state = state.copyWith(
           isLoading: false,
           error: result['message'] ?? 'Failed to delete product',
@@ -204,6 +220,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         return false;
       }
     } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -239,5 +256,6 @@ class ProductNotifier extends StateNotifier<ProductState> {
 // Riverpod provider
 final productProvider =
     StateNotifierProvider<ProductNotifier, ProductState>((ref) {
-  return ProductNotifier();
+  final businessId = ref.watch(sessionProvider.select((session) => session.businessId));
+  return ProductNotifier(businessId: businessId ?? '');
 });
