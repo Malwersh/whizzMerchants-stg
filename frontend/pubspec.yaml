@@ -46,7 +46,9 @@ dependencies:
   jwt_decode: ^0.3.1
   jwt_decoder: ^2.0.1
   google_maps_flutter: ^2.18.1
-
+  file_picker: ^11.0.3
+  archive: ^4.5.2
+  xml: ^6.6.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

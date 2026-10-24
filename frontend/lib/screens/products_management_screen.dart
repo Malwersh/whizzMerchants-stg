@@ -5,6 +5,7 @@ import '../models/product.dart';
 import '../models/business.dart';
 import '../providers/product_provider_riverpod.dart';
 import 'add_product_screen.dart';
+import 'product_import_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/whizz_search_bar.dart';
@@ -60,16 +61,30 @@ class _ProductsManagementScreenState
     final loc = AppLocalizations.of(context)!;
     return Padding(
       padding: EdgeInsets.all(AppSpacing.lg),
-      child: WhizzSearchBar(
-        controller: _searchController,
-        hintText: loc.searchProducts,
-        onChanged: (value) {
-          setState(() {
-            _searchQuery = value.toLowerCase();
-          });
-        },
-        borderRadius: BorderRadius.circular(100), // Keep the pill shape
-        enableHapticFeedback: true,
+      child: Row(
+        children: [
+          Expanded(
+              child: WhizzSearchBar(
+            controller: _searchController,
+            hintText: loc.searchProducts,
+            onChanged: (value) =>
+                setState(() => _searchQuery = value.toLowerCase()),
+            borderRadius: BorderRadius.circular(100),
+            enableHapticFeedback: true,
+          )),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            tooltip: 'استيراد CSV',
+            icon: const Icon(Icons.upload_file),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ProductImportScreen(
+                businessId: widget.business.id,
+                onCompleted: () =>
+                    ref.read(productProviderRiverpod.notifier).loadProducts(),
+              ),
+            )),
+          ),
+        ],
       ),
     );
   }
@@ -276,33 +291,33 @@ class _ProductsManagementScreenState
                 ),
               ),
               SizedBox(height: GoldenRatio.lg),
-            Text(
-              _searchQuery.isEmpty
+              Text(
+                _searchQuery.isEmpty
                     ? loc.yourProductCatalogAwaits
                     : loc.noProductsFound,
-              style: TypographySystem.headlineSmall.copyWith(
+                style: TypographySystem.headlineSmall.copyWith(
                   color: WhizzColors.textPrimary,
-                fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: GoldenRatio.sm),
-            Text(
-              _searchQuery.isEmpty
+              SizedBox(height: GoldenRatio.sm),
+              Text(
+                _searchQuery.isEmpty
                     ? loc.startBuildingYourMenu(
                         widget.business.businessType.name)
                     : loc.tryAdjustingYourSearchTerms,
-              style: TypographySystem.bodyMedium.copyWith(
+                style: TypographySystem.bodyMedium.copyWith(
                   color: WhizzColors.textSecondary,
-                height: 1.5,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            if (_searchQuery.isEmpty) ...[
-              SizedBox(height: GoldenRatio.lg),
-              // Benefits section
-              _buildBenefitCards(),
-              SizedBox(height: GoldenRatio.xl),
+              if (_searchQuery.isEmpty) ...[
+                SizedBox(height: GoldenRatio.lg),
+                // Benefits section
+                _buildBenefitCards(),
+                SizedBox(height: GoldenRatio.xl),
                 ElevatedButton.icon(
                   onPressed: () {
                     Navigator.of(context).push(
@@ -346,10 +361,10 @@ class _ProductsManagementScreenState
                     ),
                   ),
                 ),
+              ],
             ],
-          ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -464,251 +479,249 @@ class _ProductsManagementScreenState
             children: [
               // Product Image
               Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(GoldenRatio.md),
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(GoldenRatio.md),
                   color: theme.colorScheme.primary.withValues(alpha: 0.05),
-                    border: Border.all(
+                  border: Border.all(
                     color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.05),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    width: 2,
                   ),
-                  child: (product.images.isNotEmpty || product.imageUrl != null)
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(GoldenRatio.md - 1),
-                          child: Image.network(
-                            product.images.isNotEmpty 
-                                ? product.images.first 
-                                : product.imageUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Icon(
-                                Icons.image_not_supported_rounded,
-                                color: theme.colorScheme.primary,
-                                size: GoldenRatio.xl,
-                              );
-                            },
-                          ),
-                        )
-                      : Icon(
-                          Icons.restaurant_menu_rounded,
-                          color: theme.colorScheme.secondary,
-                          size: GoldenRatio.xl,
-                        ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                SizedBox(width: GoldenRatio.md),
-                // Product Details
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        product.name,
-                        style: TypographySystem.titleMedium.copyWith(
-                        color: WhizzColors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: GoldenRatio.xs),
-                      Text(
-                        product.description,
-                        style: TypographySystem.bodyMedium.copyWith(
-                        color: WhizzColors.textSecondary,
-                          height: 1.4,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: GoldenRatio.sm),
-                      Row(
-                        children: [
-                          // Price Badge
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: GoldenRatio.sm,
-                              vertical: GoldenRatio.xs,
-                            ),
-                            decoration: BoxDecoration(
+                child: (product.images.isNotEmpty || product.imageUrl != null)
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(GoldenRatio.md - 1),
+                        child: Image.network(
+                          product.images.isNotEmpty
+                              ? product.images.first
+                              : product.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(
+                              Icons.image_not_supported_rounded,
                               color: theme.colorScheme.primary,
-                              borderRadius:
-                                  BorderRadius.circular(GoldenRatio.sm),
-                            ),
-                            child: Text(
-                              'IQD ${product.price.toStringAsFixed(0)}',
-                              style: TypographySystem.bodyMedium.copyWith(
-                                color: theme.colorScheme.onPrimary,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              size: GoldenRatio.xl,
+                            );
+                          },
+                        ),
+                      )
+                    : Icon(
+                        Icons.restaurant_menu_rounded,
+                        color: theme.colorScheme.secondary,
+                        size: GoldenRatio.xl,
+                      ),
+              ),
+              SizedBox(width: GoldenRatio.md),
+              // Product Details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.name,
+                      style: TypographySystem.titleMedium.copyWith(
+                        color: WhizzColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: GoldenRatio.xs),
+                    Text(
+                      product.description,
+                      style: TypographySystem.bodyMedium.copyWith(
+                        color: WhizzColors.textSecondary,
+                        height: 1.4,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: GoldenRatio.sm),
+                    Row(
+                      children: [
+                        // Price Badge
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: GoldenRatio.sm,
+                            vertical: GoldenRatio.xs,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(GoldenRatio.sm),
+                          ),
+                          child: Text(
+                            'IQD ${product.price.toStringAsFixed(0)}',
+                            style: TypographySystem.bodyMedium.copyWith(
+                              color: theme.colorScheme.onPrimary,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          SizedBox(width: GoldenRatio.sm),
-                          // Availability Status
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: GoldenRatio.sm,
-                              vertical: GoldenRatio.xs,
-                            ),
-                            decoration: BoxDecoration(
-                              color: product.isAvailable
+                        ),
+                        SizedBox(width: GoldenRatio.sm),
+                        // Availability Status
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: GoldenRatio.sm,
+                            vertical: GoldenRatio.xs,
+                          ),
+                          decoration: BoxDecoration(
+                            color: product.isAvailable
                                 ? theme.colorScheme.secondary
                                     .withValues(alpha: 0.1)
                                 : theme.colorScheme.error
                                     .withValues(alpha: 0.1),
-                              borderRadius:
-                                  BorderRadius.circular(GoldenRatio.sm),
-                              border: Border.all(
-                                color: product.isAvailable
-                                    ? theme.colorScheme.secondary
+                            borderRadius: BorderRadius.circular(GoldenRatio.sm),
+                            border: Border.all(
+                              color: product.isAvailable
+                                  ? theme.colorScheme.secondary
                                       .withValues(alpha: 0.3)
                                   : theme.colorScheme.error
                                       .withValues(alpha: 0.3),
-                                width: 1,
-                              ),
+                              width: 1,
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  product.isAvailable
-                                      ? Icons.check_circle_rounded
-                                      : Icons.cancel_rounded,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                product.isAvailable
+                                    ? Icons.check_circle_rounded
+                                    : Icons.cancel_rounded,
+                                color: product.isAvailable
+                                    ? theme.colorScheme.secondary
+                                    : theme.colorScheme.error,
+                                size: AppDimensions.iconSizeSM,
+                              ),
+                              SizedBox(width: GoldenRatio.xs),
+                              Text(
+                                product.isAvailable
+                                    ? loc.available
+                                    : loc.unavailable,
+                                style: TypographySystem.bodySmall.copyWith(
                                   color: product.isAvailable
                                       ? theme.colorScheme.secondary
                                       : theme.colorScheme.error,
-                                size: AppDimensions.iconSizeSM,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                SizedBox(width: GoldenRatio.xs),
-                                Text(
-                                  product.isAvailable
-                                    ? loc.available
-                                    : loc.unavailable,
-                                  style: TypographySystem.bodySmall.copyWith(
-                                    color: product.isAvailable
-                                        ? theme.colorScheme.secondary
-                                        : theme.colorScheme.error,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                // Action Menu
-                Container(
-                  decoration: BoxDecoration(
-                  color: theme.colorScheme.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(GoldenRatio.sm),
-                  ),
-                  child: PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert_rounded,
-                      color: theme.colorScheme.secondary,
-                      size: GoldenRatio.lg,
-                    ),
-                    surfaceTintColor: Colors.white,
-                    color: Colors.white,
-                    elevation: 8,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(GoldenRatio.md),
-                      side: BorderSide(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        width: 1,
-                      ),
-                    ),
-                    onSelected: (value) async {
-                      switch (value) {
-                        case 'edit':
-                        _showEditProductDrawer(context, product);
-                          break;
-                        case 'delete':
-                          _showDeleteConfirmation(product, ref);
-                          break;
-                        case 'toggle_availability':
-                          await ref
-                              .read(productProviderRiverpod.notifier)
-                              .updateProduct(
-                                product.copyWith(
-                                  isAvailable: !product.isAvailable,
-                                ),
-                              );
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: 'edit',
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.edit_rounded,
-                            color: theme.colorScheme.primary,
-                          ),
-                          title: Text(
-                          loc.edit,
-                            style: TypographySystem.bodyMedium.copyWith(
-                              color: theme.colorScheme.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          contentPadding: EdgeInsets.zero,
                         ),
-                      ),
-                      PopupMenuItem(
-                        value: 'toggle_availability',
-                        child: ListTile(
-                          leading: Icon(
-                            product.isAvailable
-                                ? Icons.visibility_off_rounded
-                                : Icons.visibility_rounded,
-                            color: theme.colorScheme.secondary,
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Action Menu
+              Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(GoldenRatio.sm),
+                ),
+                child: PopupMenuButton<String>(
+                  icon: Icon(
+                    Icons.more_vert_rounded,
+                    color: theme.colorScheme.secondary,
+                    size: GoldenRatio.lg,
+                  ),
+                  surfaceTintColor: Colors.white,
+                  color: Colors.white,
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(GoldenRatio.md),
+                    side: BorderSide(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                      width: 1,
+                    ),
+                  ),
+                  onSelected: (value) async {
+                    switch (value) {
+                      case 'edit':
+                        _showEditProductDrawer(context, product);
+                        break;
+                      case 'delete':
+                        _showDeleteConfirmation(product, ref);
+                        break;
+                      case 'toggle_availability':
+                        await ref
+                            .read(productProviderRiverpod.notifier)
+                            .updateProduct(
+                              product.copyWith(
+                                isAvailable: !product.isAvailable,
+                              ),
+                            );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.edit_rounded,
+                          color: theme.colorScheme.primary,
+                        ),
+                        title: Text(
+                          loc.edit,
+                          style: TypographySystem.bodyMedium.copyWith(
+                            color: theme.colorScheme.onSurface,
+                            fontWeight: FontWeight.w500,
                           ),
-                          title: Text(
-                            product.isAvailable
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'toggle_availability',
+                      child: ListTile(
+                        leading: Icon(
+                          product.isAvailable
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded,
+                          color: theme.colorScheme.secondary,
+                        ),
+                        title: Text(
+                          product.isAvailable
                               ? loc.makeUnavailable
                               : loc.makeAvailable,
-                            style: TypographySystem.bodyMedium.copyWith(
-                              color: theme.colorScheme.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
+                          style: TypographySystem.bodyMedium.copyWith(
+                            color: theme.colorScheme.onSurface,
+                            fontWeight: FontWeight.w500,
                           ),
-                          contentPadding: EdgeInsets.zero,
                         ),
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.delete_rounded,
-                            color: theme.colorScheme.error,
-                          ),
-                          title: Text(
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.delete_rounded,
+                          color: theme.colorScheme.error,
+                        ),
+                        title: Text(
                           loc.delete,
-                            style: TypographySystem.bodyMedium.copyWith(
+                          style: TypographySystem.bodyMedium.copyWith(
                             color: WhizzColors.error,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            fontWeight: FontWeight.w500,
                           ),
-                          contentPadding: EdgeInsets.zero,
                         ),
+                        contentPadding: EdgeInsets.zero,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -826,8 +839,7 @@ class _ProductsManagementScreenState
                 backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,
                 shadowColor: Colors.transparent,
-                padding:
-                    EdgeInsets.symmetric(
+                padding: EdgeInsets.symmetric(
                     horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -920,8 +932,7 @@ class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
           type: AdaptiveSnackBarType.success,
         );
       } else if (mounted) {
-        final error =
-            ref.read(productProviderRiverpod).error?.message ??
+        final error = ref.read(productProviderRiverpod).error?.message ??
             loc.unknownError;
         showAdaptiveSnackBar(
           context: context,
@@ -1094,14 +1105,12 @@ class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
         fillColor: Colors.white,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide:
-              BorderSide(
+          borderSide: BorderSide(
               color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide:
-              BorderSide(
+          borderSide: BorderSide(
               color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
         ),
         focusedBorder: OutlineInputBorder(
