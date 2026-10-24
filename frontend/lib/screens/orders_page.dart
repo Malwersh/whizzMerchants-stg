@@ -1999,6 +1999,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   }
 
   VoidCallback? _returnAction(Order order) {
+    if (order.merchantHandover?['state'] == 'HANDED_TO_DRIVER' && order.financialAssignment?['returnId'] == null) return null;
     if (widget.employeeAccess == null &&
         order.exceptionCancellation?['state'] == 'REQUESTED') {
       return () => Navigator.of(context).push(MaterialPageRoute(
@@ -2041,6 +2042,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           padding: EdgeInsets.only(bottom: AppSpacing.md),
           child: OrderCard(
             order: order,
+            onHandoverRecorded: () => _loadOrders(order.businessId, preserveNewOrders: true),
             onTap: _returnAction(order),
             actionLabel: _returnAction(order) == null
                 ? null
@@ -2073,6 +2075,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
         final order = orders[index];
         return OrderCard(
           order: order,
+          onHandoverRecorded: () => _loadOrders(order.businessId, preserveNewOrders: true),
           onTap: _returnAction(order),
           actionLabel: _returnAction(order) == null
               ? null

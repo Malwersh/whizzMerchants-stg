@@ -367,6 +367,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                             vehicleType: fullOrder.vehicleType || limitedOrders[i].vehicleType,
                             vehiclePlate: fullOrder.vehiclePlate || fullOrder.licenseNumber || limitedOrders[i].vehiclePlate,
                             driverAssignedAt: fullOrder.driverAssignedAt || fullOrder.assignedAt || limitedOrders[i].driverAssignedAt,
+                            merchantHandover: fullOrder.merchantHandover || limitedOrders[i].merchantHandover,
                             pickedUpAt: fullOrder.pickedUpAt || limitedOrders[i].pickedUpAt,
                             startHeadingToStoreAt: fullOrder.startHeadingToStoreAt || limitedOrders[i].startHeadingToStoreAt,
                             arrivedAtStoreAt: fullOrder.arrivedAtStoreAt || limitedOrders[i].arrivedAtStoreAt
@@ -453,7 +454,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             });
             
             return {
-                exceptionPolicyVersion:order.exceptionPolicy?.version||null, exceptionCancellation:order.exceptionCancellation||null, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', financialAssignment: financialOrderAssignment(order),
+                exceptionPolicyVersion:order.exceptionPolicy?.version||null, exceptionCancellation:order.exceptionCancellation||null, driverSearchUnavailable:order.financialSearch?.status==='no_driver_available'&&order.dispatchStatus==='no_driver_available', merchantHandover:order.merchantHandover||null, financialAssignment: financialOrderAssignment(order),
                 id: order.orderId, // alias for frontend models expecting `id`
                 orderId: order.orderId,
                 orderNumber: orderNumber,
