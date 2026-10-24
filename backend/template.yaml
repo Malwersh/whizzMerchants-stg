@@ -3371,6 +3371,13 @@ Resources:
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Discounts/index/*"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses/index/*"
+            - Sid: ReadAndFenceSharedDiscountApproval
+              Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:ConditionCheckItem]
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-MerchantPlatform"
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ["CAMPAIGN_SHARING_LOCK#MERCHANT#*", "BRANCH#*"]
             - Effect: Allow
               Action:
                 - cognito-idp:GetUser

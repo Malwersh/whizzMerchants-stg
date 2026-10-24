@@ -15,6 +15,7 @@ function fixture() {
         '../shared/branch-product-pricing': require('../functions/shared/branch-product-pricing'),
         '../shared/discount-contract': require('../functions/shared/discount-contract'),
         '../shared/campaign-version': require('../functions/shared/campaign-version'),
+        '../shared/shared-discount-lock': require('../functions/shared/shared-discount-lock'),
         '../shared/merchant-lifecycle': {},
         '@aws-sdk/client-dynamodb': {},
         '@aws-sdk/lib-dynamodb': { PutCommand, GetCommand, QueryCommand },
@@ -34,6 +35,7 @@ function fixture() {
         read: async (kind, pages) => {
             const calls = [];
             const db = { async send(command) {
+                if(command.input.Key)return {};
                 calls.push(command.input);
                 const page = typeof pages === 'function' ? pages(calls.length) : pages[calls.length - 1];
                 if (page instanceof Error) throw page;

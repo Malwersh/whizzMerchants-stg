@@ -30,6 +30,8 @@ enum ConditionalDiscountRule {
 class Discount {
   final String id;
   final String? revision;
+  final bool sharingLocked;
+  final bool sharingCanActivate;
   final String name;
   final String title; // Alias for name for backward compatibility
   final String description;
@@ -57,6 +59,8 @@ class Discount {
   Discount({
     required this.id,
     this.revision,
+    this.sharingLocked = false,
+    this.sharingCanActivate = false,
     required this.name,
     String? title,
     required this.description,
@@ -87,6 +91,8 @@ class Discount {
   factory Discount.fromJson(Map<String, dynamic> json) {
     return Discount(
       revision: json['revision'] as String?,
+      sharingLocked: json['sharingLocked'] == true,
+      sharingCanActivate: json['sharingCanActivate'] == true,
       id: json['discountId'] ?? json['id'] ?? json['discount_id'] ?? '',
       name: json['title'] ?? json['name'] ?? '',
       description: json['description'] ?? '',
@@ -300,6 +306,9 @@ class Discount {
   }) {
     return Discount(
       id: id ?? this.id,
+      revision: revision,
+      sharingLocked: sharingLocked,
+      sharingCanActivate: sharingCanActivate,
       name: name ?? this.name,
       description: description ?? this.description,
       type: type ?? this.type,

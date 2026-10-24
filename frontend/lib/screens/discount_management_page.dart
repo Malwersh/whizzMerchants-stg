@@ -565,7 +565,31 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     }
   }
 
+  Future<void> _showSharedDiscountReplacement(Discount discount) async {
+    final businessId = widget.business.id;
+    final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('خصم مشترك — الشروط مقفلة'),
+      content: const Text('لا يمكن تعديل أو حذف شروط هذا الخصم بعد اعتماد المشاركة. يمكنك إيقافه وإنشاء خصم بديل يحتاج مشاركة وموافقة جديدتين. الطلبات السابقة تحتفظ بشروطها.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
+        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إيقاف الخصم وإنشاء بديل'))],
+    ));
+    if (confirmed != true || !mounted || widget.business.id != businessId) return;
+    try {
+      if (discount.status != DiscountStatus.inactive) {
+        await _apiService.updateDiscount(discount.id, {'status': 'inactive'}, businessId: businessId, baseRevision: discount.revision);
+      }
+      if (!mounted || widget.business.id != businessId) return;
+      await _loadDiscounts();
+      if (!mounted || widget.business.id != businessId) return;
+      _showDiscountDialog(seed: discount);
+    } catch (_) {
+      if (!mounted || widget.business.id != businessId) return;
+      showAdaptiveSnackBar(context: context, message: 'تعذر إيقاف الخصم. أعد تحميل القائمة وحاول مجددًا.', type: AdaptiveSnackBarType.error);
+    }
+  }
+
   Future<void> _toggleDiscountStatus(Discount discount) async {
+    if (discount.sharingLocked && !discount.sharingCanActivate && discount.status != DiscountStatus.active) { await _showSharedDiscountReplacement(discount); return; }
     final businessId = widget.business.id;
     try {
       setState(() {
@@ -728,9 +752,9 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       discount: discount,
                                       onEdit: () =>
                                           _showEditDiscountDialog(discount),
-                                      onDelete: () =>
-                                          _showDeleteConfirmationDialog(
-                                              discount),
+                                      onDelete: () => discount.sharingLocked
+                                          ? _showSharedDiscountReplacement(discount)
+                                          : _showDeleteConfirmationDialog(discount),
                                       onToggleStatus: () =>
                                           _toggleDiscountStatus(discount),
                                     ),
@@ -1021,6 +1045,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   void _showEditDiscountDialog(Discount discount) {
+    if (discount.sharingLocked) { _showSharedDiscountReplacement(discount); return; }
     _showDiscountDialog(discount: discount);
   }
 
@@ -1147,8 +1172,9 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     builder: (routeContext) => arabicMerchantDiscountContent(routeContext, builder),
   );
 
-  void _showDiscountDialog({Discount? discount}) {
+  void _showDiscountDialog({Discount? discount, Discount? seed}) {
     final isEditing = discount != null;
+    discount ??= seed;
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: discount?.title ?? '');
     final valueController = TextEditingController(
@@ -2420,8 +2446,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                     }
 
                                     final newDiscount = Discount(
-                                      revision: discount?.revision,
-                                      id: discount?.id ??
+                                      revision: isEditing ? discount?.revision : null,
+                                      id: (isEditing ? discount?.id : null) ??
                                           DateTime.now()
                                               .millisecondsSinceEpoch
                                               .toString(),
@@ -2443,9 +2469,9 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       validTo: endDate,
                                       businessId: widget.business.id,
                                       createdAt:
-                                          discount?.createdAt ?? DateTime.now(),
+                                          (isEditing ? discount?.createdAt : null) ?? DateTime.now(),
                                       updatedAt: DateTime.now(),
-                                      status: DiscountStatus.active,
+                                      status: seed != null ? DiscountStatus.inactive : DiscountStatus.active,
                                       conditionalRule: conditionalRule,
                                       conditionalParameters: conditionalParams,
                                     );
@@ -3301,8 +3327,20 @@ class DiscountCard extends StatelessWidget {
 
                   SizedBox(height: GoldenRatio.spacing12),
 
-                  // Action buttons
-                  Row(
+                  if (discount.sharingLocked)
+                    const Padding(padding: EdgeInsets.only(bottom: 8), child: Text('خصم مشترك معتمد — الشروط مقفلة. لتغييرها أوقفه وأنشئ بديلًا.')),
+                  // Explicit actions for approved shared campaigns.
+                  if (discount.sharingLocked)
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      if (discount.status == DiscountStatus.active || discount.sharingCanActivate)
+                        TextButton.icon(onPressed: onToggleStatus,
+                          icon: Icon(discount.status == DiscountStatus.active ? Icons.pause : Icons.play_arrow),
+                          label: Text(discount.status == DiscountStatus.active ? 'إيقاف الخصم' : 'تشغيل الخصم')),
+                      OutlinedButton.icon(onPressed: onEdit, icon: const Icon(Icons.copy_outlined),
+                        label: Text(discount.status == DiscountStatus.active ? 'إيقاف الخصم وإنشاء بديل' : 'إنشاء خصم بديل')),
+                    ]),
+                  // Actions for independently funded discounts.
+                  if (!discount.sharingLocked) Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       _buildActionButton(
@@ -3316,13 +3354,13 @@ class DiscountCard extends StatelessWidget {
                       ),
                       SizedBox(width: GoldenRatio.spacing8),
                       _buildActionButton(
-                        icon: Icons.edit_outlined,
+                        icon: discount.sharingLocked ? Icons.copy_outlined : Icons.edit_outlined,
                         color: WhizzColors.secondary,
                         onPressed: onEdit,
                       ),
                       SizedBox(width: GoldenRatio.spacing8),
                       _buildActionButton(
-                        icon: Icons.delete_outline,
+                        icon: discount.sharingLocked ? Icons.stop_circle_outlined : Icons.delete_outline,
                         color: WhizzColors.error,
                         onPressed: onDelete,
                       ),
