@@ -32,6 +32,10 @@ const headers = {
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 const validReference=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,150}$/.test(value);
+async function requirePublishedMenu(businessId){
+    const {Item}=await lifecycleRawDb.send(new GetCommand({TableName:process.env.MERCHANT_PLATFORM_TABLE||'staging-MerchantPlatform',Key:{pk:'BRANCH#'+businessId,sk:'MENU_VERSION#ACTIVE'},ConsistentRead:true}));
+    if(!Item)throw Object.assign(Error('MENU_PUBLISH_REQUIRED'),{status:409});
+}
 
 // Helper function to create response
 function createResponse(statusCode, body) {
@@ -477,13 +481,22 @@ module.exports.handler = async (event) => {
         return createResponse(403,{success:false,code:'IMPORT_PERMISSION_REQUIRED'});
     }
     if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&!path.startsWith('/products/imports/')&&path.startsWith('/products')){
+        await requirePublishedMenu(actor.businessId);
         const mutationActor={...actor,ownerId:actor.ownerId||actor.sub,deviceGuards:actor.deviceGuards||[]};
         const result=await require('../shared/branch-device-menu').mutate(actor.deviceGuards?lifecycleRawDb:docClient,mutationActor,event);
         return {...result,headers};
     }
     // Route products endpoints
+        if(path==='/menu/versions'||path==='/menu/versions/publish'||path==='/menu/versions/rollback'){
+            if(actor?.deviceGuards)return createResponse(403,{success:false,code:'MENU_PUBLISH_PERMISSION_REQUIRED'});
+            const versions=require('./menu_versions').createMenuVersionService(docClient,{actor:()=>actor});const businessId=actor.businessId;
+            if(httpMethod==='GET')return createResponse(200,{success:true,...await versions.status(businessId)});
+            if(httpMethod==='POST'&&path.endsWith('/publish'))return createResponse(200,{success:true,active:await versions.publish(businessId,JSON.parse(event.body||'{}'))});
+            if(httpMethod==='POST'&&path.endsWith('/rollback'))return createResponse(200,{success:true,active:await versions.rollback(businessId,JSON.parse(event.body||'{}'))});
+        }
         if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&path.startsWith('/categories')){
             if(actor.deviceGuards)return createResponse(403,{success:false,code:'CATEGORY_PERMISSION_REQUIRED'});
+            await requirePublishedMenu(actor.businessId);
             const categories=require('./branch_categories').createBranchCategoryService(docClient,{actor:()=>actor});
             const category=await categories.mutate(actor.businessId,event);return createResponse(httpMethod==='POST'?201:200,{success:true,category});
         }
@@ -497,7 +510,7 @@ module.exports.handler = async (event) => {
             const productImports=require('./product_import').createProductImportService(docClient,{actor:()=>require('../shared/merchant-lifecycle').merchantRequestContext.getStore()});
             const jobId=event.pathParameters?.importJobId||path.split('/')[3];
             if(httpMethod==='GET')return createResponse(200,{success:true,job:await productImports.get(businessId,jobId)});
-            if(httpMethod==='POST'&&path.endsWith('/commit'))return createResponse(200,{success:true,job:await productImports.commit(businessId,jobId,JSON.parse(event.body||'{}'))});
+            if(httpMethod==='POST'&&path.endsWith('/commit')){await requirePublishedMenu(businessId);return createResponse(200,{success:true,job:await productImports.commit(businessId,jobId,JSON.parse(event.body||'{}'))});}
         }
         if (path.startsWith('/products/global-search')) {
             return handleGlobalSearch(event);

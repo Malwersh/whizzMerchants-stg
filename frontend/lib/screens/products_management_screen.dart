@@ -10,6 +10,7 @@ import 'branch_categories_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/whizz_search_bar.dart';
+import '../services/product_service.dart';
 
 class ProductsManagementScreen extends ConsumerStatefulWidget {
   final Business business;
@@ -25,12 +26,16 @@ class _ProductsManagementScreenState
     extends ConsumerState<ProductsManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _menuBusy = false;
+  Map<String, dynamic>? _activeMenu;
+  List<Map<String, dynamic>> _menuVersions = [];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(productProviderRiverpod.notifier).loadProducts();
+      _loadMenuVersions();
     });
   }
 
@@ -47,6 +52,7 @@ class _ProductsManagementScreenState
       body: SafeArea(
         child: Column(
           children: [
+            _buildPublishBar(),
             _buildSearchSection(),
             Expanded(
               child: _buildProductContent(),
@@ -55,6 +61,52 @@ class _ProductsManagementScreenState
         ),
       ),
       floatingActionButton: _buildModernFAB(),
+    );
+  }
+
+  Future<void> _loadMenuVersions() async {
+    final result = await ProductService.getMenuVersions(widget.business.id);
+    if (!mounted || result['success'] != true) return;
+    setState(() {
+      _activeMenu = result['active'] is Map ? Map<String, dynamic>.from(result['active']) : null;
+      _menuVersions = (result['versions'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    });
+  }
+
+  Future<void> _publishMenu() async {
+    setState(() => _menuBusy = true);
+    final result = await ProductService.publishMenu(widget.business.id);
+    if (!mounted) return;
+    setState(() => _menuBusy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['success'] == true ? (result['active']?['unchanged'] == true ? 'القائمة المنشورة مطابقة لمسودة العمل' : 'تم نشر القائمة للعملاء بأمان') : '${result['message']}')));
+    if (result['success'] == true) await _loadMenuVersions();
+  }
+
+  Future<void> _rollbackMenu(String version) async {
+    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: const Text('استرجاع نسخة سابقة؟'), content: const Text('ستصبح هذه النسخة هي القائمة الظاهرة للعملاء فوراً.'), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('استرجاع'))])) ?? false;
+    if (!confirmed || !mounted) return;
+    setState(() => _menuBusy = true);
+    final result = await ProductService.rollbackMenu(widget.business.id, version);
+    if (!mounted) return;
+    setState(() => _menuBusy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['success'] == true ? 'تم استرجاع النسخة' : '${result['message']}')));
+    if (result['success'] == true) await _loadMenuVersions();
+  }
+
+  Widget _buildPublishBar() {
+    final publishedAt = _activeMenu?['publishedAt']?.toString();
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(children: [
+          const Icon(Icons.cloud_done_outlined), const SizedBox(width: 10),
+          Expanded(child: Text(publishedAt == null ? 'لم تُنشر القائمة بعد. التعديلات الحالية مسودة.' : 'آخر نشر: ${publishedAt.replaceFirst('T', ' ').split('.').first}')),
+          if (_menuVersions.length > 1) PopupMenuButton<String>(tooltip: 'سجل النسخ', icon: const Icon(Icons.history), onSelected: _rollbackMenu, itemBuilder: (_) => _menuVersions.where((v) => v['status'] != 'ACTIVE').map((v) => PopupMenuItem(value: v['version']?.toString(), child: Text('${v['publishedAt']?.toString().replaceFirst('T', ' ').split('.').first ?? ''} · ${v['productCount'] ?? 0} منتج'))).toList()),
+          const SizedBox(width: 8),
+          FilledButton.icon(onPressed: _menuBusy ? null : _publishMenu, icon: _menuBusy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.publish), label: const Text('نشر')),
+        ]),
+      ),
     );
   }
 

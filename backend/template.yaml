@@ -1620,6 +1620,24 @@ Resources:
                     type: aws_proxy
                     httpMethod: POST
                     uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /menu/versions:
+                get:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /menu/versions/publish:
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /menu/versions/rollback:
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
               
               # NEW: Product search endpoint (internal auth)
               /products/search:
@@ -3001,7 +3019,7 @@ Resources:
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow
-              Action: [dynamodb:PutItem, dynamodb:GetItem, dynamodb:UpdateItem, dynamodb:ConditionCheckItem]
+              Action: [dynamodb:PutItem, dynamodb:GetItem, dynamodb:UpdateItem, dynamodb:ConditionCheckItem, dynamodb:Query]
               Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-MerchantPlatform"
               Condition:
                 ForAllValues:StringLike:

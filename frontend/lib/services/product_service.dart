@@ -639,4 +639,31 @@ class ProductService {
     await scope.assertCurrent();
     return {'success': true, 'job': Map<String, dynamic>.from(data['job'])};
   }
+
+  static Future<Map<String, dynamic>> getMenuVersions(String businessId) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientGet(scope.uri('$baseUrl/menu/versions'));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر تحميل سجل النشر'};
+    await scope.assertCurrent();
+    return {'success': true, 'active': data['active'], 'versions': data['versions'] ?? []};
+  }
+
+  static Future<Map<String, dynamic>> publishMenu(String businessId) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientPost(scope.uri('$baseUrl/menu/versions/publish'), scope.body({'requestId': const Uuid().v4()}));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر نشر القائمة'};
+    await scope.assertCurrent();
+    return {'success': true, 'active': data['active']};
+  }
+
+  static Future<Map<String, dynamic>> rollbackMenu(String businessId, String version) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientPost(scope.uri('$baseUrl/menu/versions/rollback'), scope.body({'requestId': const Uuid().v4(), 'version': version}));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر استرجاع النسخة'};
+    await scope.assertCurrent();
+    return {'success': true, 'active': data['active']};
+  }
 }
