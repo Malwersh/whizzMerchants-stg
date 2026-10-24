@@ -9,10 +9,14 @@ import 'token_refresh_service.dart'; // added
 
 class OrderService {
   final String baseUrl = AppConfig.baseUrl;
+  final Future<String?> Function() _tokenProvider;
+
+  OrderService({Future<String?> Function()? tokenProvider})
+      : _tokenProvider = tokenProvider ?? AppAuthService.getAccessToken;
 
   Future<String?> _getToken() async {
     try {
-      final token = await AppAuthService.getAccessToken();
+      final token = await _tokenProvider();
       if (token == null || token.isEmpty) return null;
       return token;
     } catch (_) {
@@ -20,7 +24,8 @@ class OrderService {
     }
   }
 
-  Future<List<Order>> getMerchantOrders(String? businessId, {String? status}) async {
+  Future<List<Order>> getMerchantOrders(String? businessId,
+      {String? status}) async {
     AppLogger.api('OrderService.getMerchantOrders called');
 
     AppLogger.api('businessId: $businessId');
@@ -75,7 +80,8 @@ class OrderService {
             await TokenRefreshService.refreshTokens();
             continue; // retry
           }
-          AppLogger.warning('[OrderService] Auth error - user needs to re-login (wizzuser approach)');
+          AppLogger.warning(
+              '[OrderService] Auth error - user needs to re-login (wizzuser approach)');
           return [];
         }
 
@@ -144,7 +150,8 @@ class OrderService {
         AppLogger.error('Error type: ${e.runtimeType}');
 
         if (attempt >= maxAttempts) {
-          AppLogger.warning('[OrderService] Max attempts reached, returning empty list (wizzuser approach)');
+          AppLogger.warning(
+              '[OrderService] Max attempts reached, returning empty list (wizzuser approach)');
           return [];
         }
         // For network errors we can break early
@@ -159,7 +166,8 @@ class OrderService {
     }
   }
 
-  Future<void> acceptMerchantOrder(String orderId, {int preparationMinutes = 20, String? businessId}) async {
+  Future<void> acceptMerchantOrder(String orderId,
+      {int preparationMinutes = 20, String? businessId}) async {
     final token = await _getToken();
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
@@ -171,11 +179,15 @@ class OrderService {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'estimatedPreparationTime': preparationMinutes, if(businessId!=null)'businessId':businessId}),
+      body: jsonEncode({
+        'estimatedPreparationTime': preparationMinutes,
+        if (businessId != null) 'businessId': businessId
+      }),
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error confirming order - user needs to re-login (wizzuser approach)');
+      AppLogger.warning(
+          '[OrderService] Auth error confirming order - user needs to re-login (wizzuser approach)');
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {
@@ -183,7 +195,8 @@ class OrderService {
     }
   }
 
-  Future<void> rejectMerchantOrder(String orderId, String businessId, {String? reason}) async {
+  Future<void> rejectMerchantOrder(String orderId, String businessId,
+      {String? reason}) async {
     final token = await _getToken();
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
@@ -191,15 +204,22 @@ class OrderService {
 
     final response = await http.put(
       Uri.parse('$baseUrl/merchant/order/$orderId/reject'),
-      headers:{'Authorization':'Bearer $token','Content-Type':'application/json'},
-      body:jsonEncode({'businessId':businessId,'reason':reason??'تم رفض الطلب من المطعم'}),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json'
+      },
+      body: jsonEncode({
+        'businessId': businessId,
+        'reason': reason ?? 'تم رفض الطلب من المطعم'
+      }),
     );
 
     AppLogger.debug('Response status: ${response.statusCode}');
     AppLogger.debug('Response body: ${response.body}');
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error rejecting order - user needs to re-login');
+      AppLogger.warning(
+          '[OrderService] Auth error rejecting order - user needs to re-login');
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {
@@ -232,7 +252,8 @@ class OrderService {
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error expiring order - user needs to re-login (wizzuser approach)');
+      AppLogger.warning(
+          '[OrderService] Auth error expiring order - user needs to re-login (wizzuser approach)');
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {
@@ -240,7 +261,11 @@ class OrderService {
     }
   }
 
-  Future<void> updateMerchantOrderStatus(String orderId, String status) async {
+  Future<void> updateMerchantOrderStatus(String orderId, String status,
+      {required String businessId}) async {
+    if (businessId.trim().isEmpty) {
+      throw ArgumentError.value(businessId, 'businessId', 'Branch is required');
+    }
     final token = await _getToken();
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
@@ -255,12 +280,15 @@ class OrderService {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'status': backendStatus}),
+      body: jsonEncode({'status': backendStatus, 'businessId': businessId}),
     );
 
-    if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error updating order status - user needs to re-login (wizzuser approach)');
-      throw Exception('Authentication required - please re-login');
+    if (response.statusCode == 401) {
+      throw AuthTokenExpiredException('يرجى تسجيل الدخول مجددًا');
+    }
+    if (response.statusCode == 403) {
+      throw Exception(
+          'لا تملك صلاحية تحديث الطلب في هذا الفرع. حدّث قائمة أفرعك.');
     }
     if (response.statusCode != 200) {
       throw Exception('Failed to update order status');
@@ -276,9 +304,9 @@ class OrderService {
       case 'preparing':
         return 'preparing';
       case 'ready':
-        return 'ready';  // backward compatibility
-      case 'readyforpickup':  // ✅ الحالة الجديدة من enum
-        return 'ready_for_pickup';  // ✅ Backend format
+        return 'ready'; // backward compatibility
+      case 'readyforpickup': // ✅ الحالة الجديدة من enum
+        return 'ready_for_pickup'; // ✅ Backend format
       case 'ontheway':
       case 'on_the_way':
         return 'on_the_way';
@@ -322,7 +350,8 @@ class OrderService {
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error cancel by user - user needs to re-login (wizzuser approach)');
+      AppLogger.warning(
+          '[OrderService] Auth error cancel by user - user needs to re-login (wizzuser approach)');
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {
@@ -348,7 +377,8 @@ class OrderService {
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error cancel by store - user needs to re-login (wizzuser approach)');
+      AppLogger.warning(
+          '[OrderService] Auth error cancel by store - user needs to re-login (wizzuser approach)');
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {
@@ -374,7 +404,8 @@ class OrderService {
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {
-      AppLogger.warning('[OrderService] Auth error cancel by system - user needs to re-login (wizzuser approach)');
+      AppLogger.warning(
+          '[OrderService] Auth error cancel by system - user needs to re-login (wizzuser approach)');
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {

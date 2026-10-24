@@ -111,7 +111,7 @@ class _DiscountState extends State<BranchEmployeeDiscountsScreen> {
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
   Future<void> edit([Map<String, dynamic>? item]) async {
     if (!can(item == null ? 'createDiscounts' : 'editDiscounts') ||
-        item != null && item['editable'] != true) {
+        item != null && (item['editable'] != true || item['sharingLocked'] == true)) {
       return;
     }
     final originalScope = scope(widget.access);
@@ -356,16 +356,16 @@ class _DiscountState extends State<BranchEmployeeDiscountsScreen> {
               child: ListTile(
                   title: Text(item['title']?.toString() ?? 'خصم'),
                   subtitle: Text(
-                      '${item['value'] ?? 'غير مسجل'} ${item['type'] == 'percentage' ? '%' : 'د.ع'} • ${item['status'] == 'active' ? 'مفعّل' : 'متوقف أو مجدول'}\n${item['valid_from'] ?? ''} — ${item['valid_to'] ?? ''}'),
+                      '${item['sharingLocked'] == true ? 'خصم مشترك — الشروط مقفلة\n' : ''}${item['value'] ?? 'غير مسجل'} ${item['type'] == 'percentage' ? '%' : 'د.ع'} • ${item['status'] == 'active' ? 'مفعّل' : 'متوقف أو مجدول'}\n${item['valid_from'] ?? ''} — ${item['valid_to'] ?? ''}'),
                   trailing: item['editable'] != true
                       ? const Text('للقراءة فقط')
                       : Row(mainAxisSize: MainAxisSize.min, children: [
-                          if (can('editDiscounts'))
+                          if (can('editDiscounts') && item['sharingLocked'] != true)
                             IconButton(
                                 onPressed: busy ? null : () => edit(item),
                                 icon: const Icon(Icons.edit_outlined),
                                 tooltip: 'تعديل الخصم'),
-                          if (can('activateDiscounts'))
+                          if (can('activateDiscounts') && !(item['sharingLocked'] == true && item['sharingCanActivate'] != true && item['status'] != 'active'))
                             IconButton(
                                 onPressed:
                                     busy ? null : () => change(item, false),
@@ -375,7 +375,7 @@ class _DiscountState extends State<BranchEmployeeDiscountsScreen> {
                                 tooltip: item['status'] == 'active'
                                     ? 'إيقاف الخصم'
                                     : 'تفعيل الخصم'),
-                          if (can('deleteDiscounts'))
+                          if (can('deleteDiscounts') && item['sharingLocked'] != true)
                             IconButton(
                                 onPressed:
                                     busy ? null : () => change(item, true),

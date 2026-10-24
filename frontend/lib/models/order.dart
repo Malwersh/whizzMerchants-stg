@@ -97,6 +97,7 @@ class OrderItem {
 class Order {
   final bool driverSearchUnavailable;
   final Map<String,dynamic>? financialAssignment;
+  final Map<String,dynamic>? merchantHandover;
   final Map<String,dynamic>? exceptionCancellation;
   final String? exceptionPolicyVersion;
   DateTime? merchantAcceptanceDeadlineAt;
@@ -132,6 +133,7 @@ class Order {
     this.driverSearchUnavailable = false,
     this.financialAssignment,
     this.exceptionCancellation,
+    this.merchantHandover,
     this.exceptionPolicyVersion,
     this.merchantAcceptanceDeadlineAt,
     this.estimatedPreparationTime,
@@ -194,6 +196,7 @@ class Order {
           json['driverId'] == null && json['assignedDriverId'] == null &&
           ['ready', 'ready_for_pickup', 'reassigning'].contains(json['status']),
       exceptionPolicyVersion: json['exceptionPolicyVersion']?.toString(),
+      merchantHandover: json['merchantHandover'] is Map ? Map<String,dynamic>.unmodifiable(json['merchantHandover']) : null,
       exceptionCancellation: json['exceptionCancellation'] is Map ? Map<String,dynamic>.unmodifiable(json['exceptionCancellation']) : null,
       financialAssignment: json['financialAssignment'] is Map ? Map<String,dynamic>.unmodifiable(json['financialAssignment']) : null,
       merchantAcceptanceDeadlineAt: _parseDateTime(json['merchantAcceptanceDeadlineAt']),
@@ -396,6 +399,7 @@ class Order {
       'id': id,
       'driverSearchUnavailable': driverSearchUnavailable,
       if(financialAssignment!=null) 'financialAssignment': financialAssignment,
+      if(merchantHandover!=null) 'merchantHandover': merchantHandover,
       if(exceptionCancellation!=null) 'exceptionCancellation': exceptionCancellation,
       if(exceptionPolicyVersion!=null) 'exceptionPolicyVersion': exceptionPolicyVersion,
       'merchantAcceptanceDeadlineAt': merchantAcceptanceDeadlineAt?.toIso8601String(),
@@ -447,6 +451,7 @@ class Order {
           [OrderStatus.ready, OrderStatus.readyForPickup, OrderStatus.reassigning].contains(status ?? this.status),
       financialAssignment: financialAssignment,
       exceptionCancellation: exceptionCancellation,
+      merchantHandover: merchantHandover,
       exceptionPolicyVersion: exceptionPolicyVersion,
       merchantAcceptanceDeadlineAt: merchantAcceptanceDeadlineAt,
       estimatedPreparationTime: estimatedPreparationTime,

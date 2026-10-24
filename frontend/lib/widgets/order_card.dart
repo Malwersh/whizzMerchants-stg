@@ -1,3 +1,4 @@
+import 'merchant_handover_button.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ String formatOrderCardIqd(double amount) =>
 class OrderCard extends ConsumerWidget {
   final Order order;
   final VoidCallback? onTap;
+  final VoidCallback? onHandoverRecorded;
   final String? actionLabel;
   final bool Function(OrderStatus)? canUpdateStatus;
   bool allows(OrderStatus status) => canUpdateStatus?.call(status) ?? true;
@@ -22,6 +24,7 @@ class OrderCard extends ConsumerWidget {
     super.key,
     required this.order,
     this.onTap,
+    this.onHandoverRecorded,
     this.actionLabel,
     this.canUpdateStatus,
     required this.onOrderUpdated,
@@ -433,6 +436,8 @@ class OrderCard extends ConsumerWidget {
                   ),
                 ),
               ],
+
+              if (canUpdateStatus == null) MerchantHandoverButton(key: ValueKey('handover-${order.id}-${order.financialAssignment?['attempt']}'), order: order, onRecorded: onHandoverRecorded),
 
               // 🚗 عرض معلومات السائق في جميع حالات التوصيل (ready → delivered)
               if (order.driverId != null &&

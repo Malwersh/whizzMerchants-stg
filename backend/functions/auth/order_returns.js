@@ -5,6 +5,7 @@ const TARGET='arn:aws:lambda:us-east-1:699561669180:function:staging-driver-fina
 const error=(code,status=409)=>Object.assign(Error(code),{status});
 // Financial mutation stays in the existing financial writer; this service only verifies ownership and invokes it.
 async function route({db,sub},event,input,client=new LambdaClient({region:'us-east-1'})){
+ if(event.path==='/auth/order-cancellation'&&input?.handover===true)return require('./merchant_handover_proxy').route(event,input,client);
  if(event.path==='/auth/order-returns'&&input?.custodyAction!==undefined)return require('./return_continuation_proxy').route({db,sub},event,input,client);
  const cancel=event.path==='/auth/order-cancellation';
  if((cancel?process.env.FINANCIAL_COD_ASSIGNMENTS_MODE:process.env.FINANCIAL_COD_RETURNS_MODE)!=='REQUIRED'||process.env.FINANCIAL_ACCEPT_FUNCTION_ARN!==TARGET)throw error('COD_RETURNS_DISABLED');

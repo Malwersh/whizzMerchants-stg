@@ -30,6 +30,8 @@ enum ConditionalDiscountRule {
 class Discount {
   final String id;
   final String? revision;
+  final bool sharingLocked;
+  final bool sharingCanActivate;
   final String name;
   final String title; // Alias for name for backward compatibility
   final String description;
@@ -43,6 +45,8 @@ class Discount {
   final DateTime validTo; // Alias for endDate
   final double? minimumOrderAmount;
   final int? maxUsage;
+  final int? perCustomerLimit;
+  final num? maxDiscountAmount;
   final int currentUsage;
   final List<String> applicableItemIds;
   final List<String> applicableCategoryIds;
@@ -58,6 +62,8 @@ class Discount {
   Discount({
     required this.id,
     this.revision,
+    this.sharingLocked = false,
+    this.sharingCanActivate = false,
     required this.name,
     String? title,
     required this.description,
@@ -71,6 +77,8 @@ class Discount {
     DateTime? validTo,
     this.minimumOrderAmount,
     this.maxUsage,
+    this.perCustomerLimit,
+    this.maxDiscountAmount,
     this.currentUsage = 0,
     this.applicableItemIds = const [],
     this.applicableCategoryIds = const [],
@@ -89,6 +97,8 @@ class Discount {
   factory Discount.fromJson(Map<String, dynamic> json) {
     return Discount(
       revision: json['revision'] as String?,
+      sharingLocked: json['sharingLocked'] == true,
+      sharingCanActivate: json['sharingCanActivate'] == true,
       id: json['discountId'] ?? json['id'] ?? json['discount_id'] ?? '',
       name: json['title'] ?? json['name'] ?? '',
       description: json['description'] ?? '',
@@ -111,6 +121,8 @@ class Discount {
       minimumOrderAmount:
           (json['minimum_order_amount'] ?? json['minimumOrderAmount'])
               ?.toDouble(),
+      perCustomerLimit: json['singleUse'] == true ? 1 : json['perCustomerLimit'],
+      maxDiscountAmount: json['maxDiscountAmount'] ?? json['maxDiscount'],
       maxUsage: json['usage_limit'] ??
           json['usageLimit'] ??
           json['maxUsage'] ??
@@ -237,7 +249,10 @@ class Discount {
       'validFrom': _wireDate(validFrom), // Backend expects validFrom
       'validTo': _wireDate(validTo), // Backend expects validTo
       'minimumOrderAmount': minimumOrderAmount,
+      'usageLimit': maxUsage,
       'maxUsage': maxUsage,
+      'perCustomerLimit': perCustomerLimit,
+      'maxDiscountAmount': maxDiscountAmount,
       'currentUsage': currentUsage,
       'applicableItemIds': applicableItemIds,
       'applicableCategoryIds': applicableCategoryIds,
@@ -293,6 +308,8 @@ class Discount {
     DateTime? endDate,
     double? minimumOrderAmount,
     int? maxUsage,
+    int? perCustomerLimit,
+    num? maxDiscountAmount,
     int? currentUsage,
     List<String>? applicableItemIds,
     List<String>? applicableCategoryIds,
@@ -305,6 +322,9 @@ class Discount {
   }) {
     return Discount(
       id: id ?? this.id,
+      revision: revision,
+      sharingLocked: sharingLocked,
+      sharingCanActivate: sharingCanActivate,
       name: name ?? this.name,
       description: description ?? this.description,
       type: type ?? this.type,
@@ -315,6 +335,8 @@ class Discount {
       endDate: endDate ?? this.endDate,
       minimumOrderAmount: minimumOrderAmount ?? this.minimumOrderAmount,
       maxUsage: maxUsage ?? this.maxUsage,
+      perCustomerLimit: perCustomerLimit ?? this.perCustomerLimit,
+      maxDiscountAmount: maxDiscountAmount ?? this.maxDiscountAmount,
       currentUsage: currentUsage ?? this.currentUsage,
       applicableItemIds: applicableItemIds ?? this.applicableItemIds,
       applicableCategoryIds:

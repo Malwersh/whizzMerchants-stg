@@ -33,7 +33,9 @@ function createResponse(statusCode, body) {
     };
 }
 
-function discountFailure(error,message){const conflict=['TransactionCanceledException','ConditionalCheckFailedException'].includes(error.name);return createResponse(error.status||(conflict?409:500),{success:false,code:error.status?error.message:conflict?'VERSION_OR_STATE_CONFLICT':'DISCOUNT_WRITE_FAILED',message:conflict?'تغير الخصم أو استخدامه؛ أعد تحميل القائمة.':message});}
+function discountFailure(error,message){const conflict=['TransactionCanceledException','ConditionalCheckFailedException'].includes(error.name);return createResponse(error.status||(conflict?409:500),{success:false,code:error.status?error.message:conflict?'VERSION_OR_STATE_CONFLICT':'DISCOUNT_WRITE_FAILED',message:error.message==='INVALID_DISCOUNT_USAGE_LIMIT'?'أدخل حدود الاستخدام كأعداد صحيحة أكبر من صفر، أو اتركها فارغة دون حد.':error.message==='SHARED_DISCOUNT_TERMS_LOCKED'?'هذا خصم مشترك معتمد؛ لا يمكن تعديل شروطه. أوقفه وأنشئ خصمًا جديدًا.':error.message==='SHARED_DISCOUNT_DELETE_FORBIDDEN'?'لا يمكن حذف سجل خصم مشترك. يمكنك إيقافه وإنشاء بديل.':error.message==='SHARED_DISCOUNT_RESTART_FORBIDDEN'?'هذا الخصم المشترك متوقف؛ أنشئ بديلًا بمشاركة وموافقة جديدتين.':conflict?'تغير الخصم أو استخدامه؛ أعد تحميل القائمة.':message});}
+
+function validateUsageTerms(data){for(const name of ['usageLimit','perCustomerLimit','maxDiscountAmount']){const value=data[name];if(value!==undefined&&value!==null&&(!Number.isSafeInteger(value)||value<1||value>1000000000))throw Object.assign(Error('INVALID_DISCOUNT_USAGE_LIMIT'),{status:400});}}
 
 // Environment variables
 const DISCOUNTS_TABLE = process.env.DISCOUNTS_TABLE || 'WhizzMerchants_Discounts';
@@ -182,6 +184,8 @@ async function readBusinessDiscounts(dynamodb, businessId) {
     throw Object.assign(Error('DISCOUNT_LIST_INCOMPLETE'), { statusCode: 503 });
 }
 
+async function sharingView(db,row){const lock=await require('../shared/shared-discount-lock').read(db,'MERCHANT',row);return {sharingLocked:lock.locked,sharingCanActivate:lock.initiallyInactive&&!row.sharedStopped};}
+
 // GET /discounts - Get all discounts for a business
 async function handleGetDiscounts(dynamodb, businessId) {
     try {
@@ -189,7 +193,7 @@ async function handleGetDiscounts(dynamodb, businessId) {
 
         return createResponse(200, {
             success: true,
-            discounts: discounts.map(row=>({...row,revision:revision(row)})),
+            discounts: await Promise.all(discounts.map(async row=>({...row,revision:revision(row),...await sharingView(dynamodb,row)}))),
             count: discounts.length
         });
     } catch (error) {
@@ -201,6 +205,7 @@ async function handleGetDiscounts(dynamodb, businessId) {
 // POST /discounts - Create a new discount
 async function handleCreateDiscount(dynamodb, businessId, discountData) {
     try {
+        validateUsageTerms(discountData);
         // Validate required fields
         const requiredFields = ['title', 'type', 'value', 'validFrom', 'validTo'];
         for (const field of requiredFields) {
@@ -289,7 +294,10 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
             minimum_order_amount: parseFloat(discountData.minimumOrderAmount || 0),
             valid_from: discountData.validFrom,
             valid_to: discountData.validTo,
-            usage_limit: discountData.usageLimit || null,
+            usage_limit: discountData.usageLimit ?? null,
+            perCustomerLimit: discountData.perCustomerLimit ?? null,
+            singleUse: discountData.perCustomerLimit === 1,
+            maxDiscountAmount: discountData.maxDiscountAmount ?? null,
             usage_count: 0,
             status: discountData.status || 'active',
             conditional_rule: discountData.conditionalRule || null,
@@ -341,7 +349,7 @@ async function handleGetDiscount(dynamodb, businessId, discountId) {
 
         return createResponse(200, {
             success: true,
-            discount: result.Item
+            discount: {...result.Item,revision:revision(result.Item),...await sharingView(dynamodb,result.Item)}
         });
     } catch (error) {
         console.error('Error getting discount:', error);
@@ -352,6 +360,7 @@ async function handleGetDiscount(dynamodb, businessId, discountId) {
 // PUT /discounts/{discountId} - Update a discount
 async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData) {
     try {
+        validateUsageTerms(updateData);
         // First, verify the discount exists and belongs to the user's business
         const existingDiscount = await handleGetDiscount(dynamodb, businessId, discountId);
         if (existingDiscount.statusCode !== 200) {
@@ -369,6 +378,8 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
         const expressionAttributeValues = {
             ':timestamp': new Date().toISOString()
         };
+        for(const field of ['perCustomerLimit','maxDiscountAmount'])if(updateData[field]!==undefined){expressionAttributeNames['#'+field]=field;expressionAttributeValues[':'+field]=updateData[field];updateExpression+=', #'+field+' = :'+field;}
+        if(updateData.perCustomerLimit!==undefined){expressionAttributeNames['#singleUse']='singleUse';expressionAttributeValues[':singleUse']=updateData.perCustomerLimit===1;updateExpression+=', #singleUse = :singleUse';}
         const validTypes = ['percentage', 'fixedAmount', 'freeDelivery'];
         const effectiveType = updateData.type !== undefined
             ? updateData.type
@@ -477,9 +488,10 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
             expressionAttributeValues[':imageUrl'] = updateData.imageUrl;
         }
 
-        const old=JSON.parse(existingDiscount.body).discount;
+        const {revision:_revision,sharingLocked:_sharingLocked,sharingCanActivate:_sharingCanActivate,...old}=JSON.parse(existingDiscount.body).discount;
         const fieldMap={minimumOrderAmount:'minimum_order_amount',validFrom:'valid_from',validTo:'valid_to',usageLimit:'usage_limit',applicableItemIds:'applicable_item_ids',applicableCategoryIds:'applicable_category_ids',conditionalRule:'conditional_rule',conditionalParameters:'conditional_parameters'};
-        const patch=Object.fromEntries(Object.entries(updateData).filter(([key])=>['title','description','type','value','applicability',...Object.keys(fieldMap),'status','imageUrl'].includes(key)).map(([key,value])=>[fieldMap[key]||key,value]));
+        const patch=Object.fromEntries(Object.entries(updateData).filter(([key])=>['title','description','type','value','applicability',...Object.keys(fieldMap),'status','imageUrl','perCustomerLimit','maxDiscountAmount'].includes(key)).map(([key,value])=>[fieldMap[key]||key,value]));
+        if(updateData.perCustomerLimit!==undefined)patch.singleUse=updateData.perCustomerLimit===1;
         const next=patchTerms(old,patch,'merchant');
         if(!supported(next)||!discountEngine.validShape(discountEngine.normalizeDiscount(next),Number.MAX_SAFE_INTEGER))return createResponse(400,{success:false,message:'INVALID_DISCOUNT_TERMS'});
         const original=fence(old,'view');

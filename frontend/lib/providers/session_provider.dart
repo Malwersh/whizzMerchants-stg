@@ -328,6 +328,8 @@ class SessionNotifier extends StateNotifier<Session> {
     await SecureTokenStorage.clearBusinessId();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('business_data');
+    await prefs.remove('business_id');
+    await prefs.remove('session_business_id');
     state = Session(isAuthenticated: state.isAuthenticated, isReady: true);
   }
 
@@ -346,6 +348,7 @@ class SessionNotifier extends StateNotifier<Session> {
       // Clear persistent storage
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('business_id');
+      await prefs.remove('session_business_id');
       await prefs.remove('business_data');
       
       // Also clear from secure storage

@@ -1,0 +1,51 @@
+{
+  "status": "PUBLISHED_VERIFIED",
+  "function": "order-receiver-regional-staging-product-management-v4-sam",
+  "codeSha256": "sbkWTzNFXStAb9UfT6qk4ppQ25zfOfMuN9sFveZGxrc=",
+  "changedEntries": [
+    "product_management_handler.js",
+    "_discount_review/merchant-products/index.js"
+  ],
+  "actualCandidateImported": true,
+  "liveUnauthenticatedRead": 401,
+  "allDeployedBytesVerified": true,
+  "configurationAndIamUnchanged": true,
+  "businessDataWritten": false,
+  "supersedes": "product-branch-scope-235.json",
+  "previous502Cause": "Raw source was deployed as root entry with unresolved ../shared imports; restored bundled delegate and patched existing bundled runtime only.",
+  "nativeBuild": 237,
+  "tests": {
+    "backend": 36,
+    "flutter": 25,
+    "actualBundledRuntime": "PASS selected first/second/first, foreign/ambiguous denied, no network or writes"
+  },
+  "clientFixes": [
+    "Single captured MerchantBranchScope for all product reads/search/create/update/delete/category calls",
+    "Explicit branch from provider state so session persistence cannot select previous branch",
+    "Product providers recreate empty state on branch selection change",
+    "Disposed branch responses cannot update product state",
+    "Discount screen resets data on branch change and rejects stale product/category responses",
+    "Clear current and legacy persisted branch on deselection/logout"
+  ],
+  "reviewedExistingScopes": [
+    "Discount API uses required businessId for reads/mutations",
+    "Order status branch isolation regression tests",
+    "Employee branch-device menu and discount authorization regression tests"
+  ],
+  "unchanged": [
+    "Orders and financial records",
+    "Branch ownership and activation",
+    "IAM and service environment"
+  ],
+  "manualAuthenticatedUiRetest": "PENDING_AFTER_INSTALL",
+  "nativeInstalledAndLaunched": true,
+  "analyzer": {
+    "errors": 0,
+    "existingWarnings": [
+      "session_provider._safeEmit unused"
+    ],
+    "existingInfo": [
+      "3 deprecated Flutter controls in discount screen"
+    ]
+  }
+}
