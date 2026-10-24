@@ -531,6 +531,50 @@ class ProductService {
     }
   }
 
+  static Future<Map<String, dynamic>> mutateCategory({
+    required String businessId,
+    String? categoryId,
+    required String method,
+    String? name,
+    int? sortOrder,
+    bool? isActive,
+  }) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final token = await _getBestToken();
+    if (token == null) {
+      throw AuthTokenExpiredException('Authentication token missing');
+    }
+    final uri = scope.uri(categoryId == null
+        ? '$baseUrl/categories'
+        : '$baseUrl/categories/${Uri.encodeComponent(categoryId)}');
+    final body = scope.body({
+      'requestId': const Uuid().v4(),
+      if (name != null) 'name': name,
+      if (sortOrder != null) 'sortOrder': sortOrder,
+      if (isActive != null) 'isActive': isActive,
+    });
+    late http.Response response;
+    if (method == 'POST') {
+      response = await http.post(uri,
+          headers: _authHeaders(token), body: jsonEncode(body));
+    } else if (method == 'PUT') {
+      response = await http.put(uri,
+          headers: _authHeaders(token), body: jsonEncode(body));
+    } else {
+      response = await http.delete(uri,
+          headers: _authHeaders(token), body: jsonEncode(body));
+    }
+    final data = _safeDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return {
+        'success': false,
+        'message': data['code'] ?? data['message'] ?? 'تعذر حفظ القسم'
+      };
+    }
+    await scope.assertCurrent();
+    return {'success': true, 'category': data['category']};
+  }
+
   static Future<Map<String, dynamic>> previewCsvImport({
     required String businessId,
     required String csv,

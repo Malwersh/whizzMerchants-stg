@@ -422,7 +422,7 @@ async function handleGetCategories(event) {
     try {
         const { Items } = await docClient.send(new ScanCommand({ TableName: CATEGORIES_TABLE }));
         const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
-        const categories=actor?.deviceGuards?(Items||[]).filter(c=>c.isActive!==false&&c.is_active!==false&&(!c.businessId||c.businessId===actor.businessId)).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','isActive','is_active'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]))):Items||[];
+        const categories=(Items||[]).filter(c=>!c.businessId||c.businessId===actor?.businessId).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','description','sortOrder','isActive','is_active','businessId','version','createdAt','updatedAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]])));
         return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories:', error);
@@ -454,7 +454,9 @@ async function handleGetCategoriesByBusinessType(event) {
             Items = (allItems || []).filter((c) => c.isActive !== false);
         }
 
-        return createResponse(200, { success: true, categories: Items || [] });
+        const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+        const categories=(Items||[]).filter(c=>(!c.businessId||c.businessId===actor?.businessId)&&c.isActive!==false&&c.is_active!==false);
+        return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories by business type:', error);
         return createResponse(500, { success: false, message: 'Failed to get categories', error: error.message });
@@ -480,6 +482,11 @@ module.exports.handler = async (event) => {
         return {...result,headers};
     }
     // Route products endpoints
+        if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&path.startsWith('/categories')){
+            if(actor.deviceGuards)return createResponse(403,{success:false,code:'CATEGORY_PERMISSION_REQUIRED'});
+            const categories=require('./branch_categories').createBranchCategoryService(docClient,{actor:()=>actor});
+            const category=await categories.mutate(actor.businessId,event);return createResponse(httpMethod==='POST'?201:200,{success:true,category});
+        }
         if (path === '/products/imports/preview' && httpMethod === 'POST') {
             const businessId=await getBusinessId(event);
             const productImports=require('./product_import').createProductImportService(docClient,{actor:()=>require('../shared/merchant-lifecycle').merchantRequestContext.getStore()});

@@ -6,6 +6,7 @@ import '../models/business.dart';
 import '../providers/product_provider_riverpod.dart';
 import 'add_product_screen.dart';
 import 'product_import_screen.dart';
+import 'branch_categories_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/whizz_search_bar.dart';
@@ -72,6 +73,15 @@ class _ProductsManagementScreenState
             borderRadius: BorderRadius.circular(100),
             enableHapticFeedback: true,
           )),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            tooltip: 'أقسام القائمة',
+            icon: const Icon(Icons.category_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) =>
+                  BranchCategoriesScreen(businessId: widget.business.id),
+            )),
+          ),
           const SizedBox(width: 8),
           IconButton.filledTonal(
             tooltip: 'استيراد CSV',
