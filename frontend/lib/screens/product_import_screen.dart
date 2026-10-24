@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/product_service.dart';
 import '../services/xlsx_csv_decoder.dart';
+import '../services/product_import_report.dart';
 
 class ProductImportScreen extends StatefulWidget {
   final String businessId;
@@ -184,6 +185,17 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
     }
   }
 
+  Future<void> saveErrors() async {
+    final report = buildProductImportErrorCsv(rows);
+    await FilePicker.saveFile(
+      dialogTitle: 'حفظ تقرير أخطاء الاستيراد',
+      fileName: 'product-import-errors.csv',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+      bytes: Uint8List.fromList(utf8.encode(report)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('استيراد المنتجات')),
@@ -251,6 +263,12 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
                 const Divider(height: 32),
                 Text(
                     'النتيجة: ${(job!['counts'] as Map?)?['valid'] ?? 0} صالح، ${(job!['counts'] as Map?)?['rejected'] ?? 0} مرفوض'),
+                if (((job!['counts'] as Map?)?['rejected'] ?? 0) > 0)
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : saveErrors,
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('تنزيل تقرير الأخطاء CSV'),
+                  ),
                 ...rows.map((row) {
                   final id = row['rowId'] as String;
                   final errors = List<String>.from(row['errors'] ?? const []);
