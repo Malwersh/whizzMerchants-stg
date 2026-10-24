@@ -208,3 +208,5 @@ test('owner preview refuses foreign or unavailable catalog products',async()=>{
   assert.equal(response.statusCode,409,response.body);assert.equal(JSON.parse(response.body).message,'GOODS_UNAVAILABLE');
  }
 });
+
+test('owner creation persists independent global/customer limits and percentage cap, rejecting malformed counts',async()=>{const f=fixture();const response=await f.create({usageLimit:100,perCustomerLimit:1,maxDiscountAmount:1500});assert.equal(response.statusCode,201);assert.equal(f.writes[0].Item.usage_limit,100);assert.equal(f.writes[0].Item.perCustomerLimit,1);assert.equal(f.writes[0].Item.singleUse,true);assert.equal(f.writes[0].Item.maxDiscountAmount,1500);for(const data of [{usageLimit:0},{perCustomerLimit:-1},{perCustomerLimit:1.5},{usageLimit:'100'}])assert.equal((await fixture().create(data)).statusCode,400);});

@@ -1,5 +1,6 @@
 import '../widgets/merchant_discount_value_fields.dart';
 import 'package:flutter/material.dart';
+import '../widgets/merchant_discount_usage_fields.dart';
 import '../l10n/app_localizations.dart';
 import '../models/business.dart';
 import '../models/discount.dart';
@@ -1182,6 +1183,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     final minOrderController = TextEditingController(
         text: discount?.minimumOrderAmount.toString() ?? '');
 
+    final totalUsesController = TextEditingController(text: discount?.maxUsage?.toString() ?? '');
+    final customerUsesController = TextEditingController(text: discount?.perCustomerLimit?.toString() ?? '');
+    final discountCapController = TextEditingController(text: discount?.maxDiscountAmount == null ? '' : _formatDiscountValue(discount!.maxDiscountAmount!.toDouble()));
+
     // If editing a free delivery discount, default the main type to percentage
     var discountType = discount?.type == DiscountType.freeDelivery
         ? DiscountType.percentage
@@ -2192,6 +2197,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                   ),
                                 ],
 
+                                MerchantDiscountUsageFields(total: totalUsesController, customer: customerUsesController,
+                                  cap: discountCapController, percentage: discountType == DiscountType.percentage),
                                 const SizedBox(height: 10),
                                 TextFormField(
                                   controller: minOrderController,
@@ -2460,6 +2467,9 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       applicableItemIds: selectedItemIds,
                                       applicableCategoryIds:
                                           selectedCategoryIds,
+                                      maxUsage: MerchantDiscountUsageFields.parse(totalUsesController.text),
+                                      perCustomerLimit: MerchantDiscountUsageFields.parse(customerUsesController.text),
+                                      maxDiscountAmount: discountType == DiscountType.percentage ? MerchantDiscountUsageFields.parse(discountCapController.text) : null,
                                       minimumOrderAmount: double.tryParse(
                                               minOrderController.text) ??
                                           0.0,
@@ -3329,6 +3339,7 @@ class DiscountCard extends StatelessWidget {
 
                   if (discount.sharingLocked)
                     const Padding(padding: EdgeInsets.only(bottom: 8), child: Text('خصم مشترك معتمد — الشروط مقفلة. لتغييرها أوقفه وأنشئ بديلًا.')),
+                  Text('لكل زبون: ${discount.perCustomerLimit?.toString() ?? "بلا حد"} • إجمالي استخدامات العرض: ${discount.maxUsage?.toString() ?? "بلا حد"}'),
                   // Explicit actions for approved shared campaigns.
                   if (discount.sharingLocked)
                     Wrap(spacing: 8, runSpacing: 8, children: [
