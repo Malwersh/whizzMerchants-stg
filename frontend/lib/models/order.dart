@@ -95,6 +95,7 @@ class OrderItem {
 }
 
 class Order {
+  final bool driverReplacementSearch;
   final bool driverSearchUnavailable;
   final Map<String,dynamic>? financialAssignment;
   final Map<String,dynamic>? merchantHandover;
@@ -130,6 +131,7 @@ class Order {
   DateTime? pickedUpAt; // وقت استلام السائق للطلب
 
   Order({
+    this.driverReplacementSearch = false,
     this.driverSearchUnavailable = false,
     this.financialAssignment,
     this.exceptionCancellation,
@@ -192,6 +194,7 @@ class Order {
 
     return Order(
       id: orderId,
+      driverReplacementSearch: (json['driverReplacementSearch'] == true || json['financialRelease'] is Map) && (json['driverId'] ?? json['assignedDriverId']) == null && ['ready_for_pickup','ready','reassigning'].contains(json['status']),
       driverSearchUnavailable: json['driverSearchUnavailable'] == true &&
           json['driverId'] == null && json['assignedDriverId'] == null &&
           ['ready', 'ready_for_pickup', 'reassigning'].contains(json['status']),
@@ -397,6 +400,7 @@ class Order {
 
     return {
       'id': id,
+      'driverReplacementSearch': driverReplacementSearch,
       'driverSearchUnavailable': driverSearchUnavailable,
       if(financialAssignment!=null) 'financialAssignment': financialAssignment,
       if(merchantHandover!=null) 'merchantHandover': merchantHandover,
@@ -446,6 +450,7 @@ class Order {
   }) {
     return Order(
       id: id ?? this.id,
+      driverReplacementSearch: driverReplacementSearch && (driverId ?? this.driverId) == null && [OrderStatus.ready,OrderStatus.readyForPickup,OrderStatus.reassigning].contains(status ?? this.status),
       driverSearchUnavailable: driverSearchUnavailable &&
           (driverId ?? this.driverId) == null &&
           [OrderStatus.ready, OrderStatus.readyForPickup, OrderStatus.reassigning].contains(status ?? this.status),

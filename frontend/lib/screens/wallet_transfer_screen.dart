@@ -1,3 +1,4 @@
+import '../widgets/wallet_transfer_gate.dart';
 import '../widgets/transfer_verification_sheet.dart';
 import 'merchant_finance_members_screen.dart';
 import 'dart:convert';
@@ -312,7 +313,7 @@ class _WalletTransferScreenState extends State<WalletTransferScreen> {
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12)))));
   @override
-  Widget build(BuildContext context) => Directionality(
+  Widget build(BuildContext context) => WalletTransferGate(check:()async{final current=await api.call('context');if(mounted)setState(()=>account=current);return current['canTransfer']==true;},builder:(transfersEnabled)=>Directionality(
       textDirection: TextDirection.rtl,
       child: PopScope(
           canPop: !sending,
@@ -381,7 +382,7 @@ class _WalletTransferScreenState extends State<WalletTransferScreen> {
                                   'من ${money(account!['minAmount'])} إلى ${money(account!['maxAmount'])} لكل تحويل. الحد اليومي ${money(account!['dailyLimit'])} حسب توقيت بغداد.',
                                   style: Theme.of(context).textTheme.bodySmall),
                               const SizedBox(height: 24),
-                              if (account!['canTransfer'] == true ||
+                              if (transfersEnabled && account!['canTransfer'] == true ||
                                   uncertain) ...[
                                 Text('المستلم',
                                     style: Theme.of(context)
@@ -440,7 +441,7 @@ class _WalletTransferScreenState extends State<WalletTransferScreen> {
                                       padding: EdgeInsets.only(bottom: 12),
                                       child: Text(
                                           'يوجد تحويل قيد التحقق. لن تُنشأ عملية جديدة عند إعادة المحاولة.')),
-                                FilledButton.icon(
+                                if(transfersEnabled) FilledButton.icon(
                                     style: FilledButton.styleFrom(
                                         backgroundColor: WhizzColors.primary,
                                         foregroundColor: WhizzColors.secondary,
@@ -519,5 +520,5 @@ class _WalletTransferScreenState extends State<WalletTransferScreen> {
                                         ? 'جارٍ التحميل…'
                                         : 'تحميل المزيد')),
                             ]
-                          ])))));
+                          ]))))));
 }

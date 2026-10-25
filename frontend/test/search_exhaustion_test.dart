@@ -21,4 +21,15 @@ void main() {
     expect(order.status,isNot(OrderStatus.cancelled));
     expect(Order.fromJson({'id':'old'}).driverSearchUnavailable,isFalse);
   });
+  test('replacement search survives cache and clears after assignment', () async {
+    SharedPreferences.setMockInitialValues({});
+    final original=Order.fromJson({'id':'o','status':'ready_for_pickup'});
+    await OrderCacheService.cacheOrder(original);
+    final replacement=Order.fromJson({...original.toJson(),'financialRelease':{'attempt':1}});
+    expect(replacement.driverReplacementSearch,isTrue);
+    expect(Order.fromJson(replacement.toJson()).driverReplacementSearch,isTrue);
+    expect(replacement.copyWith().driverReplacementSearch,isTrue);
+    expect(await OrderCacheService.hasOrderChanged(replacement),isTrue);
+    expect(Order.fromJson({...replacement.toJson(),'driverId':'new','status':'assigned'}).driverReplacementSearch,isFalse);
+  });
 }
