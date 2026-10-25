@@ -1,3 +1,5 @@
+import '../widgets/wallet_transfer_gate.dart';
+import '../services/branch_employee_transfer_service.dart';
 import 'package:flutter/material.dart';
 import 'merchant_payouts_screen.dart';
 import '../services/branch_settlement_service.dart';
@@ -121,12 +123,12 @@ class _WalletState extends State<BranchEmployeeWalletScreen> {
           Text(error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error)),
         if (widget.access.capabilities['transferFunds'] == true)
-          FilledButton(
+          WalletTransferGate(scope:widget.access.session,check:()async=>(await BranchEmployeeTransferService(expected:widget.access,current:()=>mounted?widget.access:null).call('context'))['canTransfer']==true,builder:(enabled)=>enabled?FilledButton(
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => BranchEmployeeTransferScreen(
                       initial: widget.access,
                       access: () => mounted ? widget.access : null))),
-              child: const Text('تحويل الرصيد')),
+              child: const Text('تحويل الرصيد')):const SizedBox.shrink()),
         if (balance != null &&
             widget.access.capabilities['readWalletBalance'] == true)
           Card(

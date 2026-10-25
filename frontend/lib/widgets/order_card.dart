@@ -123,6 +123,8 @@ class OrderCard extends ConsumerWidget {
                   child: Text(
                       'تعذر العثور على سائق. الطلب ما زال قائمًا ويحتاج متابعة من المنصة.'),
                 ),
+              if (order.driverReplacementSearch && !order.driverSearchUnavailable)
+                const Padding(padding: EdgeInsets.only(bottom: 12), child: Text('الطلب جاهز لدى المطعم. نبحث عن سائق بديل بعد اعتذار السائق السابق.')),
               // Customer Info
               Row(
                 children: [
