@@ -2851,6 +2851,10 @@ Resources:
       CodeUri: functions/auth/
       Handler: unified_auth_handler.handler
       Policies:
+        - Statement:
+          - Effect: Allow
+            Action: [dynamodb:Query]
+            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WizzCentral_RegionIndex_staging/index/h3-index"
         - !If
           - IsFinancialReturnStaging
           - Statement:
@@ -3131,6 +3135,10 @@ Resources:
       CodeUri: functions/business/
       Handler: location_settings_handler.handler
       Policies:
+        - Statement:
+          - Effect: Allow
+            Action: [dynamodb:Query]
+            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WizzCentral_RegionIndex_staging/index/h3-index"
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow
