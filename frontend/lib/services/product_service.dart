@@ -579,11 +579,21 @@ class ProductService {
     required String businessId,
     required String csv,
     required String mode,
+    Map<String, String>? columnMapping,
+    String? defaultCategoryId,
+    Map<String, String>? images,
   }) async {
     final scope = await MerchantBranchScope.capture(businessId: businessId);
     final response = await _resilientPost(
         scope.uri('$baseUrl/products/imports/preview'),
-        scope.body({'format': 'CSV', 'mode': mode, 'csv': csv}));
+        scope.body({
+          'format': 'CSV',
+          'mode': mode,
+          'csv': csv,
+          if (columnMapping != null) 'columnMapping': columnMapping,
+          if (defaultCategoryId != null) 'defaultCategoryId': defaultCategoryId,
+          if (images != null) 'images': images
+        }));
     final data = _safeDecode(response.body);
     if (response.statusCode != 201 || data['job'] is! Map) {
       return {
@@ -644,26 +654,59 @@ class ProductService {
     final scope = await MerchantBranchScope.capture(businessId: businessId);
     final response = await _resilientGet(scope.uri('$baseUrl/menu/versions'));
     final data = _safeDecode(response.body);
-    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر تحميل سجل النشر'};
+    if (response.statusCode != 200)
+      return {
+        'success': false,
+        'message': data['code'] ?? 'تعذر تحميل سجل النشر'
+      };
     await scope.assertCurrent();
-    return {'success': true, 'active': data['active'], 'versions': data['versions'] ?? []};
+    return {
+      'success': true,
+      'active': data['active'],
+      'versions': data['versions'] ?? []
+    };
   }
 
   static Future<Map<String, dynamic>> publishMenu(String businessId) async {
     final scope = await MerchantBranchScope.capture(businessId: businessId);
-    final response = await _resilientPost(scope.uri('$baseUrl/menu/versions/publish'), scope.body({'requestId': const Uuid().v4()}));
+    final response = await _resilientPost(
+        scope.uri('$baseUrl/menu/versions/publish'),
+        scope.body({'requestId': const Uuid().v4()}));
     final data = _safeDecode(response.body);
-    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر نشر القائمة'};
+    if (response.statusCode != 200)
+      return {'success': false, 'message': data['code'] ?? 'تعذر نشر القائمة'};
     await scope.assertCurrent();
     return {'success': true, 'active': data['active']};
   }
 
-  static Future<Map<String, dynamic>> rollbackMenu(String businessId, String version) async {
+  static Future<Map<String, dynamic>> rollbackMenu(
+      String businessId, String version) async {
     final scope = await MerchantBranchScope.capture(businessId: businessId);
-    final response = await _resilientPost(scope.uri('$baseUrl/menu/versions/rollback'), scope.body({'requestId': const Uuid().v4(), 'version': version}));
+    final response = await _resilientPost(
+        scope.uri('$baseUrl/menu/versions/rollback'),
+        scope.body({'requestId': const Uuid().v4(), 'version': version}));
     final data = _safeDecode(response.body);
-    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر استرجاع النسخة'};
+    if (response.statusCode != 200)
+      return {
+        'success': false,
+        'message': data['code'] ?? 'تعذر استرجاع النسخة'
+      };
     await scope.assertCurrent();
     return {'success': true, 'active': data['active']};
+  }
+
+  static Future<Map<String, dynamic>> inventoryRequest(String businessId,
+      {Map<String, dynamic>? body}) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final uri = scope.uri('$baseUrl/products/inventory');
+    final response = body == null
+        ? await _resilientGet(uri)
+        : await _resilientPost(uri, scope.body(body));
+    final data = _safeDecode(response.body);
+    await scope.assertCurrent();
+    return {
+      ...data,
+      'success': response.statusCode == 200 && data['success'] == true
+    };
   }
 }

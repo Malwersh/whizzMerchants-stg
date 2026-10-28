@@ -7,6 +7,7 @@ import '../providers/product_provider_riverpod.dart';
 import 'add_product_screen.dart';
 import 'product_import_screen.dart';
 import 'branch_categories_screen.dart';
+import 'product_inventory_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/whizz_search_bar.dart';
@@ -53,6 +54,18 @@ class _ProductsManagementScreenState
         child: Column(
           children: [
             _buildPublishBar(),
+            Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF0B2E63)),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => ProductInventoryScreen(
+                                businessId: widget.business.id))),
+                    icon: const Icon(Icons.inventory_2_outlined),
+                    label: const Text('كميات المخزون'))),
             _buildSearchSection(),
             Expanded(
               child: _buildProductContent(),

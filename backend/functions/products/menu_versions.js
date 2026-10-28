@@ -5,7 +5,7 @@ const PLATFORM=process.env.MERCHANT_PLATFORM_TABLE||'staging-MerchantPlatform';
 const PRODUCTS=process.env.PRODUCTS_TABLE||'WhizzMerchants_Products';
 const CATEGORIES=process.env.CATEGORIES_TABLE||'WhizzMerchants_Categories';
 const BUSINESSES=process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses';
-const PRODUCT_FIELDS=['productId','businessId','globalProductId','name','name_ar','name_en','description','description_ar','description_en','price','categoryId','imageUrl','imageUrls','images','barcode','isAvailable','isFeatured','searchableName','optionGroups','addons','variations','nutritionalInfo','allergens','preparationTime','rating','reviewCount','createdAt','updatedAt'];
+const PRODUCT_FIELDS=['productId','businessId','globalProductId','name','name_ar','name_en','description','description_ar','description_en','price','categoryId','imageUrl','imageUrls','images','barcode','isAvailable','isFeatured','searchableName','optionGroups','addons','variations','nutritionalInfo','allergens','preparationTime','rating','reviewCount','stock','createdAt','updatedAt'];
 const CATEGORY_FIELDS=['categoryId','categoryName','name','name_ar','name_en','businessId','sortOrder','isActive','is_active','updatedAt','version'];
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
@@ -33,7 +33,7 @@ function createMenuVersionService(db,{now=()=>new Date(),nonce=randomUUID,actor=
    if(!item||(item.businessId!==undefined&&item.businessId!==b)||item.isActive===false||item.is_active===false)fail('MENU_CATEGORY_UNAVAILABLE',409);
    categories.set(categoryId,project(item,CATEGORY_FIELDS));
   }
-  const ordered=products.map(row=>({...project(row,PRODUCT_FIELDS),publishedCategory:categories.get(row.categoryId)})).sort((x,y)=>x.productId.localeCompare(y.productId));
+  const ordered=products.map(row=>({...project(row,PRODUCT_FIELDS.filter(k=>k!=='stock')),publishedCategory:categories.get(row.categoryId)})).sort((x,y)=>x.productId.localeCompare(y.productId));
   const contentHash=createHash('sha256').update(JSON.stringify(ordered)).digest('hex'),previous=await active(b);
   if(previous?.contentHash===contentHash){const at=now().toISOString(),result={...previous,unchanged:true};await db.send(new TransactWriteCommand({TransactItems:[{ConditionCheck:{TableName:PLATFORM,Key:{pk:pk(b),sk:'MENU_VERSION#ACTIVE'},ConditionExpression:'publishedVersion=:v AND contentHash=:h',ExpressionAttributeValues:{':v':previous.publishedVersion,':h':contentHash}}},{Put:{TableName:PLATFORM,Item:{...requestKey,businessId:b,result,createdAt:at,expiresAt:Math.floor(now().getTime()/1000)+90*86400},ConditionExpression:'attribute_not_exists(pk)'}}]}));return result;}
   const clock=now(),createdAt=clock.toISOString(),epoch=clock.getTime(),version=epoch+'_'+nonce().replaceAll('-','').slice(0,12),expiresAt=Math.floor(epoch/1000)+90*86400;

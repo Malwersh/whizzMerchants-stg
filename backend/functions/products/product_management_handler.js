@@ -23,7 +23,7 @@ const DYNAMODB_REGION = process.env.DYNAMODB_REGION || 'us-east-1';
 const COGNITO_REGION = process.env.COGNITO_REGION || 'us-east-1';
 
 const client = new DynamoDBClient({ region: DYNAMODB_REGION });
-const lifecycleRawDb = DynamoDBDocumentClient.from(client);
+const lifecycleRawDb = DynamoDBDocumentClient.from(client,{marshallOptions:{removeUndefinedValues:true}});
 const docClient = merchantLifecycleClient(lifecycleRawDb);
 
 const headers = {
@@ -477,6 +477,21 @@ module.exports.handler = async (event) => {
 
     try {
     const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+    if(path==='/products/inventory'){
+      if(!actor||actor.deviceGuards)return createResponse(403,{success:false,code:'INVENTORY_OWNER_REQUIRED'});
+      const inv=require('../shared/product-inventory');
+      if(httpMethod==='GET'){
+        const rows=await inv.listInventoryReviews(docClient,actor.businessId);
+        const reviews=[];for(const row of rows)reviews.push(await inv.reconcileOrderInventory(docClient,actor.businessId,row.orderId,undefined,actor));
+        return createResponse(200,{success:true,reviews:reviews.filter(r=>r?.status==='REVIEW_REQUIRED')});
+      }
+      if(httpMethod==='POST'){
+        const body=JSON.parse(event.body||'{}');
+        const result=body.action==='RESTOCK'||body.action==='CONSUMED'?await inv.reconcileOrderInventory(docClient,actor.businessId,body.orderId,body.action,actor):await inv.setProductStock(docClient,actor.businessId,body,actor);
+        return createResponse(200,{success:true,result});
+      }
+      return createResponse(405,{success:false,code:'METHOD_NOT_ALLOWED'});
+    }
     if(actor?.deviceGuards&&path.startsWith('/products/imports/')){
         return createResponse(403,{success:false,code:'IMPORT_PERMISSION_REQUIRED'});
     }

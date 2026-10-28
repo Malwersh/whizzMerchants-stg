@@ -10,7 +10,7 @@ const CATEGORIES_TABLE=process.env.CATEGORIES_TABLE||'WhizzMerchants_Categories'
 // Six rows leave room in DynamoDB's 25-item transaction for one product,
 // category fence, and audit entry per row, plus the job and lifecycle fences.
 const MAX_BYTES=256*1024,MAX_ROWS=500,BATCH_SIZE=6;
-const allowedHeaders=new Set(['rowId','productId','name','description','price','categoryId','isAvailable','barcode','optionGroupsJson']);
+const allowedHeaders=new Set(['rowId','productId','name','description','price','categoryId','isAvailable','barcode','optionGroupsJson','imageUrl','imageFile','stock']);
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 const clone=v=>JSON.parse(JSON.stringify(v));
 const branchKey=id=>'BRANCH#'+id;
@@ -42,14 +42,22 @@ function booleanValue(v){
  if(['false','0','no','لا','غير متاح'].includes(n))return false;
  fail('INVALID_AVAILABILITY');
 }
-function readRows(csv){
+function readRows(csv,options={}){
  const matrix=parseCsv(csv);if(matrix.length<2)fail('EMPTY_IMPORT');
- const headers=matrix[0].map(v=>v.replace(/^\ufeff/,'').trim());
- if(new Set(headers).size!==headers.length||headers.some(v=>!allowedHeaders.has(v))||!headers.includes('name')||!headers.includes('price')||!headers.includes('categoryId'))fail('INVALID_IMPORT_HEADERS');
+ const sourceHeaders=matrix[0].map(v=>v.replace(/^\ufeff/,'').trim());
+ if(new Set(sourceHeaders).size!==sourceHeaders.length)fail('DUPLICATE_SOURCE_HEADERS');
+ let headers=sourceHeaders;
+ if(options.columnMapping!==undefined){
+  const mapping=options.columnMapping;
+  if(!mapping||typeof mapping!=='object'||Array.isArray(mapping)||Object.keys(mapping).some(k=>!allowedHeaders.has(k))||Object.values(mapping).some(v=>typeof v!=='string'||!sourceHeaders.includes(v))||new Set(Object.values(mapping)).size!==Object.values(mapping).length)fail('INVALID_COLUMN_MAPPING');
+  headers=sourceHeaders.map(h=>Object.keys(mapping).find(k=>mapping[k]===h)||'');
+ }
+ if(options.defaultCategoryId&&!headers.includes('categoryId'))headers=[...headers,'categoryId'];
+ if(new Set(headers.filter(Boolean)).size!==headers.filter(Boolean).length||headers.some(v=>v&&!allowedHeaders.has(v))||!headers.includes('name')||!headers.includes('price')||!headers.includes('categoryId'))fail('INVALID_IMPORT_HEADERS');
  if(matrix.length-1>MAX_ROWS)fail('IMPORT_TOO_LARGE',413);
  return matrix.slice(1).map((values,index)=>{
   if(values.length>headers.length)fail('INVALID_CSV');
-  const raw=Object.fromEntries(headers.map((h,i)=>[h,(values[i]??'').trim()]));
+  const raw=Object.fromEntries(headers.filter(Boolean).map(h=>[h,(values[headers.indexOf(h)]??'').trim()]));if(!raw.categoryId&&options.defaultCategoryId)raw.categoryId=options.defaultCategoryId;
   const errors=[];const name=raw.name;const price=priceValue(raw.price);const categoryId=raw.categoryId;
   if(!name||name.length>150)errors.push('INVALID_NAME');
   if((raw.description||'').length>2000)errors.push('INVALID_DESCRIPTION');
@@ -58,6 +66,8 @@ function readRows(csv){
   if(!validId(categoryId))errors.push('INVALID_CATEGORY');
   if(raw.productId&&!validId(raw.productId))errors.push('INVALID_PRODUCT_ID');
   if(raw.barcode&&!/^[0-9A-Za-z._-]{1,100}$/.test(raw.barcode))errors.push('INVALID_BARCODE');
+  if(raw.stock&&!/^\d+$/.test(raw.stock)||raw.stock&&(!Number.isSafeInteger(Number(raw.stock))||Number(raw.stock)>1000000))errors.push('INVALID_STOCK');
+  if(raw.imageFile&&(!/^[^/\\]{1,150}\.(?:jpg|jpeg|png|webp)$/i.test(raw.imageFile)))errors.push('INVALID_IMAGE_FILENAME');
   let isAvailable=true,optionGroups;
   try{if(raw.isAvailable)isAvailable=booleanValue(raw.isAvailable);}catch(e){errors.push(e.message);}
   try{if(raw.optionGroupsJson)optionGroups=readBranchProductOptions(JSON.parse(raw.optionGroupsJson));}catch{errors.push('INVALID_BRANCH_PRODUCT_OPTIONS');}
@@ -65,7 +75,7 @@ function readRows(csv){
   const generatedProductId=!raw.productId;
   const productId=raw.productId||'PENDING_BRANCH_ID';
   return {rowId,productId,name,description:raw.description||'',price,categoryId,isAvailable,
-   ...(raw.barcode?{barcode:raw.barcode}:{}),...(optionGroups?{optionGroups}:{}),
+   ...(raw.stock!==undefined&&raw.stock!==''?{stock:Number(raw.stock)}:{}),...(raw.imageUrl?{imageUrl:raw.imageUrl}:{}),...(raw.imageFile?{imageFile:raw.imageFile}:{}),...(raw.barcode?{barcode:raw.barcode}:{}),...(optionGroups?{optionGroups}:{}),
    provided:headers.filter(h=>raw[h]!==''),generatedProductId,errors};
  });
 }
@@ -87,7 +97,12 @@ function publicJob(job){return Object.fromEntries(['jobId','status','mode','vers
 function createProductImportService(db,{now=()=>new Date(),uuid=randomUUID,actor=()=>null}={}){
  async function preview(businessId,body){
   if(!body||typeof body!=='object'||body.format!=='CSV'||!['ADD_ONLY','UPDATE_SELECTED'].includes(body.mode))fail('INVALID_IMPORT_REQUEST');
-  const rows=readRows(body.csv);const [products,badCategories]=await Promise.all([allBranchProducts(db,businessId),categoryErrors(db,businessId,rows)]);
+  const rows=readRows(body.csv,{columnMapping:body.columnMapping,defaultCategoryId:body.defaultCategoryId});
+  const images=body.images||{};
+  if(!images||typeof images!=='object'||Array.isArray(images)||Object.keys(images).length>500)fail('INVALID_IMAGE_MAPPING');
+  const ownedImage=v=>typeof v==='string'&&new RegExp('^https://wizz-merchants-staging-businessphotosbucket-up3j1qega8m5\\.s3\\.amazonaws\\.com/merchants/'+businessId+'/product-images/[A-Za-z0-9_-]+\\.(?:jpg|jpeg|png|webp)$','i').test(v);
+  for(const row of rows){if(row.imageFile){row.imageUrl=images[row.imageFile];if(!row.imageUrl)row.errors.push('IMAGE_FILE_MISSING');}if(row.imageUrl&&!ownedImage(row.imageUrl))row.errors.push('IMAGE_SCOPE_INVALID');if(row.imageUrl&&!row.provided.includes('imageUrl'))row.provided.push('imageUrl');}
+  const [products,badCategories]=await Promise.all([allBranchProducts(db,businessId),categoryErrors(db,businessId,rows)]);
   for(const row of rows)if(row.generatedProductId)row.productId='imp_'+hash(businessId+'\n'+row.rowId+'\n'+row.name).slice(0,32);
   const byId=new Map(products.map(p=>[p.productId,p]));const seen=new Set(),seenProducts=new Set();
   for(const row of rows){
@@ -133,6 +148,8 @@ function createProductImportService(db,{now=()=>new Date(),uuid=randomUUID,actor
    const values={name:row.name,price:row.price,categoryId:row.categoryId,searchableName:row.name.toLowerCase(),updatedAt:time};
    if(row.provided.includes('description'))values.description=row.description;
    if(row.provided.includes('isAvailable'))values.isAvailable=row.isAvailable;
+   if(row.provided.includes('stock'))values.stock=row.stock;
+   if(row.provided.includes('imageUrl'))values.imageUrl=row.imageUrl;
    if(row.provided.includes('barcode'))values.barcode=row.barcode;
    if(row.provided.includes('optionGroupsJson'))values.optionGroups=row.optionGroups||[];
    let item={productId:row.productId,businessId,...values};

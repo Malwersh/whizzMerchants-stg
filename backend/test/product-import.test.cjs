@@ -131,3 +131,22 @@ test('large preview gets a bounded error before a DynamoDB item-size failure',as
  const db=fakeDb({categories:[{categoryId:'food',isActive:true}]});const s=createProductImportService(db,{uuid:()=> 'job1'});
  await assert.rejects(s.preview('b',{format:'CSV',mode:'ADD_ONLY',csv:csv(Array.from({length:500},(_,i)=>`r${i},,x,${'\\'.repeat(480)},6000,food,true,,`))}),/IMPORT_PREVIEW_TOO_LARGE/);assert.equal(db.jobs.size,0);
 });
+
+test('maps Arabic or vendor columns and ignores explicitly unmapped data',()=>{
+ const [row]=readRows('اسم الصنف,السعر,كمية,ملاحظة\nبرغر,6000,2,لا تستورد',{columnMapping:{name:'اسم الصنف',price:'السعر',stock:'كمية'},defaultCategoryId:'food'});
+ assert.equal(row.name,'برغر');assert.equal(row.stock,2);assert.equal(row.categoryId,'food');assert.deepEqual(row.errors,[]);
+ assert.throws(()=>readRows('a,b\nx,1',{columnMapping:{name:'a',price:'a'},defaultCategoryId:'food'}),/INVALID_COLUMN_MAPPING/);
+});
+test('bulk image names resolve only to owned branch product image URLs and retain stock zero',async()=>{
+ const db=fakeDb({categories:[{categoryId:'food',isActive:true}]});const service=createProductImportService(db,{uuid:()=> 'images'});
+ const owned='https://wizz-merchants-staging-businessphotosbucket-up3j1qega8m5.s3.amazonaws.com/merchants/branch1/product-images/image.jpg';
+ const job=await service.preview('branch1',{format:'CSV',mode:'ADD_ONLY',csv:'name,price,categoryId,imageFile,stock\nبرغر,6000,food,burger.jpg,0',images:{'burger.jpg':owned}});
+ assert.equal(job.rows[0].imageUrl,owned);assert.deepEqual(job.rows[0].errors,[]);
+ await service.commit('branch1','images',{expectedVersion:1,selectedRowIds:['row_1'],offset:0});const product=[...db.products.values()][0];assert.equal(product.imageUrl,owned);assert.equal(product.stock,0);
+ const bad=await service.preview('branch1',{format:'CSV',mode:'ADD_ONLY',csv:'name,price,categoryId,imageFile\nآخر,6000,food,other.jpg',images:{'other.jpg':owned.replace('/branch1/','/other/')}});assert(bad.rows[0].errors.includes('IMAGE_SCOPE_INVALID'));
+});
+test('missing named image and invalid stock stay row errors and never write products',async()=>{
+ const db=fakeDb({categories:[{categoryId:'food',isActive:true}]});const s=createProductImportService(db);
+ const job=await s.preview('branch1',{format:'CSV',mode:'ADD_ONLY',csv:'name,price,categoryId,imageFile,stock\nبرغر,6000,food,missing.jpg,-1'});
+ assert(job.rows[0].errors.includes('IMAGE_FILE_MISSING'));assert(job.rows[0].errors.includes('INVALID_STOCK'));assert.equal(db.products.size,0);
+});

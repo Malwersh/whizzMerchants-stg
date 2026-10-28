@@ -74,8 +74,8 @@ function merchantLifecycleClient(raw){
     // Authentication-only packages do not contain the order writer policy.
     // Order mutations must still load and enforce it before any transaction.
     const {fenceMerchantOrderOperation,canonicalFinancialPreparation}=require('./legacy-order-policy');
-    fenceMerchantOrderOperation(item,record);
-    const storedOrderStatus=canonicalFinancialPreparation(item,record);
+    if(!item.ConditionCheck)fenceMerchantOrderOperation(item,record);
+    const storedOrderStatus=item.ConditionCheck?undefined:canonicalFinancialPreparation(item,record);
     if(actor.deviceGuards&&item.Put)throw Error('DEVICE_ORDER_CREATE_FORBIDDEN');
     if(actor.deviceOrder){
      if(record.orderId!==actor.deviceOrder.id && operation.Key?.PK!=='ORDER#'+actor.deviceOrder.id)throw Error('ORDER_BUSINESS_SCOPE_INVALID');
