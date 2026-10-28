@@ -99,12 +99,12 @@ void main() {
     expect(find.text('وجبة اختبار'), findsNothing);
     expect(t.takeException(), isNull);
   });
-  testWidgets('edit sheet opens and closes safely', (t) async {
+  testWidgets('shared product editor opens and closes safely', (t) async {
     await open(t);
     await t.tap(find.text('تعديل'));
     await t.pumpAndSettle();
     expect(find.byType(Form), findsOneWidget);
-    await t.tap(find.byIcon(Icons.close));
+    await t.tap(find.byType(BackButton));
     await t.pumpAndSettle();
     expect(find.text('وجبة اختبار'), findsOneWidget);
     expect(t.takeException(), isNull);

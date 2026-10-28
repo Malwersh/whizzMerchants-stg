@@ -30,4 +30,24 @@ void main() {
     expect(csv, contains('برغر كلاسيك,6000,c1,وصف اختياري'));
     expect(csv, isNot(contains('burger.jpg')));
   });
+  test('partial update response preserves stock and normalizes a new image',
+      () {
+    final previous = Product.fromJson({
+      'productId': 'p',
+      'name': 'منتج',
+      'price': 3000,
+      'stock': 7,
+      'barcode': '123',
+      'imageUrl': 'https://old.example/p.jpg'
+    });
+    final after = mergeProductUpdateResponse(previous, {
+      'productId': 'p',
+      'price': 4000,
+      'imageUrl': 'https://new.example/p.jpg'
+    });
+    expect(after.stock, 7);
+    expect(after.barcode, '123');
+    expect(after.price, 4000);
+    expect(after.imageUrls, ['https://new.example/p.jpg']);
+  });
 }

@@ -2,8 +2,9 @@ class Product {
   final String id;
   final String name;
   final String description;
+  final String? barcode;
   final double price;
-  final List<Map<String,dynamic>> optionGroups;
+  final List<Map<String, dynamic>> optionGroups;
   final String categoryId;
   final String businessId;
   final bool isAvailable;
@@ -23,6 +24,7 @@ class Product {
     required this.id,
     required this.name,
     required this.description,
+    this.barcode,
     required this.price,
     this.optionGroups = const [],
     required this.categoryId,
@@ -44,26 +46,31 @@ class Product {
   factory Product.fromJson(Map<String, dynamic> json) {
     // Handle imageUrls - create array from single imageUrl if needed
     List<String> imageUrlsList = [];
-    
+
     // First try to get from imageUrls array
     if (json['imageUrls'] != null) {
       imageUrlsList = List<String>.from(json['imageUrls']);
     } else if (json['image_urls'] != null) {
       imageUrlsList = List<String>.from(json['image_urls']);
-    } else if (json['imageUrl'] != null && json['imageUrl'].toString().isNotEmpty) {
+    } else if (json['imageUrl'] != null &&
+        json['imageUrl'].toString().isNotEmpty) {
       // If single imageUrl exists, add it to the list
       imageUrlsList = [json['imageUrl'].toString()];
-    } else if (json['image_url'] != null && json['image_url'].toString().isNotEmpty) {
-      // If single image_url exists, add it to the list  
+    } else if (json['image_url'] != null &&
+        json['image_url'].toString().isNotEmpty) {
+      // If single image_url exists, add it to the list
       imageUrlsList = [json['image_url'].toString()];
     }
-    
+
     return Product(
       id: json['id'] ?? json['product_id'] ?? '',
       name: json['name'] ?? '',
       description: json['description'] ?? '',
+      barcode: json['barcode']?.toString(),
       price: (json['price'] ?? 0).toDouble(),
-      optionGroups: (json['optionGroups'] as List? ?? []).map((v)=>Map<String,dynamic>.from(v)).toList(),
+      optionGroups: (json['optionGroups'] as List? ?? [])
+          .map((v) => Map<String, dynamic>.from(v))
+          .toList(),
       categoryId: json['categoryId'] ?? json['category_id'] ?? '',
       businessId: json['businessId'] ?? json['business_id'] ?? '',
       isAvailable: json['isAvailable'] ?? json['is_available'] ?? true,
@@ -90,6 +97,7 @@ class Product {
       'id': id,
       'name': name,
       'description': description,
+      if (barcode != null) 'barcode': barcode,
       'price': price,
       'optionGroups': optionGroups,
       'categoryId': categoryId,
@@ -97,6 +105,7 @@ class Product {
       'isAvailable': isAvailable,
       'imageUrl': imageUrl,
       'imageUrls': imageUrls,
+      if (stock != null) 'stock': stock,
       'nutritionalInfo': nutritionalInfo,
       'allergens': allergens,
       'preparationTime': preparationTime,
@@ -111,8 +120,9 @@ class Product {
     String? id,
     String? name,
     String? description,
+    String? barcode,
     double? price,
-    List<Map<String,dynamic>>? optionGroups,
+    List<Map<String, dynamic>>? optionGroups,
     String? categoryId,
     String? businessId,
     bool? isAvailable,
@@ -130,6 +140,8 @@ class Product {
       id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
+      barcode: barcode ?? this.barcode,
+      stock: stock,
       price: price ?? this.price,
       optionGroups: optionGroups ?? this.optionGroups,
       categoryId: categoryId ?? this.categoryId,

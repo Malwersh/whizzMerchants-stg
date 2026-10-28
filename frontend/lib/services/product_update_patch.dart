@@ -7,6 +7,7 @@ Map<String, dynamic> productUpdatePatch(Product before, Product after) {
       p.imageUrls.isNotEmpty ? p.imageUrls.first : p.imageUrl;
   final old = <String, dynamic>{
     'name': before.name,
+    'barcode': before.barcode,
     'description': before.description,
     'price': before.price,
     'categoryId': before.categoryId,
@@ -16,6 +17,7 @@ Map<String, dynamic> productUpdatePatch(Product before, Product after) {
   };
   final next = <String, dynamic>{
     'name': after.name,
+    'barcode': after.barcode,
     'description': after.description,
     'price': after.price,
     'categoryId': after.categoryId,
@@ -25,4 +27,17 @@ Map<String, dynamic> productUpdatePatch(Product before, Product after) {
   };
   return Map.fromEntries(
       next.entries.where((e) => jsonEncode(e.value) != jsonEncode(old[e.key])));
+}
+
+/// Mutation responses contain editable fields, not stock/accounting metadata.
+/// Keep omitted metadata and normalize a replaced single image consistently.
+Product mergeProductUpdateResponse(
+    Product previous, Map<String, dynamic> response) {
+  return Product.fromJson({
+    ...previous.toJson(),
+    ...response,
+    if (response.containsKey('imageUrl') && !response.containsKey('imageUrls'))
+      'imageUrls':
+          response['imageUrl'] == null ? <String>[] : [response['imageUrl']],
+  });
 }

@@ -215,7 +215,8 @@ class ProductNotifier extends StateNotifier<ProductState> {
     }
   }
 
-  Future<bool> addProduct(Product product, {String? globalProductId}) async {
+  Future<bool> addProduct(Product product,
+      {String? globalProductId, String? requestId}) async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
@@ -229,6 +230,9 @@ class ProductNotifier extends StateNotifier<ProductState> {
         isAvailable: product.isAvailable,
         additionalData: {
           'optionGroups': product.optionGroups,
+          if (requestId != null) 'requestId': requestId,
+          if (product.barcode != null && product.barcode!.isNotEmpty)
+            'barcode': product.barcode,
           if (globalProductId != null) 'globalProductId': globalProductId
         },
       );
@@ -306,7 +310,8 @@ class ProductNotifier extends StateNotifier<ProductState> {
       );
 
       if (result['success'] == true && result['product'] != null) {
-        final updatedProduct = Product.fromJson(result['product']);
+        final updatedProduct = mergeProductUpdateResponse(
+            previous, Map<String, dynamic>.from(result['product']));
         final updatedProducts = state.products.map((p) {
           return p.id == product.id ? updatedProduct : p;
         }).toList();

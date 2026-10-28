@@ -5,6 +5,7 @@ import '../models/product.dart';
 import '../models/business.dart';
 import '../providers/product_provider_riverpod.dart';
 import 'add_product_screen.dart';
+import 'product_form_screen.dart';
 import 'product_import_screen.dart';
 import 'branch_categories_screen.dart';
 import 'product_inventory_screen.dart';
@@ -464,7 +465,8 @@ class _ProductsManagementScreenState
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => const AddProductScreen(),
+                        builder: (context) =>
+                            AddProductScreen(businessId: widget.business.id),
                       ),
                     );
                   },
@@ -787,7 +789,7 @@ class _ProductsManagementScreenState
                   onSelected: (value) async {
                     switch (value) {
                       case 'edit':
-                        _showEditProductDrawer(context, product);
+                        _openProductEditor(context, product);
                         break;
                       case 'delete':
                         _showDeleteConfirmation(product, ref);
@@ -887,7 +889,8 @@ class _ProductsManagementScreenState
       onPressed: () {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => const AddProductScreen(),
+            builder: (context) =>
+                AddProductScreen(businessId: widget.business.id),
           ),
         );
       },
@@ -898,13 +901,10 @@ class _ProductsManagementScreenState
     );
   }
 
-  void _showEditProductDrawer(BuildContext context, Product product) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _EditProductDrawer(product: product),
-    );
+  void _openProductEditor(BuildContext context, Product product) {
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ProductFormScreen(
+            product: product, businessId: widget.business.id)));
   }
 
   void _showDeleteConfirmation(Product product, WidgetRef ref) {
@@ -1002,402 +1002,6 @@ class _ProductsManagementScreenState
           ),
         ],
         actionsAlignment: MainAxisAlignment.spaceEvenly,
-      ),
-    );
-  }
-}
-
-class _EditProductDrawer extends ConsumerStatefulWidget {
-  final Product product;
-
-  const _EditProductDrawer({required this.product});
-
-  @override
-  ConsumerState<_EditProductDrawer> createState() => _EditProductDrawerState();
-}
-
-class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
-  final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController;
-  late TextEditingController _descriptionController;
-  late TextEditingController _priceController;
-
-  String? _selectedCategoryId;
-  bool _isLoading = false;
-  bool _isAvailable = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.product.name);
-    _descriptionController =
-        TextEditingController(text: widget.product.description);
-    _priceController =
-        TextEditingController(text: widget.product.price.toString());
-    _selectedCategoryId = widget.product.categoryId;
-    _isAvailable = widget.product.isAvailable;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && ref.read(productProviderRiverpod).categories.isEmpty) {
-        ref.read(productProviderRiverpod.notifier).loadCategories('restaurant');
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _descriptionController.dispose();
-    _priceController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveProduct() async {
-    final loc = AppLocalizations.of(context)!;
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedCategoryId == null) {
-      showAdaptiveSnackBar(
-        context: context,
-        message: loc.pleaseSelectCategory,
-        type: AdaptiveSnackBarType.error,
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final updatedProduct = widget.product.copyWith(
-        name: _nameController.text.trim(),
-        description: _descriptionController.text.trim(),
-        price: double.parse(_priceController.text.trim()),
-        categoryId: _selectedCategoryId,
-        isAvailable: _isAvailable,
-      );
-
-      final success = await ref
-          .read(productProviderRiverpod.notifier)
-          .updateProduct(updatedProduct);
-
-      if (success && mounted) {
-        showAdaptiveSnackBar(
-          context: context,
-          message: loc.productUpdatedSuccessfully,
-          type: AdaptiveSnackBarType.success,
-        );
-        Navigator.of(context).pop();
-      } else if (mounted) {
-        final error = ref.read(productProviderRiverpod).error?.message ??
-            loc.unknownError;
-        showAdaptiveSnackBar(
-          context: context,
-          message: loc.failedToUpdateProduct(error),
-          type: AdaptiveSnackBarType.error,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        showAdaptiveSnackBar(
-          context: context,
-          message: '${loc.errorOccurred}: $e',
-          type: AdaptiveSnackBarType.error,
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    final productState = ref.watch(productProviderRiverpod);
-    final theme = Theme.of(context);
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => Container(
-        decoration: BoxDecoration(
-          color: WhizzColors.backgroundPrimary,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          children: [
-            // Handle bar
-            Container(
-              margin: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: GoldenRatio.spacing16, vertical: 8),
-              child: Row(
-                children: [
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // Form content
-            Expanded(
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(GoldenRatio.spacing16),
-                  children: [
-                    // Name field
-                    _buildTextField(
-                      controller: _nameController,
-                      labelText: loc.productName,
-                      hintText: loc.enterProductName,
-                      prefixIcon: Icons.shopping_bag_rounded,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return loc.pleaseEnterProductName;
-                        }
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Description field
-                    _buildTextField(
-                      controller: _descriptionController,
-                      labelText: loc.description,
-                      hintText: loc.enterProductDescription,
-                      prefixIcon: Icons.description_rounded,
-                      maxLines: 3,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return loc.pleaseEnterProductDescription;
-                        }
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Price field
-                    _buildTextField(
-                      controller: _priceController,
-                      labelText: loc.priceLabel,
-                      hintText: '0.00',
-                      prefixIcon: Icons.attach_money_rounded,
-                      keyboardType:
-                          TextInputType.numberWithOptions(decimal: true),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return loc.pleaseEnterPrice;
-                        }
-                        if (double.tryParse(value) == null) {
-                          return loc.pleaseEnterValidPrice;
-                        }
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Category dropdown
-                    _buildCategoryDropdown(productState),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Availability toggle
-                    _buildAvailabilityToggle(theme),
-                    SizedBox(height: GoldenRatio.spacing24),
-                    // Save button
-                    _buildSaveButton(),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String labelText,
-    required String hintText,
-    required IconData prefixIcon,
-    required String? Function(String?) validator,
-    TextInputType? keyboardType,
-    int? maxLines,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      maxLines: maxLines ?? 1,
-      style:
-          TypographySystem.bodyLarge.copyWith(color: WhizzColors.textPrimary),
-      decoration: InputDecoration(
-        labelText: labelText,
-        hintText: hintText,
-        prefixIcon: Icon(prefixIcon, color: WhizzColors.secondary),
-        labelStyle: TypographySystem.bodyMedium
-            .copyWith(color: WhizzColors.textSecondary),
-        hintStyle: TypographySystem.bodyMedium
-            .copyWith(color: WhizzColors.textSecondary.withValues(alpha: 0.6)),
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(
-              color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(
-              color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(color: WhizzColors.secondary, width: 2),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(color: WhizzColors.error, width: 1),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(color: WhizzColors.error, width: 2),
-        ),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: GoldenRatio.spacing16,
-          vertical: GoldenRatio.spacing16,
-        ),
-      ),
-      validator: validator,
-    );
-  }
-
-  Widget _buildCategoryDropdown(dynamic productState) {
-    final loc = AppLocalizations.of(context)!;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-        border: Border.all(
-            color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-      ),
-      padding: EdgeInsets.symmetric(horizontal: GoldenRatio.spacing16),
-      child: DropdownButtonFormField<String>(
-        value: productState.categories.any((c) => c.id == _selectedCategoryId)
-            ? _selectedCategoryId
-            : null,
-        decoration: InputDecoration(
-          labelText: loc.category,
-          border: InputBorder.none,
-          prefixIcon:
-              Icon(Icons.category_rounded, color: WhizzColors.secondary),
-        ),
-        items:
-            productState.categories.map<DropdownMenuItem<String>>((category) {
-          return DropdownMenuItem<String>(
-            value: category.id,
-            child: Text(category.name),
-          );
-        }).toList(),
-        onChanged: (value) {
-          setState(() {
-            _selectedCategoryId = value;
-          });
-        },
-        validator: (value) {
-          if (value == null || value.isEmpty) {
-            return loc.pleaseSelectCategory;
-          }
-          return null;
-        },
-      ),
-    );
-  }
-
-  Widget _buildAvailabilityToggle(ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-        border: Border.all(
-            color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-      ),
-      padding: EdgeInsets.all(GoldenRatio.spacing16),
-      child: Row(
-        children: [
-          Icon(Icons.store_rounded, color: WhizzColors.secondary),
-          SizedBox(width: GoldenRatio.spacing12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Toggle Availability',
-                  style: TypographySystem.bodyLarge.copyWith(
-                    color: WhizzColors.textPrimary,
-                  ),
-                ),
-                Text(
-                  'Toggle Availability',
-                  style: TypographySystem.bodySmall.copyWith(
-                    color: WhizzColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: _isAvailable,
-            onChanged: (value) {
-              setState(() {
-                _isAvailable = value;
-              });
-            },
-            activeColor: WhizzColors.secondary,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    final loc = AppLocalizations.of(context)!;
-    return SizedBox(
-      height: 56,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _saveProduct,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: WhizzColors.secondary,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          ),
-          elevation: 2,
-        ),
-        child: _isLoading
-            ? AdaptiveLoadingIndicator(
-                color: Colors.white,
-                size: 24,
-              )
-            : Text(
-                loc.saveChanges,
-                style: TypographySystem.bodyLarge.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
       ),
     );
   }
