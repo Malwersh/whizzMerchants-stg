@@ -1,3 +1,4 @@
+import '../../utils/readable_colors.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'platform_detector.dart';
@@ -89,7 +90,7 @@ class AdaptiveButton extends StatelessWidget {
     return _AdaptiveOutlinedButton(
       key: key,
       onPressed: onPressed,
-      color: color ?? WhizzColors.primary,
+      color: color ?? WhizzColors.secondary,
       minWidth: minWidth,
       height: height,
       padding: padding,
@@ -110,7 +111,7 @@ class AdaptiveButton extends StatelessWidget {
     return _AdaptiveTextButton(
       key: key,
       onPressed: onPressed,
-      color: color ?? WhizzColors.primary,
+      color: color ?? WhizzColors.secondary,
       padding: padding,
       isLoading: isLoading,
       child: child,
@@ -121,8 +122,7 @@ class AdaptiveButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final buttonColor =
         isDestructive ? WhizzColors.error : (color ?? WhizzColors.primary);
-    final foregroundColor =
-        textColor ?? (isDestructive ? WhizzColors.white : WhizzColors.white);
+    final foregroundColor = textColor ?? readableForeground(buttonColor);
 
     if (isLoading) {
       return _buildLoadingButton(context, buttonColor);
@@ -132,7 +132,8 @@ class AdaptiveButton extends StatelessWidget {
       return SizedBox(
         width: minWidth,
         height: height ?? 48,
-        child: CupertinoButton.filled(
+        child: CupertinoButton(
+          color: buttonColor,
           onPressed: onPressed,
           padding: padding ??
               const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -144,7 +145,8 @@ class AdaptiveButton extends StatelessWidget {
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
-            child: child,
+            child: IconTheme(
+                data: IconThemeData(color: foregroundColor), child: child),
           ),
         ),
       );
@@ -184,7 +186,8 @@ class AdaptiveButton extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           borderRadius: BorderRadius.circular(12),
           disabledColor: buttonColor.withValues(alpha: 0.7),
-          child: const CupertinoActivityIndicator(color: Colors.white),
+          child: CupertinoActivityIndicator(
+              color: readableForeground(buttonColor)),
         ),
       );
     }
@@ -202,12 +205,13 @@ class AdaptiveButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-        child: const SizedBox(
+        child: SizedBox(
           width: 20,
           height: 20,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            valueColor:
+                AlwaysStoppedAnimation<Color>(readableForeground(buttonColor)),
           ),
         ),
       ),

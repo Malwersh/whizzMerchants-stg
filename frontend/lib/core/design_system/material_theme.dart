@@ -19,9 +19,13 @@ class MaterialTheme {
   static ColorScheme lightColorScheme = ColorScheme(
     brightness: Brightness.light,
     primary: WhizzColors.primary,
-    onPrimary: WhizzColors.white,
+    onPrimary: WhizzColors.secondary,
+    primaryContainer: const Color(0xFFFFF8E6),
+    onPrimaryContainer: WhizzColors.secondary,
+    secondaryContainer: const Color(0xFFEDF2FA),
+    onSecondaryContainer: WhizzColors.secondary,
     secondary: WhizzColors.secondary,
-    onSecondary: WhizzColors.black,
+    onSecondary: WhizzColors.white,
     error: WhizzColors.error,
     onError: WhizzColors.white,
     surface: WhizzColors.white,
@@ -99,7 +103,7 @@ class MaterialTheme {
 
       // Scaffold Theme - Ensure pure white background
       scaffoldBackgroundColor: WhizzColors.white,
-      
+
       // App Bar Theme
       appBarTheme: AppBarTheme(
         backgroundColor: lightColorScheme.surface,
@@ -122,9 +126,29 @@ class MaterialTheme {
         clipBehavior: Clip.antiAlias,
       ),
 
+      // Readable pairs for default, tonal, and selected controls.
+      filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+              backgroundColor: WhizzColors.primary,
+              foregroundColor: WhizzColors.secondary)),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+          style: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected)
+                ? Colors.white
+                : WhizzColors.secondary),
+        backgroundColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected)
+                ? WhizzColors.secondary
+                : Colors.white),
+      )),
+      progressIndicatorTheme:
+          const ProgressIndicatorThemeData(color: WhizzColors.secondary),
       // Button Themes
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
+          backgroundColor: WhizzColors.primary,
+          foregroundColor: WhizzColors.secondary,
           elevation: GoldenRatio.xs,
           padding: EdgeInsets.symmetric(
             horizontal: GoldenRatio.lg,
@@ -139,6 +163,7 @@ class MaterialTheme {
 
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
+          foregroundColor: WhizzColors.secondary,
           padding: EdgeInsets.symmetric(
             horizontal: GoldenRatio.lg,
             vertical: GoldenRatio.md,
@@ -152,6 +177,7 @@ class MaterialTheme {
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
+          foregroundColor: WhizzColors.secondary,
           padding: EdgeInsets.symmetric(
             horizontal: GoldenRatio.md,
             vertical: GoldenRatio.sm,
@@ -166,7 +192,8 @@ class MaterialTheme {
       // Input Decoration Theme
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: lightColorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        fillColor:
+            lightColorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         contentPadding: EdgeInsets.symmetric(
           horizontal: GoldenRatio.md,
           vertical: GoldenRatio.sm,
@@ -290,7 +317,8 @@ class MaterialTheme {
       // Input Decoration Theme
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: darkColorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        fillColor:
+            darkColorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         contentPadding: EdgeInsets.symmetric(
           horizontal: GoldenRatio.md,
           vertical: GoldenRatio.sm,

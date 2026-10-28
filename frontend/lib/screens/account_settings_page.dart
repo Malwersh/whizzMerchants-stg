@@ -41,14 +41,43 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   File? _image;
   final ImagePicker _picker = ImagePicker();
 
-  final Map<String,String> _typeLabels={};
-  Future<void> _loadTypeLabels()async{
-    try{final r=await PersonOnboardingService().call('onboarding-settings?regionId=${Uri.encodeComponent(widget.business.regionId??'')}',authenticated:false);if(mounted)setState((){for(final t in (r['types']??[]) as List){if(t['id'] is String&&t['labelAr'] is String)_typeLabels[t['id']]=t['labelAr'];}});}catch(_){}
+  final Map<String, String> _typeLabels = {};
+  Future<void> _loadTypeLabels() async {
+    try {
+      final r = await PersonOnboardingService().call(
+          'onboarding-settings?regionId=${Uri.encodeComponent(widget.business.regionId ?? '')}',
+          authenticated: false);
+      if (mounted)
+        setState(() {
+          for (final t in (r['types'] ?? []) as List) {
+            if (t['id'] is String && t['labelAr'] is String)
+              _typeLabels[t['id']] = t['labelAr'];
+          }
+        });
+    } catch (_) {}
   }
-  String _typeLabel(Business b)=>_typeLabels[b.businessTypeId]??b.businessTypeLabelAr??(b.businessTypeId!=null?({'RESTAURANT':'مطعم','MARKET':'سوق','STORE':'متجر'})[b.businessTypeId]??'نوع النشاط غير متاح':({BusinessType.restaurant:'مطعم',BusinessType.cloudKitchen:'مطبخ سحابي',BusinessType.pharmacy:'صيدلية',BusinessType.store:'متجر'})[b.businessType]??'غير محدد');
+
+  String _typeLabel(Business b) =>
+      _typeLabels[b.businessTypeId] ??
+      b.businessTypeLabelAr ??
+      (b.businessTypeId != null
+          ? ({
+                'RESTAURANT': 'مطعم',
+                'MARKET': 'سوق',
+                'STORE': 'متجر'
+              })[b.businessTypeId] ??
+              'نوع النشاط غير متاح'
+          : ({
+                BusinessType.restaurant: 'مطعم',
+                BusinessType.cloudKitchen: 'مطبخ سحابي',
+                BusinessType.pharmacy: 'صيدلية',
+                BusinessType.store: 'متجر'
+              })[b.businessType] ??
+              'غير محدد');
 
   Future<void> _editPerson() async {
-    await Navigator.push(context,MaterialPageRoute(builder:(_)=>const PersonProfileScreen()));
+    await Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const PersonProfileScreen()));
   }
 
   bool _isEditing = false;
@@ -81,8 +110,11 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   }
 
   Future<void> _editBranchPhone(Business business) async {
-    await Navigator.push(context,MaterialPageRoute(builder:(_)=>PersonProfileScreen(businessId:business.id)));
-    if(mounted) ref.read(businessRefreshProvider)();
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => PersonProfileScreen(businessId: business.id)));
+    if (mounted) ref.read(businessRefreshProvider)();
   }
 
   Future<void> _pickImage() async {
@@ -188,7 +220,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     });
 
     try {
-      final selectedBusiness = ref.read(businessProvider).value ?? widget.business;
+      final selectedBusiness =
+          ref.read(businessProvider).value ?? widget.business;
       final result = await ImageUploadService.uploadBusinessPhoto(_image!,
           businessId: selectedBusiness.id);
 
@@ -614,7 +647,6 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           ],
         ),
       ),
-
     );
   }
 
@@ -955,9 +987,12 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         children: [
           Row(
             children: [
-              Column(children:[
+              Column(children: [
                 _buildCircularBusinessPhoto(business.businessPhotoUrl),
-                TextButton.icon(onPressed:_isSaving?null:_pickImage,icon:const Icon(Icons.camera_alt_outlined),label:const Text('تعديل الصورة')),
+                TextButton.icon(
+                    onPressed: _isSaving ? null : _pickImage,
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('تعديل الصورة')),
               ]),
               const SizedBox(width: 16),
               Expanded(
@@ -999,7 +1034,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: WhizzColors.white,
+                          color: Colors.white,
                           letterSpacing: 1.0,
                         ),
                       ),
@@ -1017,12 +1052,19 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   Widget _buildPersonalInfoCardWithBusiness(
       AppLocalizations l10n, ThemeData theme, Business business) {
     return _buildModernCard([
-      _buildInfoRow('هاتف تواصل الفرع', business.phone ?? l10n.notProvided, Icons.phone),
-      ListTile(title:const Text('تغيير هاتف الفرع والتحقق منه'),leading:const Icon(Icons.phone_outlined),onTap:()=>_editBranchPhone(business)),
+      _buildInfoRow(
+          'هاتف تواصل الفرع', business.phone ?? l10n.notProvided, Icons.phone),
+      ListTile(
+          title: const Text('تغيير هاتف الفرع والتحقق منه'),
+          leading: const Icon(Icons.phone_outlined),
+          onTap: () => _editBranchPhone(business)),
       const Divider(),
-      ListTile(title:const Text('بياناتي الشخصية'),
-        subtitle:const Text('اسمي وبريد التواصل وهاتف دخولي'),
-        leading:const Icon(Icons.person_outline), trailing:const Icon(Icons.chevron_left),onTap:_editPerson),
+      ListTile(
+          title: const Text('بياناتي الشخصية'),
+          subtitle: const Text('اسمي وبريد التواصل وهاتف دخولي'),
+          leading: const Icon(Icons.person_outline),
+          trailing: const Icon(Icons.chevron_left),
+          onTap: _editPerson),
     ]);
   }
 
@@ -1036,8 +1078,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           height: 1,
           color: WhizzColors.secondary.withValues(alpha: 0.2),
         ),
-        _buildInfoRow(
-            l10n.businessType, _typeLabel(business), Icons.category),
+        _buildInfoRow(l10n.businessType, _typeLabel(business), Icons.category),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 10),
           height: 1,
@@ -1064,31 +1105,56 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           height: 1,
           color: WhizzColors.secondary.withValues(alpha: 0.2),
         ),
-        _buildInfoRow('العنوان', _formatAddress(business.address), Icons.location_on),
+        _buildInfoRow(
+            'العنوان', _formatAddress(business.address), Icons.location_on),
       ]);
     }
 
     return _buildModernCard([
-      ListTile(leading:const Icon(Icons.payments_outlined),title:const Text('مستحقاتي والتسويات'),onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>MerchantPayoutsScreen(businessId:business.id)))),
-      ListTile(leading:const Icon(Icons.calendar_month_outlined),title:const Text('جدول تسوية المستحقات'),onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>SettlementSchedulesScreen(businessId:business.id)))),
-      ListTile(leading:const Icon(Icons.handshake_outlined),title:const Text('الاتفاقيات التجارية والعمولة'),onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>CommercialAgreementsScreen(businessId:business.id,businessName:business.name)))),
-      ExpansionTile(leading:const Icon(Icons.edit_note),title:const Text('تعديل الاسم ومتابعة الطلبات'),subtitle:const Text('الاسم والموقع يتغيران بعد الموافقة'),children:[MerchantBusinessChangesScreen(businessId:business.id,embedded:true)]),
-      ListTile(leading:const Icon(Icons.location_on_outlined),title:const Text('تعديل العنوان والموقع'),onTap:()=>LocationSettingsFullBottomDrawer.show(context:context,business:business)),
+      ListTile(
+          leading: const Icon(Icons.payments_outlined),
+          title: const Text('مستحقاتي والتسويات'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => MerchantPayoutsScreen(businessId: business.id)))),
+      ListTile(
+          leading: const Icon(Icons.calendar_month_outlined),
+          title: const Text('جدول تسوية المستحقات'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) =>
+                  SettlementSchedulesScreen(businessId: business.id)))),
+      ListTile(
+          leading: const Icon(Icons.handshake_outlined),
+          title: const Text('الاتفاقيات التجارية والعمولة'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => CommercialAgreementsScreen(
+                  businessId: business.id, businessName: business.name)))),
+      ExpansionTile(
+          leading: const Icon(Icons.edit_note),
+          title: const Text('تعديل الاسم ومتابعة الطلبات'),
+          subtitle: const Text('الاسم والموقع يتغيران بعد الموافقة'),
+          children: [
+            MerchantBusinessChangesScreen(
+                businessId: business.id, embedded: true)
+          ]),
+      ListTile(
+          leading: const Icon(Icons.location_on_outlined),
+          title: const Text('تعديل العنوان والموقع'),
+          onTap: () => LocationSettingsFullBottomDrawer.show(
+              context: context, business: business)),
       _buildInfoRow(l10n.businessName, business.name, Icons.business),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         height: 1,
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
-      _buildInfoRow(
-          l10n.businessType, _typeLabel(business), Icons.category),
+      _buildInfoRow(l10n.businessType, _typeLabel(business), Icons.category),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         height: 1,
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
-      _buildInfoRow('الوصف', business.description ?? l10n.notProvided,
-          Icons.description,
+      _buildInfoRow(
+          'الوصف', business.description ?? l10n.notProvided, Icons.description,
           isMultiline: true),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
@@ -1102,7 +1168,16 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
         height: 1,
         color: WhizzColors.secondary.withValues(alpha: 0.2),
       ),
-      _buildInfoRow('البلد والمحافظة والقضاء والمنطقة', [business.country,business.city,business.district,business.regionName].whereType<String>().where((s)=>s.isNotEmpty).join(' ← '), Icons.map_outlined, isMultiline:true),
+      _buildInfoRow(
+          'البلد والمحافظة والقضاء والمنطقة',
+          [
+            business.country,
+            business.city,
+            business.district,
+            business.regionName
+          ].whereType<String>().where((s) => s.isNotEmpty).join(' ← '),
+          Icons.map_outlined,
+          isMultiline: true),
       _buildInfoRow(
           'العنوان',
           _formatAddress(business.address).isEmpty
@@ -1116,9 +1191,34 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   Widget _buildAccountStatusCardWithBusiness(
       AppLocalizations l10n, ThemeData theme, Business business) {
     return _buildModernCard([
-      _buildInfoRow('مراجعة بيانات النشاط', business.status=='approved'?'معتمد':({'pending':'قيد المراجعة','rejected':'مرفوض','suspended':'معلق'})[business.status]??business.status, Icons.fact_check_outlined),
-      _buildInfoRow('إتاحة النشاط للظهور', business.isActive==null?'غير متاحة':business.isActive==true&&business.platformSuspended!=true?'مفعّل':'غير مفعّل', Icons.visibility_outlined),
-      _buildInfoRow('إعداد استقبال الطلبات', business.acceptingOrders==null?'غير متاح':business.acceptingOrders==true&&business.platformSuspended!=true?'مسموح — حسب الساعات والأهلية':'متوقف', Icons.receipt_long_outlined),
+      _buildInfoRow(
+          'مراجعة بيانات النشاط',
+          business.status == 'approved'
+              ? 'معتمد'
+              : ({
+                    'pending': 'قيد المراجعة',
+                    'rejected': 'مرفوض',
+                    'suspended': 'معلق'
+                  })[business.status] ??
+                  business.status,
+          Icons.fact_check_outlined),
+      _buildInfoRow(
+          'إتاحة النشاط للظهور',
+          business.isActive == null
+              ? 'غير متاحة'
+              : business.isActive == true && business.platformSuspended != true
+                  ? 'مفعّل'
+                  : 'غير مفعّل',
+          Icons.visibility_outlined),
+      _buildInfoRow(
+          'إعداد استقبال الطلبات',
+          business.acceptingOrders == null
+              ? 'غير متاح'
+              : business.acceptingOrders == true &&
+                      business.platformSuspended != true
+                  ? 'مسموح — حسب الساعات والأهلية'
+                  : 'متوقف',
+          Icons.receipt_long_outlined),
     ]);
   }
 
@@ -1257,7 +1357,6 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       ),
     );
   }
-
 
   Widget _buildEditableField(
       String label, TextEditingController controller, IconData icon,

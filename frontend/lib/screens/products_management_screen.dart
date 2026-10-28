@@ -380,18 +380,18 @@ class _ProductsManagementScreenState
                 backgroundColor: WhizzColors.black,
                 foregroundColor: WhizzColors.white,
                 minimumSize: Size(200, 56),
-                padding: EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xl, vertical: AppSpacing.md),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius:
                       BorderRadius.circular(AppDimensions.borderRadiusSM),
                 ),
               ),
-              icon: Icon(Icons.refresh_rounded),
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
               label: Text(
                 loc.tryAgain,
                 style: AppTypography.labelLarge
-                    .copyWith(fontWeight: FontWeight.bold),
+                    .copyWith(fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
           ],

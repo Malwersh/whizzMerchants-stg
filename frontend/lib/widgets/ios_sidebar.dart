@@ -169,7 +169,7 @@ class _IOSSidebarState extends ConsumerState<IOSSidebar> {
             ),
             child: Icon(
               Icons.restaurant_menu,
-              color: Colors.white,
+              color: const Color(0xFF00296B),
               size:
                   ResponsiveHelper.getResponsiveIconSize(context, baseSize: 18),
             ),
@@ -286,22 +286,22 @@ class _IOSSidebarState extends ConsumerState<IOSSidebar> {
                     const SizedBox(width: GoldenRatio.spacing12),
                     // iOS-style switch - toggle completely disabled
                     Switch.adaptive(
-                        value: _appState.isOnline,
-                        // Toggle locked: disable interactions to prevent websocket status updates
-                        onChanged: null,
-                        thumbColor: WidgetStateProperty.resolveWith((states) {
-                          if (states.contains(WidgetState.selected)) {
-                            return const Color(0xFF34C759);
-                          }
-                          return const Color(0xFFFF3B30);
-                        }),
-                        trackColor: WidgetStateProperty.resolveWith((states) {
-                          if (states.contains(WidgetState.selected)) {
-                            return const Color(0xFF34C759).withValues(alpha: 0.3);
-                          }
-                          return const Color(0xFFFF3B30).withValues(alpha: 0.3);
-                        }),
-                      ),
+                      value: _appState.isOnline,
+                      // Toggle locked: disable interactions to prevent websocket status updates
+                      onChanged: null,
+                      thumbColor: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return const Color(0xFF34C759);
+                        }
+                        return const Color(0xFFFF3B30);
+                      }),
+                      trackColor: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return const Color(0xFF34C759).withValues(alpha: 0.3);
+                        }
+                        return const Color(0xFFFF3B30).withValues(alpha: 0.3);
+                      }),
+                    ),
                   ],
                 ),
               ],
@@ -426,8 +426,7 @@ class _IOSSidebarState extends ConsumerState<IOSSidebar> {
                     if (!isLast)
                       Container(
                         margin: EdgeInsets.only(
-                          left: ResponsiveHelper.getResponsiveIconSize(
-                              context,
+                          left: ResponsiveHelper.getResponsiveIconSize(context,
                               baseSize: 52),
                         ),
                         height: 0.5,

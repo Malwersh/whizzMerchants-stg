@@ -153,7 +153,7 @@ class _WhizzSearchBarPreviewState extends State<WhizzSearchBarPreview> {
                 children: [
                   Icon(
                     Icons.search,
-                    color: WhizzColors.primary,
+                    color: const Color(0xFF00296B),
                     size: GoldenRatio.md,
                   ),
                   SizedBox(width: GoldenRatio.spacing8),

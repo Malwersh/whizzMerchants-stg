@@ -1,3 +1,4 @@
+import '../../utils/readable_colors.dart';
 import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../dashboards/main_dashboard.dart';
@@ -57,10 +58,10 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
       setState(() {
         _isLoading = true;
       });
-      
+
       try {
         final code = _codeController.text.trim();
-        
+
         // Step 1: Confirm the email
         final result = await AppAuthService.confirmSignUp(
           username: widget.email,
@@ -70,7 +71,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
         if (mounted) {
           if (result.success) {
             final localizations = AppLocalizations.of(context)!;
-            
+
             // Show confirmation success message
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -79,7 +80,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                 duration: const Duration(seconds: 2),
               ),
             );
-            
+
             // Step 2: Auto-login the user with the password from userData
             final password = widget.userData['password'] as String?;
 
@@ -137,7 +138,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
             setState(() {
               _isLoading = false;
             });
-            
+
             final localizations = AppLocalizations.of(context)!;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -153,7 +154,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
           setState(() {
             _isLoading = false;
           });
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -210,14 +211,13 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
-    
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       body: SafeArea(
         child: Column(
           children: [
             _buildHeader(),
-            
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.all(AppSpacing.lg),
@@ -227,15 +227,14 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       SizedBox(height: AppSpacing.xxl),
-                      
+
                       // Icon
                       Container(
                         width: 80,
                         height: 80,
                         margin: EdgeInsets.only(bottom: AppSpacing.lg),
                         decoration: BoxDecoration(
-                          color: WhizzColors.secondary
-                              .withValues(alpha: 0.1),
+                          color: WhizzColors.secondary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(AppSpacing.md),
                         ),
                         child: Icon(
@@ -244,7 +243,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                           color: WhizzColors.secondary,
                         ),
                       ),
-                      
+
                       // Title
                       Text(
                         localizations.confirmYourAccount,
@@ -254,9 +253,9 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      
+
                       SizedBox(height: AppSpacing.md),
-                      
+
                       // Description
                       Text(
                         localizations.confirmationCodeSentTo,
@@ -265,9 +264,9 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      
+
                       SizedBox(height: AppSpacing.xs),
-                      
+
                       // Email display
                       Text(
                         widget.email,
@@ -277,9 +276,9 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      
+
                       SizedBox(height: AppSpacing.xxl),
-                      
+
                       // Confirmation code field
                       TextFormField(
                         controller: _codeController,
@@ -306,13 +305,15 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                           return null;
                         },
                       ),
-                      
+
                       SizedBox(height: AppSpacing.xxl),
-                      
+
                       // Confirm button
                       FilledButton(
                         onPressed: _isLoading ? null : _handleConfirmation,
                         style: FilledButton.styleFrom(
+                          foregroundColor:
+                              readableForeground(WhizzColors.secondary),
                           backgroundColor: WhizzColors.secondary,
                           minimumSize: Size(
                               double.infinity, AppDimensions.buttonHeightLarge),
@@ -329,9 +330,9 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                               )
                             : Text(localizations.confirmAccountButton),
                       ),
-                      
+
                       SizedBox(height: AppSpacing.md),
-                      
+
                       // Resend code button
                       OutlinedButton(
                         onPressed: _canResend ? _handleResendCode : null,
@@ -341,14 +342,14 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                               double.infinity, AppDimensions.buttonHeightLarge),
                         ),
                         child: Text(
-                          _canResend 
+                          _canResend
                               ? localizations.resendCode
                               : localizations.resendCodeIn(_resendCountdown),
                         ),
                       ),
-                      
+
                       SizedBox(height: AppSpacing.lg),
-                      
+
                       // Back to signup
                       TextButton(
                         onPressed: _handleBackToSignup,
@@ -370,7 +371,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
 
   Widget _buildHeader() {
     final localizations = AppLocalizations.of(context)!;
-    
+
     return Container(
       padding:
           EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
@@ -381,7 +382,6 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
             onPressed: _handleBackToSignup,
             icon: Icon(Icons.arrow_back, size: AppDimensions.iconSizeMD),
           ),
-          
           IconButton(
             onPressed: () {
               // TODO: Implement language toggle
