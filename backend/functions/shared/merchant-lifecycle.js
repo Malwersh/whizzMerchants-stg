@@ -47,6 +47,8 @@ function merchantLifecycleClient(raw){
    {ConditionCheck:{TableName:'WhizzMerchants_Businesses',Key:{businessId:actor.businessId},ConditionExpression:'ownerId = :sub AND cognitoUserId = :sub AND attribute_not_exists(deletionRequestId)',ExpressionAttributeValues:{':sub':actor.sub}}}
   ];
   const items=name==='TransactWriteCommand'?command.input.TransactItems.map(x=>({...x})):[{[name.slice(0,-7)]:{...command.input}}];
+  const menuChanges=items.some(x=>{const op=x.Put||x.Update||x.Delete;return ['WhizzMerchants_Products','WhizzMerchants_Categories'].includes(op?.TableName);});
+  if(menuChanges&&!items.some(x=>x.Update?.Key?.sk==='MENU_DRAFT#META'))items.push(require('./menu-draft-version').menuDraftVersion(actor.businessId));
   const sharingGuards=[];
   for(let i=0;i<items.length;i++)if((items[i].Put||items[i].Update||items[i].Delete)?.TableName==='WhizzMerchants_Discounts'){if(actor.deviceGuards)throw Error('DEVICE_WRITE_SCOPE_INVALID');items[i]=await require('./campaign-version').ownerOperation(raw,items[i],actor.businessId,{GetCommand,expectedRevision:actor.campaignBaseRevision,lockGuards:sharingGuards});}
   items.push(...sharingGuards);

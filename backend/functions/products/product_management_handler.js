@@ -31,6 +31,11 @@ const headers = {
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
+const validReference=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,150}$/.test(value);
+async function requirePublishedMenu(businessId){
+    const {Item}=await lifecycleRawDb.send(new GetCommand({TableName:process.env.MERCHANT_PLATFORM_TABLE||'staging-MerchantPlatform',Key:{pk:'BRANCH#'+businessId,sk:'MENU_VERSION#ACTIVE'},ConsistentRead:true}));
+    if(!Item)throw Object.assign(Error('MENU_PUBLISH_REQUIRED'),{status:409});
+}
 
 // Helper function to create response
 function createResponse(statusCode, body) {
@@ -61,10 +66,14 @@ async function handleGetProducts(event) {
             KeyConditionExpression: 'businessId = :businessId',
             ExpressionAttributeValues: { ':businessId': businessId },
         };
-        const { Items } = await docClient.send(new QueryCommand(params));
+        const allItems=[];let lastKey;
+        do {
+            const page=await docClient.send(new QueryCommand({...params,ExclusiveStartKey:lastKey}));
+            allItems.push(...(page.Items||[]));lastKey=page.LastEvaluatedKey;
+        } while(lastKey);
 
         // Add 'id' field to each product for frontend compatibility
-        const productsWithId = (Items || []).map(item => ({ ...item, id: item.productId }));
+        const productsWithId = allItems.map(item => ({ ...item, id: item.productId }));
 
         return createResponse(200, { success: true, products: productsWithId });
     } catch (error) {
@@ -84,13 +93,16 @@ async function handleSearchProducts(event) {
     try {
         const params = {
             TableName: PRODUCTS_TABLE,
-            FilterExpression: 'businessId = :businessId and contains(searchableName, :searchQuery)',
+            IndexName: 'BusinessIdIndex',
+            KeyConditionExpression: 'businessId = :businessId',
+            FilterExpression: 'contains(searchableName, :searchQuery)',
             ExpressionAttributeValues: {
                 ':businessId': businessId,
                 ':searchQuery': searchQuery,
             },
         };
-        const { Items } = await docClient.send(new ScanCommand(params));
+        const Items=[];let lastKey;
+        do {const page=await docClient.send(new QueryCommand({...params,ExclusiveStartKey:lastKey}));Items.push(...(page.Items||[]));lastKey=page.LastEvaluatedKey;} while(lastKey);
 
         // Add 'id' field to each product for frontend compatibility
         const productsWithId = (Items || []).map(item => ({ ...item, id: item.productId }));
@@ -109,14 +121,20 @@ async function handleCreateProduct(event) {
     }
 
     try {
-        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode, optionGroups } = JSON.parse(event.body);
+        if(typeof event.body!=='string'||event.body.length>65536)return createResponse(413,{success:false,message:'PRODUCT_PAYLOAD_TOO_LARGE'});
+        const body=JSON.parse(event.body);
+        const allowed=new Set(['businessId','name','description','price','categoryId','imageUrl','isAvailable','globalProductId','barcode','optionGroups']);
+        if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(k=>!allowed.has(k)))return createResponse(400,{success:false,message:'INVALID_PRODUCT_FIELDS'});
+        const { name, description, price, categoryId, imageUrl, isAvailable, globalProductId, barcode, optionGroups } = body;
+        if(globalProductId!==undefined&&!validReference(globalProductId))return createResponse(400,{success:false,message:'INVALID_GLOBAL_PRODUCT'});
         let branchOptions;
         try { if(optionGroups!==undefined)branchOptions=readBranchProductOptions(optionGroups); }
         catch { return createResponse(400,{success:false,message:'INVALID_BRANCH_PRODUCT_OPTIONS'}); }
 
-        if (price == null) {
-            return createResponse(400, { success: false, message: 'price is required' });
-        }
+        if(!Number.isSafeInteger(price)||price<=0||price>1000000000)return createResponse(400,{success:false,message:'INVALID_PRICE'});
+        if(description!==undefined&&(typeof description!=='string'||description.length>2000)||isAvailable!==undefined&&typeof isAvailable!=='boolean')return createResponse(400,{success:false,message:'INVALID_PRODUCT_FIELDS'});
+        if(barcode!==undefined&&(typeof barcode!=='string'||!/^[0-9A-Za-z._-]{1,100}$/.test(barcode)))return createResponse(400,{success:false,message:'INVALID_BARCODE'});
+        if(imageUrl!==undefined&&(typeof imageUrl!=='string'||imageUrl.length>2000||!imageUrl.startsWith('https://')))return createResponse(400,{success:false,message:'INVALID_IMAGE_URL'});
 
         // 1) Picked from the shared catalog: reuse its name/image/description.
         let globalItem = null;
@@ -132,7 +150,7 @@ async function handleCreateProduct(event) {
 
         const finalName = name || globalItem?.canonicalName;
         const finalCategoryId = categoryId || globalItem?.categoryId;
-        if (!finalName || !finalCategoryId) {
+        if (typeof finalName!=='string'||!finalName.trim()||finalName.length>150||typeof finalCategoryId!=='string'||!finalCategoryId.trim()||finalCategoryId.length>150) {
             return createResponse(400, {
                 success: false,
                 message: 'name and categoryId are required (or pick a global product)'
@@ -142,12 +160,12 @@ async function handleCreateProduct(event) {
         const { Item: category } = await docClient.send(new GetCommand({
             TableName: CATEGORIES_TABLE, Key: { categoryId: finalCategoryId }, ConsistentRead: true,
         }));
-        if (!category || category.isActive === false || category.is_active === false) {
+        if (!category || category.isActive === false || category.is_active === false || category.businessId&&category.businessId!==businessId) {
             return createResponse(400, { success: false, message: 'اختر قسماً متاحاً من القائمة الحالية.' });
         }
 
         // 2) New product: dedupe by barcode, else add it to the catalog for others to reuse.
-        if (!globalItem) {
+        if (!globalItem && barcode) {
             globalItem = await findOrCreateGlobalProduct({
                 name: finalName,
                 description: description || '',
@@ -156,7 +174,7 @@ async function handleCreateProduct(event) {
                 barcode: barcode || null,
                 createdBy: businessId,
             });
-        } else {
+        } else if (globalItem) {
             await incrementGlobalUsage(globalItem.globalProductId);
         }
 
@@ -169,7 +187,7 @@ async function handleCreateProduct(event) {
             globalProductId: globalItem?.globalProductId || null,
             name: finalName,
             description: description || globalItem?.description || '',
-            price: parseFloat(price),
+            price,
             categoryId: finalCategoryId,
             imageUrl: imageUrl || globalItem?.imageUrl || null,
             barcode: barcode || globalItem?.barcode || null,
@@ -179,7 +197,7 @@ async function handleCreateProduct(event) {
             updatedAt: now,
         };
 
-        await docClient.send(new PutCommand({ TableName: PRODUCTS_TABLE, Item: newItem }));
+        await docClient.send(new PutCommand({ TableName: PRODUCTS_TABLE, Item: newItem,ConditionExpression:'attribute_not_exists(productId)' }));
 
         const responseProduct = { ...newItem, id: newItem.productId };
         return createResponse(201, { success: true, product: responseProduct });
@@ -317,16 +335,19 @@ async function handleUpdateProduct(event) {
 
     const { productId } = event.pathParameters;
     const updates = JSON.parse(event.body);
+    const allowed=new Set(['businessId','name','description','price','categoryId','imageUrl','isAvailable','barcode','optionGroups']);
+    if(!updates||typeof updates!=='object'||Array.isArray(updates)||Object.keys(updates).some(k=>!allowed.has(k)))return createResponse(400,{success:false,message:'INVALID_PRODUCT_FIELDS'});
     if(Object.hasOwn(updates,'optionGroups')){
         try { updates.optionGroups=readBranchProductOptions(updates.optionGroups); }
         catch { return createResponse(400,{success:false,message:'INVALID_BRANCH_PRODUCT_OPTIONS'}); }
     }
 
+    if(Object.hasOwn(updates,'categoryId')&&!validReference(updates.categoryId))return createResponse(400,{success:false,message:'INVALID_CATEGORY'});
     if (Object.hasOwn(updates, 'categoryId')) {
         const { Item: category } = await docClient.send(new GetCommand({
             TableName: CATEGORIES_TABLE, Key: { categoryId: updates.categoryId }, ConsistentRead: true,
         }));
-        if (!category || category.isActive === false || category.is_active === false) {
+        if (!category || category.isActive === false || category.is_active === false || category.businessId&&category.businessId!==businessId) {
             return createResponse(400, { success: false, message: 'اختر قسماً متاحاً من القائمة الحالية.' });
         }
     }
@@ -336,12 +357,14 @@ async function handleUpdateProduct(event) {
     delete updates.id;
     delete updates.productId;
     
-    if (updates.name) {
-        updates.searchableName = updates.name.toLowerCase();
-    }
-    if (updates.price) {
-        updates.price = parseFloat(updates.price);
-    }
+    if(updates.name!==undefined&&(typeof updates.name!=='string'||!updates.name.trim()||updates.name.length>150))return createResponse(400,{success:false,message:'INVALID_NAME'});
+    if(updates.description!==undefined&&(typeof updates.description!=='string'||updates.description.length>2000))return createResponse(400,{success:false,message:'INVALID_DESCRIPTION'});
+    if(updates.price!==undefined&&(!Number.isSafeInteger(updates.price)||updates.price<=0||updates.price>1000000000))return createResponse(400,{success:false,message:'INVALID_PRICE'});
+    if(updates.isAvailable!==undefined&&typeof updates.isAvailable!=='boolean')return createResponse(400,{success:false,message:'INVALID_AVAILABILITY'});
+    if(updates.barcode!==undefined&&(typeof updates.barcode!=='string'||!/^[0-9A-Za-z._-]{1,100}$/.test(updates.barcode)))return createResponse(400,{success:false,message:'INVALID_BARCODE'});
+    if(updates.imageUrl!==undefined&&(typeof updates.imageUrl!=='string'||updates.imageUrl.length>2000||!updates.imageUrl.startsWith('https://')))return createResponse(400,{success:false,message:'INVALID_IMAGE_URL'});
+    if(updates.name!==undefined)updates.searchableName=updates.name.toLowerCase();
+    if(!Object.keys(updates).length)return createResponse(400,{success:false,message:'NO_PRODUCT_CHANGES'});
     updates.updatedAt = new Date().toISOString();
 
     const updateExpression = 'set ' + Object.keys(updates).map(key => `#${key} = :${key}`).join(', ');
@@ -359,9 +382,9 @@ async function handleUpdateProduct(event) {
             TableName: PRODUCTS_TABLE,
             Key: { productId: productId },
             UpdateExpression: updateExpression,
-            ConditionExpression: '#branchOwner = :branchOwner',
-            ExpressionAttributeNames: {...expressionAttributeNames,'#branchOwner':'businessId'},
-            ExpressionAttributeValues: {...expressionAttributeValues,':branchOwner':businessId},
+            ConditionExpression: Item.updatedAt===undefined?'#branchOwner = :branchOwner AND attribute_not_exists(#previousUpdatedAt)':'#branchOwner = :branchOwner AND #previousUpdatedAt = :previousUpdatedAt',
+            ExpressionAttributeNames: {...expressionAttributeNames,'#branchOwner':'businessId','#previousUpdatedAt':'updatedAt'},
+            ExpressionAttributeValues: {...expressionAttributeValues,':branchOwner':businessId,...(Item.updatedAt===undefined?{}:{':previousUpdatedAt':Item.updatedAt})},
             ReturnValues: 'ALL_NEW',
         };
 
@@ -389,7 +412,7 @@ async function handleDeleteProduct(event) {
             return createResponse(404, { success: false, message: 'Product not found or you do not have permission to delete it.' });
         }
 
-        await docClient.send(new DeleteCommand({ TableName: PRODUCTS_TABLE, Key: { productId: productId } }));
+        await docClient.send(new DeleteCommand({ TableName: PRODUCTS_TABLE, Key: { productId: productId },ConditionExpression:Item.updatedAt===undefined?'businessId=:b AND attribute_not_exists(updatedAt)':'businessId=:b AND updatedAt=:u',ExpressionAttributeValues:{':b':businessId,...(Item.updatedAt===undefined?{}:{':u':Item.updatedAt})} }));
         return createResponse(200, { success: true, message: 'Product deleted successfully' });
     } catch (error) {
         console.error('Error deleting product:', error);
@@ -403,7 +426,7 @@ async function handleGetCategories(event) {
     try {
         const { Items } = await docClient.send(new ScanCommand({ TableName: CATEGORIES_TABLE }));
         const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
-        const categories=actor?.deviceGuards?(Items||[]).filter(c=>c.isActive!==false&&c.is_active!==false&&(!c.businessId||c.businessId===actor.businessId)).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','isActive','is_active'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]))):Items||[];
+        const categories=(Items||[]).filter(c=>!c.businessId||c.businessId===actor?.businessId).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','description','sortOrder','isActive','is_active','businessId','version','createdAt','updatedAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]])));
         return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories:', error);
@@ -435,7 +458,9 @@ async function handleGetCategoriesByBusinessType(event) {
             Items = (allItems || []).filter((c) => c.isActive !== false);
         }
 
-        return createResponse(200, { success: true, categories: Items || [] });
+        const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+        const categories=(Items||[]).filter(c=>(!c.businessId||c.businessId===actor?.businessId)&&c.isActive!==false&&c.is_active!==false);
+        return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories by business type:', error);
         return createResponse(500, { success: false, message: 'Failed to get categories', error: error.message });
@@ -452,11 +477,41 @@ module.exports.handler = async (event) => {
 
     try {
     const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
-    if(actor?.deviceGuards&&['POST','PUT','DELETE'].includes(httpMethod)){
-        const result=await require('../shared/branch-device-menu').mutate(lifecycleRawDb,actor,event);
+    if(actor?.deviceGuards&&path.startsWith('/products/imports/')){
+        return createResponse(403,{success:false,code:'IMPORT_PERMISSION_REQUIRED'});
+    }
+    if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&!path.startsWith('/products/imports/')&&path.startsWith('/products')){
+        await requirePublishedMenu(actor.businessId);
+        const mutationActor={...actor,ownerId:actor.ownerId||actor.sub,deviceGuards:actor.deviceGuards||[]};
+        const result=await require('../shared/branch-device-menu').mutate(actor.deviceGuards?lifecycleRawDb:docClient,mutationActor,event);
         return {...result,headers};
     }
     // Route products endpoints
+        if(path==='/menu/versions'||path==='/menu/versions/publish'||path==='/menu/versions/rollback'){
+            if(actor?.deviceGuards)return createResponse(403,{success:false,code:'MENU_PUBLISH_PERMISSION_REQUIRED'});
+            const versions=require('./menu_versions').createMenuVersionService(docClient,{actor:()=>actor});const businessId=actor.businessId;
+            if(httpMethod==='GET')return createResponse(200,{success:true,...await versions.status(businessId)});
+            if(httpMethod==='POST'&&path.endsWith('/publish'))return createResponse(200,{success:true,active:await versions.publish(businessId,JSON.parse(event.body||'{}'))});
+            if(httpMethod==='POST'&&path.endsWith('/rollback'))return createResponse(200,{success:true,active:await versions.rollback(businessId,JSON.parse(event.body||'{}'))});
+        }
+        if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&path.startsWith('/categories')){
+            if(actor.deviceGuards)return createResponse(403,{success:false,code:'CATEGORY_PERMISSION_REQUIRED'});
+            await requirePublishedMenu(actor.businessId);
+            const categories=require('./branch_categories').createBranchCategoryService(docClient,{actor:()=>actor});
+            const category=await categories.mutate(actor.businessId,event);return createResponse(httpMethod==='POST'?201:200,{success:true,category});
+        }
+        if (path === '/products/imports/preview' && httpMethod === 'POST') {
+            const businessId=await getBusinessId(event);
+            const productImports=require('./product_import').createProductImportService(docClient,{actor:()=>require('../shared/merchant-lifecycle').merchantRequestContext.getStore()});
+            return createResponse(201,{success:true,job:await productImports.preview(businessId,JSON.parse(event.body||'{}'))});
+        }
+        if (path.startsWith('/products/imports/')) {
+            const businessId=await getBusinessId(event);
+            const productImports=require('./product_import').createProductImportService(docClient,{actor:()=>require('../shared/merchant-lifecycle').merchantRequestContext.getStore()});
+            const jobId=event.pathParameters?.importJobId||path.split('/')[3];
+            if(httpMethod==='GET')return createResponse(200,{success:true,job:await productImports.get(businessId,jobId)});
+            if(httpMethod==='POST'&&path.endsWith('/commit')){await requirePublishedMenu(businessId);return createResponse(200,{success:true,job:await productImports.commit(businessId,jobId,JSON.parse(event.body||'{}'))});}
+        }
         if (path.startsWith('/products/global-search')) {
             return handleGlobalSearch(event);
         }

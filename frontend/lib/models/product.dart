@@ -3,6 +3,7 @@ class Product {
   final String name;
   final String description;
   final double price;
+  final List<Map<String,dynamic>> optionGroups;
   final String categoryId;
   final String businessId;
   final bool isAvailable;
@@ -23,6 +24,7 @@ class Product {
     required this.name,
     required this.description,
     required this.price,
+    this.optionGroups = const [],
     required this.categoryId,
     required this.businessId,
     this.isAvailable = true,
@@ -61,6 +63,7 @@ class Product {
       name: json['name'] ?? '',
       description: json['description'] ?? '',
       price: (json['price'] ?? 0).toDouble(),
+      optionGroups: (json['optionGroups'] as List? ?? []).map((v)=>Map<String,dynamic>.from(v)).toList(),
       categoryId: json['categoryId'] ?? json['category_id'] ?? '',
       businessId: json['businessId'] ?? json['business_id'] ?? '',
       isAvailable: json['isAvailable'] ?? json['is_available'] ?? true,
@@ -88,6 +91,7 @@ class Product {
       'name': name,
       'description': description,
       'price': price,
+      'optionGroups': optionGroups,
       'categoryId': categoryId,
       'businessId': businessId,
       'isAvailable': isAvailable,
@@ -108,6 +112,7 @@ class Product {
     String? name,
     String? description,
     double? price,
+    List<Map<String,dynamic>>? optionGroups,
     String? categoryId,
     String? businessId,
     bool? isAvailable,
@@ -126,6 +131,7 @@ class Product {
       name: name ?? this.name,
       description: description ?? this.description,
       price: price ?? this.price,
+      optionGroups: optionGroups ?? this.optionGroups,
       categoryId: categoryId ?? this.categoryId,
       businessId: businessId ?? this.businessId,
       isAvailable: isAvailable ?? this.isAvailable,

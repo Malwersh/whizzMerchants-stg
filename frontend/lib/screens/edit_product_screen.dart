@@ -1,3 +1,5 @@
+import 'dart:convert';
+import '../widgets/branch_options_editor.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -25,6 +27,7 @@ class EditProductScreen extends ConsumerStatefulWidget {
 
 class _EditProductScreenState extends ConsumerState<EditProductScreen> {
   final _formKey = GlobalKey<FormState>();
+  List<Map<String,dynamic>> _optionGroups = [];
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
   late TextEditingController _priceController;
@@ -38,6 +41,7 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
   @override
   void initState() {
     super.initState();
+    _optionGroups=(jsonDecode(jsonEncode(widget.product.optionGroups)) as List).map((v)=>Map<String,dynamic>.from(v)).toList();
     _nameController = TextEditingController(text: widget.product.name);
     _descriptionController =
         TextEditingController(text: widget.product.description);
@@ -497,6 +501,8 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                       },
                     ),
 
+                    BranchOptionsEditor(value:_optionGroups,enabled:!_isLoading,onChanged:(v)=>setState(()=>_optionGroups=v)),
+
                     // Availability Toggle
                     Container(
                       margin: EdgeInsets.only(bottom: AppSpacing.xl),
@@ -634,6 +640,7 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
         categoryId: _selectedCategoryId!,
         imageUrl: imageUrl,
         isAvailable: _isAvailable,
+        additionalData: {'optionGroups':_optionGroups},
       );
 
       if (result['success'] && mounted) {

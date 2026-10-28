@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import 'package:whizz_merchants/config/app_config.dart';
 import '../core/utils/app_logger.dart';
 import '../core/exceptions/auth_exceptions.dart';
@@ -56,6 +57,23 @@ class ProductService {
     return resp;
   }
 
+  static Future<http.Response> _resilientPost(
+      Uri uri, Map<String, dynamic> body) async {
+    String? token = await _getBestToken();
+    if (token == null) {
+      throw AuthTokenExpiredException('Authentication token missing');
+    }
+    Future<http.Response> send(String value) =>
+        http.post(uri, headers: _authHeaders(value), body: jsonEncode(body));
+    var response = await send(token);
+    if (response.statusCode == 401) {
+      await TokenRefreshService.refreshTokens();
+      token = await _getBestToken();
+      if (token != null) response = await send(token);
+    }
+    return response;
+  }
+
   static Map<String, dynamic> _safeDecode(String body) {
     try {
       return jsonDecode(body) as Map<String, dynamic>;
@@ -70,7 +88,7 @@ class ProductService {
   static Future<Map<String, dynamic>> getProducts({String? businessId}) async {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
-      
+
       // Use wizzbussiness endpoint (shared backend) instead of wizzuser
       final uri = scope.uri('$baseUrl/products');
       final response = await _resilientGet(uri);
@@ -80,7 +98,8 @@ class ProductService {
         return {'success': true, 'products': data['products'] ?? []};
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception thrown
-        AppLogger.warning('[ProductService] Auth error ${response.statusCode} - user needs to re-login (wizzuser approach)');
+        AppLogger.warning(
+            '[ProductService] Auth error ${response.statusCode} - user needs to re-login (wizzuser approach)');
         return {
           'success': false,
           'message': 'Authentication required - please re-login',
@@ -89,7 +108,8 @@ class ProductService {
       } else if (response.statusCode == 403) {
         return {
           'success': false,
-          'message': 'تعذر تحميل منتجات هذا الفرع. تحقق من الفرع المختار وصلاحية الوصول إليه.',
+          'message':
+              'تعذر تحميل منتجات هذا الفرع. تحقق من الفرع المختار وصلاحية الوصول إليه.',
           'isAuthError': false,
         };
       } else if (response.statusCode >= 500) {
@@ -113,8 +133,8 @@ class ProductService {
 
   /// Search the shared global catalog (products other merchants already added).
   /// Picking a result reuses its name/image so the merchant only sets a price.
-  static Future<List<Map<String, dynamic>>> searchGlobalCatalog(
-      String query, {String? businessId}) async {
+  static Future<List<Map<String, dynamic>>> searchGlobalCatalog(String query,
+      {String? businessId}) async {
     final q = query.trim();
     if (q.length < 2) return [];
     try {
@@ -144,9 +164,12 @@ class ProductService {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
       String? token = await _getBestToken();
-      if (token == null) throw AuthTokenExpiredException('Authentication token expired');
+      if (token == null) {
+        throw AuthTokenExpiredException('Authentication token expired');
+      }
 
       final productData = {
+        'requestId': const Uuid().v4(),
         'name': name,
         'description': description,
         'price': price,
@@ -155,7 +178,6 @@ class ProductService {
         if (imageUrl != null) 'imageUrl': imageUrl,
         if (additionalData != null) ...additionalData,
       };
-
 
       Future<http.Response> doPost(String t) => http.post(
             scope.uri('$baseUrl/products'),
@@ -179,8 +201,13 @@ class ProductService {
         };
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
-        AppLogger.warning('[ProductService] Auth error creating product - user needs to re-login (wizzuser approach)');
-        return {'success': false, 'message': 'Authentication required - please re-login', 'isAuthError': true};
+        AppLogger.warning(
+            '[ProductService] Auth error creating product - user needs to re-login (wizzuser approach)');
+        return {
+          'success': false,
+          'message': 'Authentication required - please re-login',
+          'isAuthError': true
+        };
       } else if (response.statusCode >= 500) {
         return {
           'success': false,
@@ -215,9 +242,12 @@ class ProductService {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
       String? token = await _getBestToken();
-      if (token == null) throw AuthTokenExpiredException('Authentication token expired');
+      if (token == null) {
+        throw AuthTokenExpiredException('Authentication token expired');
+      }
 
       final updateData = <String, dynamic>{};
+      updateData['requestId'] = const Uuid().v4();
       if (name != null) updateData['name'] = name;
       if (description != null) updateData['description'] = description;
       if (price != null) updateData['price'] = price;
@@ -225,7 +255,6 @@ class ProductService {
       if (imageUrl != null) updateData['imageUrl'] = imageUrl;
       if (isAvailable != null) updateData['isAvailable'] = isAvailable;
       if (additionalData != null) updateData.addAll(additionalData);
-
 
       Future<http.Response> doPut(String t) => http.put(
             scope.uri('$baseUrl/products/${Uri.encodeComponent(productId)}'),
@@ -249,8 +278,13 @@ class ProductService {
         };
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
-        AppLogger.warning('[ProductService] Auth error updating product - user needs to re-login (wizzuser approach)');
-        return {'success': false, 'message': 'Authentication required - please re-login', 'isAuthError': true};
+        AppLogger.warning(
+            '[ProductService] Auth error updating product - user needs to re-login (wizzuser approach)');
+        return {
+          'success': false,
+          'message': 'Authentication required - please re-login',
+          'isAuthError': true
+        };
       } else if (response.statusCode >= 500) {
         return {
           'success': false,
@@ -271,12 +305,14 @@ class ProductService {
   }
 
   /// Delete a product (resilient auth)
-  static Future<Map<String, dynamic>> deleteProduct(String productId, {String? businessId}) async {
+  static Future<Map<String, dynamic>> deleteProduct(String productId,
+      {String? businessId}) async {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
       String? token = await _getBestToken();
-      if (token == null) throw AuthTokenExpiredException('Authentication token expired');
-
+      if (token == null) {
+        throw AuthTokenExpiredException('Authentication token expired');
+      }
 
       Future<http.Response> doDelete(String t) => http.delete(
             scope.uri('$baseUrl/products/${Uri.encodeComponent(productId)}'),
@@ -300,8 +336,13 @@ class ProductService {
         };
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
-        AppLogger.warning('[ProductService] Auth error deleting product - user needs to re-login (wizzuser approach)');
-        return {'success': false, 'message': 'Authentication required - please re-login', 'isAuthError': true};
+        AppLogger.warning(
+            '[ProductService] Auth error deleting product - user needs to re-login (wizzuser approach)');
+        return {
+          'success': false,
+          'message': 'Authentication required - please re-login',
+          'isAuthError': true
+        };
       } else if (response.statusCode >= 500) {
         return {
           'success': false,
@@ -322,10 +363,11 @@ class ProductService {
   }
 
   /// Search for products by name
-  static Future<Map<String, dynamic>> searchProducts(String query, {String? businessId}) async {
+  static Future<Map<String, dynamic>> searchProducts(String query,
+      {String? businessId}) async {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
-      
+
       final token = await _getBestToken();
       if (token == null) {
         throw AuthTokenExpiredException('Authentication token expired');
@@ -344,8 +386,13 @@ class ProductService {
         return {'success': true, 'products': data['products'] ?? []};
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
-        AppLogger.warning('[ProductService] Auth error searching products - user needs to re-login (wizzuser approach)');
-        return {'success': false, 'message': 'Authentication required - please re-login', 'isAuthError': true};
+        AppLogger.warning(
+            '[ProductService] Auth error searching products - user needs to re-login (wizzuser approach)');
+        return {
+          'success': false,
+          'message': 'Authentication required - please re-login',
+          'isAuthError': true
+        };
       } else {
         final errorData = jsonDecode(response.body);
         return {
@@ -361,7 +408,8 @@ class ProductService {
   }
 
   /// Get a specific product by ID
-  static Future<Map<String, dynamic>> getProduct(String productId, {String? businessId}) async {
+  static Future<Map<String, dynamic>> getProduct(String productId,
+      {String? businessId}) async {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
       final token = await _getBestToken();
@@ -385,8 +433,13 @@ class ProductService {
         };
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
-        AppLogger.warning('[ProductService] Auth error fetching product - user needs to re-login (wizzuser approach)');
-        return {'success': false, 'message': 'Authentication required - please re-login', 'isAuthError': true};
+        AppLogger.warning(
+            '[ProductService] Auth error fetching product - user needs to re-login (wizzuser approach)');
+        return {
+          'success': false,
+          'message': 'Authentication required - please re-login',
+          'isAuthError': true
+        };
       } else {
         final errorData = jsonDecode(response.body);
         return {
@@ -406,13 +459,17 @@ class ProductService {
 
   /// Get categories for a specific business type
   static Future<Map<String, dynamic>> getCategoriesForBusinessType(
-      String businessType, {String? businessId}) async {
+      String businessType,
+      {String? businessId}) async {
     AppLogger.info(
         'ProductService: Getting categories for business type: $businessType');
 
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
-      final url = scope.uri('$baseUrl/categories/business-type/${Uri.encodeComponent(businessType)}').toString();
+      final url = scope
+          .uri(
+              '$baseUrl/categories/business-type/${Uri.encodeComponent(businessType)}')
+          .toString();
       final response = await _resilientGet(Uri.parse(url));
 
       if (response.statusCode == 200) {
@@ -423,7 +480,6 @@ class ProductService {
             'ProductService: API returned ${apiCategories.length} categories');
         AppLogger.info('ProductService: Categories data: $apiCategories');
 
-
         return {
           'success': true,
           'categories': apiCategories,
@@ -432,19 +488,24 @@ class ProductService {
         final errorData = jsonDecode(response.body);
         AppLogger.error('ProductService: API error: ${errorData['message']}');
 
-        
-        return {'success': false, 'categories': [],
-          'message': 'تعذر تحميل الأقسام. أعد المحاولة.'};
+        return {
+          'success': false,
+          'categories': [],
+          'message': 'تعذر تحميل الأقسام. أعد المحاولة.'
+        };
       }
     } catch (e) {
-      return {'success': false, 'categories': [],
-        'message': 'تعذر تحميل الأقسام. تحقق من الاتصال وأعد المحاولة.'};
+      return {
+        'success': false,
+        'categories': [],
+        'message': 'تعذر تحميل الأقسام. تحقق من الاتصال وأعد المحاولة.'
+      };
     }
   }
 
-
   /// Get all categories
-  static Future<Map<String, dynamic>> getAllCategories({String? businessId}) async {
+  static Future<Map<String, dynamic>> getAllCategories(
+      {String? businessId}) async {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
       final response = await _resilientGet(scope.uri('$baseUrl/categories'));
@@ -468,5 +529,141 @@ class ProductService {
         'message': 'Network error: ${e.toString()}',
       };
     }
+  }
+
+  static Future<Map<String, dynamic>> mutateCategory({
+    required String businessId,
+    String? categoryId,
+    required String method,
+    String? name,
+    int? sortOrder,
+    bool? isActive,
+  }) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final token = await _getBestToken();
+    if (token == null) {
+      throw AuthTokenExpiredException('Authentication token missing');
+    }
+    final uri = scope.uri(categoryId == null
+        ? '$baseUrl/categories'
+        : '$baseUrl/categories/${Uri.encodeComponent(categoryId)}');
+    final body = scope.body({
+      'requestId': const Uuid().v4(),
+      if (name != null) 'name': name,
+      if (sortOrder != null) 'sortOrder': sortOrder,
+      if (isActive != null) 'isActive': isActive,
+    });
+    late http.Response response;
+    if (method == 'POST') {
+      response = await http.post(uri,
+          headers: _authHeaders(token), body: jsonEncode(body));
+    } else if (method == 'PUT') {
+      response = await http.put(uri,
+          headers: _authHeaders(token), body: jsonEncode(body));
+    } else {
+      response = await http.delete(uri,
+          headers: _authHeaders(token), body: jsonEncode(body));
+    }
+    final data = _safeDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return {
+        'success': false,
+        'message': data['code'] ?? data['message'] ?? 'تعذر حفظ القسم'
+      };
+    }
+    await scope.assertCurrent();
+    return {'success': true, 'category': data['category']};
+  }
+
+  static Future<Map<String, dynamic>> previewCsvImport({
+    required String businessId,
+    required String csv,
+    required String mode,
+  }) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientPost(
+        scope.uri('$baseUrl/products/imports/preview'),
+        scope.body({'format': 'CSV', 'mode': mode, 'csv': csv}));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 201 || data['job'] is! Map) {
+      return {
+        'success': false,
+        'message': data['code'] ?? data['message'] ?? 'تعذر فحص الملف'
+      };
+    }
+    await scope.assertCurrent();
+    return {'success': true, 'job': Map<String, dynamic>.from(data['job'])};
+  }
+
+  static Future<Map<String, dynamic>> getImportJob({
+    required String businessId,
+    required String jobId,
+  }) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientGet(
+        scope.uri('$baseUrl/products/imports/${Uri.encodeComponent(jobId)}'));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200 || data['job'] is! Map) {
+      return {
+        'success': false,
+        'message': data['code'] ?? data['message'] ?? 'تعذر استعادة الاستيراد'
+      };
+    }
+    await scope.assertCurrent();
+    return {'success': true, 'job': Map<String, dynamic>.from(data['job'])};
+  }
+
+  static Future<Map<String, dynamic>> commitImportBatch({
+    required String businessId,
+    required String jobId,
+    required int expectedVersion,
+    required int offset,
+    required List<String> selectedRowIds,
+  }) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientPost(
+        scope.uri(
+            '$baseUrl/products/imports/${Uri.encodeComponent(jobId)}/commit'),
+        scope.body({
+          'expectedVersion': expectedVersion,
+          'offset': offset,
+          'selectedRowIds': selectedRowIds,
+        }));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200 || data['job'] is! Map) {
+      return {
+        'success': false,
+        'message': data['code'] ?? data['message'] ?? 'تعذر تطبيق الدفعة'
+      };
+    }
+    await scope.assertCurrent();
+    return {'success': true, 'job': Map<String, dynamic>.from(data['job'])};
+  }
+
+  static Future<Map<String, dynamic>> getMenuVersions(String businessId) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientGet(scope.uri('$baseUrl/menu/versions'));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر تحميل سجل النشر'};
+    await scope.assertCurrent();
+    return {'success': true, 'active': data['active'], 'versions': data['versions'] ?? []};
+  }
+
+  static Future<Map<String, dynamic>> publishMenu(String businessId) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientPost(scope.uri('$baseUrl/menu/versions/publish'), scope.body({'requestId': const Uuid().v4()}));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر نشر القائمة'};
+    await scope.assertCurrent();
+    return {'success': true, 'active': data['active']};
+  }
+
+  static Future<Map<String, dynamic>> rollbackMenu(String businessId, String version) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientPost(scope.uri('$baseUrl/menu/versions/rollback'), scope.body({'requestId': const Uuid().v4(), 'version': version}));
+    final data = _safeDecode(response.body);
+    if (response.statusCode != 200) return {'success': false, 'message': data['code'] ?? 'تعذر استرجاع النسخة'};
+    await scope.assertCurrent();
+    return {'success': true, 'active': data['active']};
   }
 }

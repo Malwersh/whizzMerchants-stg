@@ -13,6 +13,6 @@ test('branch options update only the owned branch product with an atomic ownersh
  const f=load({productId:'p',businessId:'b'}),groups=[{id:'sides',title:'Sides',required:false,maxSelections:1,options:[{id:'salad',name:'Salad',extraPrice:250,isAvailable:true}]}];
  const r=await f.ctx.update({pathParameters:{productId:'p'},body:JSON.stringify({optionGroups:groups})});
  assert.equal(r.statusCode,200,r.body);assert.equal(f.writes(),1);
- const write=f.inputs.at(-1);assert.equal(write.ConditionExpression,'#branchOwner = :branchOwner');assert.equal(write.ExpressionAttributeValues[':branchOwner'],'b');
+ const write=f.inputs.at(-1);assert.match(write.ConditionExpression,/#branchOwner = :branchOwner/);assert.match(write.ConditionExpression,/attribute_not_exists\(#previousUpdatedAt\)/);assert.equal(write.ExpressionAttributeValues[':branchOwner'],'b');
  assert.deepEqual(JSON.parse(JSON.stringify(write.ExpressionAttributeValues[':optionGroups'])),groups);
 });

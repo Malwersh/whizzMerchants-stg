@@ -1487,6 +1487,11 @@ Resources:
                     type: aws_proxy
                     httpMethod: POST
                     uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
                 options:
                   security: []
                   responses:
@@ -1513,6 +1518,17 @@ Resources:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /categories/{categoryId}:
+                put:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+                delete:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
               
               # Categories by business type endpoint (public)
               /categories/business-type/{businessType}:
@@ -1586,6 +1602,42 @@ Resources:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /products/imports/preview:
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /products/imports/{importJobId}:
+                get:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /products/imports/{importJobId}/commit:
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /menu/versions:
+                get:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /menu/versions/publish:
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+              /menu/versions/rollback:
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
               
               # NEW: Product search endpoint (internal auth)
               /products/search:
@@ -2971,7 +3023,7 @@ Resources:
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow
-              Action: dynamodb:PutItem
+              Action: [dynamodb:PutItem, dynamodb:GetItem, dynamodb:UpdateItem, dynamodb:ConditionCheckItem, dynamodb:Query]
               Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-MerchantPlatform"
               Condition:
                 ForAllValues:StringLike:
