@@ -6,9 +6,9 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:io' show Platform; // Device type detection for localhost avoidance
 import '../models/region.dart';
+import '../config/app_config.dart';
 
 // Simple logger for this service
 class _Logger {
@@ -27,15 +27,15 @@ class RegionService {
   RegionService._internal();
 
   // Central Platform API endpoint (mutable so we can override from .env)
-  static String _centralApiUrl = 'http://localhost:3001';
+  static String _centralApiUrl = AppConfig.baseUrl;
 
   // Cache keys
-  static const String _cacheKeyRegions = 'cached_active_regions';
-  static const String _cacheKeyTimestamp = 'cached_regions_timestamp';
-  static const String _cacheKeyLanguage = 'cached_regions_language';
+  static const String _cacheKeyRegions = 'cached_active_regions_313';
+  static const String _cacheKeyTimestamp = 'cached_regions_timestamp_313';
+  static const String _cacheKeyLanguage = 'cached_regions_language_313';
 
   // Cache duration: 6 hours
-  static const Duration _cacheDuration = Duration(hours: 6);
+  static const Duration _cacheDuration = Duration(seconds: 30);
 
   // In-memory cache for quick access
   List<Region>? _cachedRegions;
@@ -51,14 +51,7 @@ class RegionService {
   Future<void> initialize() async {
     _Logger.log('🗺️ Initializing RegionService...', tag: 'RegionService');
 
-    // Allow overriding base URL from .env (loaded earlier in AppInit) or at runtime
-    final envUrl = dotenv.isInitialized ? dotenv.maybeGet('CENTRAL_API_URL') : null;
-    if (envUrl != null && envUrl.trim().isNotEmpty) {
-      _centralApiUrl = envUrl.trim();
-      _Logger.log('🔧 CENTRAL_API_URL loaded: $_centralApiUrl', tag: 'RegionService');
-    } else if (_centralApiUrl.contains('localhost')) {
-      _Logger.log('ℹ️ Using fallback localhost base URL (no env override found)', tag: 'RegionService');
-    }
+    _centralApiUrl = AppConfig.baseUrl;
 
     // ⚡ CRITICAL: On physical devices, skip network initialization entirely
     if (_centralApiUrl.contains('localhost') &&
@@ -120,8 +113,11 @@ class RegionService {
 
     try {
       // Avoid localhost calls on physical devices – they will always fail
-      if (_centralApiUrl.contains('localhost') && (Platform.isIOS || Platform.isAndroid)) {
-        _Logger.log('🔌 Skipping localhost fetch on physical device; using cache if available', tag: 'RegionService');
+      if (_centralApiUrl.contains('localhost') &&
+          (Platform.isIOS || Platform.isAndroid)) {
+        _Logger.log(
+            '🔌 Skipping localhost fetch on physical device; using cache if available',
+            tag: 'RegionService');
         final result = _cachedRegions ?? [];
         _loadingCompleter!.complete(result);
         return result;
@@ -134,8 +130,7 @@ class RegionService {
       final language = await _getUserLanguage();
 
       // Build API URL with language parameter
-      final url =
-          Uri.parse('$_centralApiUrl/regions/active?language=$language');
+      final url = Uri.parse('$_centralApiUrl/auth/onboarding-regions');
 
       _Logger.log('📡 API Request: GET $url', tag: 'RegionService');
 
@@ -147,7 +142,8 @@ class RegionService {
           'User-Agent': 'WizzMerchant/1.0',
         },
       ).timeout(
-        const Duration(seconds: 2), // ⚡ Reduced from 10s to 2s for faster failure
+        const Duration(
+            seconds: 10), // ⚡ Reduced from 10s to 2s for faster failure
         onTimeout: () {
           throw TimeoutException('Region API request timed out after 2s');
         },
@@ -157,9 +153,34 @@ class RegionService {
         final data = jsonDecode(response.body);
 
         // Parse response
-        final regionsData = data['data']['regions'] as List;
-        final regions = regionsData.map((r) => Region.fromJson(r)).toList();
+        final rows = List<Map<String, dynamic>>.from(data['items'] as List);
+        final byId = {for (final row in rows) row['id']: row};
+        String governorate(Map<String, dynamic> row) {
+          final seen = <String>{};
+          while (row['level'] != 1) {
+            if (!seen.add(row['id'] as String) ||
+                !byId.containsKey(row['parentId'])) return '';
+            row = byId[row['parentId']]!;
+          }
+          return row['labelAr'] as String;
+        }
 
+        final regions = rows
+            .map((r) => Region.fromJson({
+                  'regionId': r['id'],
+                  'regionName': r['labelEn'] ?? r['labelAr'],
+                  'regionNameArabic': r['labelAr'],
+                  'parentId': r['parentId'],
+                  'governorate': governorate(r),
+                  'regionType': {
+                    0: 'COUNTRY',
+                    1: 'PROVINCE',
+                    2: 'DISTRICT',
+                    3: 'NEIGHBORHOOD'
+                  }[r['level']],
+                  'status': 'ACTIVE',
+                }))
+            .toList();
         _Logger.log('✅ Fetched ${regions.length} active regions',
             tag: 'RegionService');
 
@@ -181,11 +202,14 @@ class RegionService {
       _Logger.log('❌ Failed to fetch active regions: $e', tag: 'RegionService');
 
       // Graceful fallback: cache or empty list – DO NOT rethrow (prevents white screen)
-      final fallback = _cachedRegions ?? [];
+      final fallback = <Region>[];
+      _cachedRegions = null;
+      _cacheTimestamp = null;
       if (fallback.isNotEmpty) {
         _Logger.log('⚠️ Using stale cache as fallback', tag: 'RegionService');
       } else {
-        _Logger.log('⚠️ No cache available – returning empty list', tag: 'RegionService');
+        _Logger.log('⚠️ No cache available – returning empty list',
+            tag: 'RegionService');
       }
       if (!_loadingCompleter!.isCompleted) {
         _loadingCompleter!.complete(fallback);
@@ -202,7 +226,7 @@ class RegionService {
   Future<bool> isRegionActive(String regionId) async {
     try {
       // Ensure regions are loaded
-      final regions = await getActiveRegions();
+      final regions = await getActiveRegions(forceRefresh: true);
 
       // Check if region exists in active regions
       final isActive = regions.any((r) => r.regionId == regionId);

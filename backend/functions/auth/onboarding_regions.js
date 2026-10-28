@@ -1,5 +1,5 @@
 'use strict';
-const {ScanCommand,GetCommand}=require('@aws-sdk/lib-dynamodb');
+const {ScanCommand,GetCommand,QueryCommand}=require('@aws-sdk/lib-dynamodb');
 const BASE='WizzCentral_Regions',DERIVED='WizzCentral_RegionsDerived_staging';
 const fail=code=>Object.assign(Error(code),{status:400});
 const enabled=v=>v===true||v===1||v==='1'||v==='true';
@@ -8,9 +8,9 @@ function hierarchy(base,derived=[]){
  const effective=new Map(derived.map(r=>[r.regionId,r]));const rows=new Map(base.map(r=>[r.regionId,r]));
  function available(r,seen=new Set()){
   if(!r||seen.has(r.regionId)||!enabled(r.is_active))return false;
-  seen.add(r.regionId);const d=effective.get(r.regionId);if(d&&d.effective_is_active!==undefined&&!enabled(d.effective_is_active))return false;
+  seen.add(r.regionId);const d=effective.get(r.regionId);if(!d||!enabled(d.effective_is_active))return false;
   const level=Number(r.level);if(!Number.isInteger(level)||level<0||level>3)return false;
-  if(level===0)return !r.parent_id;
+  if(level===0)return !r.parent_id||['ROOT','root'].includes(r.parent_id);
   const parent=rows.get(r.parent_id);return Number(parent?.level)===level-1&&available(parent,seen);
  }
  return [...rows.values()].filter(r=>available(r)).map(r=>({id:r.regionId,labelAr:r.name_ar||r.name,labelEn:r.name||r.name_ar,level:Number(r.level),parentId:r.parent_id||null})).sort((a,b)=>a.level-b.level||a.labelAr.localeCompare(b.labelAr,'ar'));
@@ -30,14 +30,11 @@ function contains(geometry,latitude,longitude){
  return polys.some(p=>Array.isArray(p)&&p.length>0&&insideRing([longitude,latitude],p[0])&&!p.slice(1).some(r=>insideRing([longitude,latitude],r)));
 }
 async function validate(db,ids,latitude,longitude){
- const selection=path((await list(db)).items,ids),checks=[];
- const rows=await Promise.all(ids.map(async id=>({base:(await db.send(new GetCommand({TableName:BASE,Key:{regionId:id},ConsistentRead:true}))).Item,derived:(await db.send(new GetCommand({TableName:DERIVED,Key:{regionId:id},ConsistentRead:true}))).Item})));
- for(let i=0;i<rows.length;i++){
-  const {base,derived}=rows[i];if(!base||!enabled(base.is_active)||Number(base.level)!==i||(i&&base.parent_id!==ids[i-1])||(derived?.effective_is_active!==undefined&&!enabled(derived.effective_is_active)))throw fail('REGION_UNAVAILABLE');
-  checks.push({ConditionCheck:{TableName:BASE,Key:{regionId:ids[i]},ConditionExpression:'#a=:a'+(i?' AND #p=:p':''),ExpressionAttributeNames:{'#a':'is_active',...(i?{'#p':'parent_id'}:{})},ExpressionAttributeValues:{':a':base.is_active,...(i?{':p':ids[i-1]}:{})}}});
-  if(derived?.effective_is_active!==undefined)checks.push({ConditionCheck:{TableName:DERIVED,Key:{regionId:ids[i]},ConditionExpression:'#a=:a',ExpressionAttributeNames:{'#a':'effective_is_active'},ExpressionAttributeValues:{':a':derived.effective_is_active}}});
- }
- if(!contains(rows[3].base.geometry,latitude,longitude))throw fail('LOCATION_OUTSIDE_REGION');return {...selection,checks};
+ const selection=path((await list(db)).items,ids);
+ const api=require('./customer-regions-313').create({db,sdk:{ScanCommand,GetCommand,QueryCommand},tables:{regions:BASE,derived:DERIVED,index:'WizzCentral_RegionIndex_staging'}});
+ const result=await api.resolve(latitude,longitude);
+ if(result.regionId!==selection.regionId||JSON.stringify(result.coverage.regionPath)!==JSON.stringify(ids))throw fail('LOCATION_OUTSIDE_REGION');
+ return {...selection,checks:api.checks(result.path)};
 }
 
 module.exports={list,hierarchy,path,contains,validate,BASE,DERIVED};
