@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/product_service.dart';
 import '../services/product_import_columns.dart';
+import '../services/product_import_template.dart';
 import '../services/image_upload_service.dart';
 import 'package:image/image.dart' as img;
 import '../services/xlsx_csv_decoder.dart';
@@ -23,8 +24,8 @@ class ProductImportScreen extends StatefulWidget {
 
 class _ProductImportScreenState extends State<ProductImportScreen> {
   static const template =
-      'rowId,productId,name,description,price,categoryId,isAvailable,barcode,optionGroupsJson,imageFile,stock\n'
-      'burger-1,,برغر كلاسيك,وصف المنتج,6000,food,true,001234567890,,burger.jpg,10';
+      'name,price,categoryId,description,imageFile,stock\nبرغر كلاسيك,6000,,وصف اختياري,,';
+  String? pickedFileName;
   final csv = TextEditingController();
   String mode = 'ADD_ONLY';
   List<String> sourceHeaders = [];
@@ -122,6 +123,7 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
         throw const FormatException('الملف بعد التحويل أكبر من 256 KB');
       }
       csv.text = value;
+      pickedFileName = file.name;
       sourceHeaders = productImportHeaders(value);
       mapping = suggestProductImportMapping(sourceHeaders);
       if (mounted) {
@@ -380,16 +382,65 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
                     busy ? null : (v) => setState(() => defaultCategoryId = v)),
           ]);
 
-  String get templateCsv => template.replaceFirst(',food,',
-      ',${defaultCategoryId ?? (categories.isEmpty ? 'SECTION_ID' : categories.first['categoryId'])},');
-  Future<void> downloadTemplate() async {
-    await FilePicker.saveFile(
-        dialogTitle: 'تنزيل قالب المنتجات',
-        fileName: 'products-template.csv',
-        type: FileType.custom,
-        allowedExtensions: const ['csv'],
-        bytes: Uint8List.fromList(utf8.encode('\ufeff$templateCsv')));
+  String get templateCategory =>
+      defaultCategoryId ??
+      (categories.isEmpty
+          ? ''
+          : (categories.first['categoryId'] ?? categories.first['id'] ?? '')
+              .toString());
+  String get templateCsv => productTemplateCsv(templateCategory);
+  Future<void> downloadTemplate({bool excel = false}) async {
+    try {
+      await FilePicker.saveFile(
+          dialogTitle: 'تنزيل قالب المنتجات',
+          fileName: excel ? 'products-template.xlsx' : 'products-template.csv',
+          type: FileType.custom,
+          allowedExtensions: [excel ? 'xlsx' : 'csv'],
+          bytes: excel
+              ? productTemplateXlsx(templateCategory)
+              : Uint8List.fromList(utf8.encode('\ufeff$templateCsv')));
+    } catch (_) {
+      if (mounted)
+        setState(
+            () => error = 'تعذر حفظ القالب. أعد المحاولة واختر مجلدًا لحفظه.');
+    }
   }
+
+  Widget importGuide() => const ExpansionTile(
+        initiallyExpanded: false,
+        tilePadding: EdgeInsets.zero,
+        title: Text('كيف أرفع قائمة المنتجات؟'),
+        children: [
+          ListTile(
+              leading: Icon(Icons.download_outlined),
+              title: Text('١. نزّل القالب واملأه'),
+              subtitle: Text(
+                  'كل صف منتج واحد. اكتب الاسم والسعر بالدينار دون رمز العملة. استخدم Excel أو CSV؛ القالب يساعدك لكنه ليس إلزاميًا.')),
+          ListTile(
+              leading: Icon(Icons.folder_open),
+              title: Text('٢. اختر الملف وحدد القسم'),
+              subtitle: Text(
+                  'طابق أعمدة ملفك، ثم اختر قسمًا افتراضيًا إذا لم تضع معرف القسم في الملف. يجب إنشاء الأقسام أولًا من شاشة المنتجات.')),
+          ListTile(
+              leading: Icon(Icons.photo_library_outlined),
+              title: Text('٣. أرفق الصور عند الحاجة'),
+              subtitle: Text(
+                  'الصور ملفات منفصلة، وليست صورًا ملصقة داخل Excel. اكتب burger.jpg في عمود imageFile ثم اختر الصورة بالاسم نفسه من «إرفاق صور المنتجات». يمكنك تحديد عدة صور.')),
+          ListTile(
+              leading: Icon(Icons.fact_check_outlined),
+              title: Text('٤. افحص ثم اعتمد وانشر'),
+              subtitle: Text(
+                  'المعاينة لا تغيّر المنتجات الحية. راجع الأخطاء وحدد الصفوف المطلوبة ثم اعتمدها. بعد الانتهاء انشر القائمة من شاشة المنتجات لإظهارها للزبائن.')),
+          ListTile(
+              title: Text('ما الحقول المطلوبة؟'),
+              subtitle: Text(
+                  'name: الاسم، price: سعر صحيح موجب. categoryId: معرف القسم، أو اختر قسمًا افتراضيًا هنا. description وimageFile وstock اختيارية. اترك الكمية فارغة إذا لم ترد تتبع المخزون؛ الصفر يعني نفاد المنتج.')),
+          ListTile(
+              title: Text('تحديث منتجات موجودة'),
+              subtitle: Text(
+                  'اختر «تحديث المحدد» وأضف عمود productId بمعرف المنتج الحالي. لا يُحذف أي منتج لم يرد في الملف. الخيار optionGroupsJson مخصص للخيارات المتقدمة، وليس مطلوبًا للوجبات البسيطة. الحد 500 صف، والصور JPG أو PNG أو WebP حتى 100 صورة في الدفعة.')),
+        ],
+      );
 
   Future<void> saveErrors() async {
     final report = buildProductImportErrorCsv(rows);
@@ -409,8 +460,9 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
         body: Directionality(
             textDirection: TextDirection.rtl,
             child: ListView(padding: const EdgeInsets.all(16), children: [
+              importGuide(),
               const Text(
-                  'الصق محتوى CSV ثم افحصه. المعاينة لا تغيّر المنتجات الحية، والمنتج الغائب من الملف لا يُحذف.'),
+                  'المعاينة لا تغيّر المنتجات الحية، والمنتج الغائب من الملف لا يُحذف.'),
               const SizedBox(height: 12),
               SegmentedButton<String>(
                   segments: const [
@@ -448,9 +500,19 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
                   icon: const Icon(Icons.content_copy),
                   label: const Text('نسخ قالب المنتجات')),
               OutlinedButton.icon(
-                  onPressed: busy ? null : downloadTemplate,
+                  onPressed: busy ? null : () => downloadTemplate(),
                   icon: const Icon(Icons.download_outlined),
                   label: const Text('تنزيل قالب CSV')),
+              OutlinedButton.icon(
+                  onPressed: busy ? null : () => downloadTemplate(excel: true),
+                  icon: const Icon(Icons.table_chart_outlined),
+                  label: const Text('تنزيل قالب Excel')),
+              if (pickedFileName != null)
+                ListTile(
+                    leading: const Icon(Icons.description_outlined),
+                    title: Text(pickedFileName!),
+                    subtitle: const Text(
+                        'تمت قراءة الملف؛ راجع مطابقة الأعمدة أدناه.')),
               if (sourceHeaders.isNotEmpty) mappingFields(),
               OutlinedButton.icon(
                   onPressed: busy ? null : pickImages,

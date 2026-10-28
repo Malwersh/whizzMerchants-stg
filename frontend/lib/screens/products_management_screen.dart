@@ -123,7 +123,7 @@ class _ProductsManagementScreenState
   Future<void> _rollbackMenu(String version) async {
     final confirmed = await showDialog<bool>(
             context: context,
-            builder: (context) => AlertDialog(
+            builder: (dialogContext) => AlertDialog(
                     title: const Text('استرجاع نسخة سابقة؟'),
                     content: const Text(
                         'ستصبح هذه النسخة هي القائمة الظاهرة للعملاء فوراً.'),
@@ -215,7 +215,7 @@ class _ProductsManagementScreenState
           ),
           const SizedBox(width: 8),
           IconButton.filledTonal(
-            tooltip: 'استيراد CSV',
+            tooltip: 'استيراد Excel أو CSV',
             icon: const Icon(Icons.upload_file),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ProductImportScreen(
@@ -235,11 +235,11 @@ class _ProductsManagementScreenState
       builder: (context, ref, child) {
         final productState = ref.watch(productProviderRiverpod);
 
-        if (productState.isLoading) {
+        if (productState.isLoading && productState.products.isEmpty) {
           return _buildLoadingState();
         }
 
-        if (productState.error != null) {
+        if (productState.error != null && productState.products.isEmpty) {
           return _buildErrorState(productState.error!);
         }
 
@@ -320,7 +320,8 @@ class _ProductsManagementScreenState
       displayMessage = error.message;
     }
 
-    return Center(
+    return SingleChildScrollView(
+        child: Center(
       child: Container(
         margin: EdgeInsets.all(AppSpacing.lg),
         padding: EdgeInsets.all(AppSpacing.xl),
@@ -397,7 +398,7 @@ class _ProductsManagementScreenState
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildEmptyState() {
@@ -792,13 +793,23 @@ class _ProductsManagementScreenState
                         _showDeleteConfirmation(product, ref);
                         break;
                       case 'toggle_availability':
-                        await ref
+                        final success = await ref
                             .read(productProviderRiverpod.notifier)
                             .updateProduct(
                               product.copyWith(
                                 isAvailable: !product.isAvailable,
                               ),
                             );
+                        if (!success && mounted) {
+                          showAdaptiveSnackBar(
+                              context: this.context,
+                              message: ref
+                                      .read(productProviderRiverpod)
+                                      .error
+                                      ?.message ??
+                                  loc.unknownError,
+                              type: AdaptiveSnackBarType.error);
+                        }
                         break;
                     }
                   },
@@ -900,7 +911,7 @@ class _ProductsManagementScreenState
     final loc = AppLocalizations.of(context)!;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         shape: RoundedRectangleBorder(
@@ -1025,6 +1036,11 @@ class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
         TextEditingController(text: widget.product.price.toString());
     _selectedCategoryId = widget.product.categoryId;
     _isAvailable = widget.product.isAvailable;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && ref.read(productProviderRiverpod).categories.isEmpty) {
+        ref.read(productProviderRiverpod.notifier).loadCategories('restaurant');
+      }
+    });
   }
 
   @override
@@ -1066,12 +1082,12 @@ class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
           .updateProduct(updatedProduct);
 
       if (success && mounted) {
-        Navigator.of(context).pop();
         showAdaptiveSnackBar(
           context: context,
           message: loc.productUpdatedSuccessfully,
           type: AdaptiveSnackBarType.success,
         );
+        Navigator.of(context).pop();
       } else if (mounted) {
         final error = ref.read(productProviderRiverpod).error?.message ??
             loc.unknownError;
@@ -1101,13 +1117,6 @@ class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
     final loc = AppLocalizations.of(context)!;
     final productState = ref.watch(productProviderRiverpod);
     final theme = Theme.of(context);
-
-    // Load categories if needed
-    if (productState.categories.isEmpty && !productState.isLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(productProviderRiverpod.notifier).loadCategories('restaurant');
-      });
-    }
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -1286,7 +1295,9 @@ class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
       ),
       padding: EdgeInsets.symmetric(horizontal: GoldenRatio.spacing16),
       child: DropdownButtonFormField<String>(
-        value: _selectedCategoryId,
+        value: productState.categories.any((c) => c.id == _selectedCategoryId)
+            ? _selectedCategoryId
+            : null,
         decoration: InputDecoration(
           labelText: loc.category,
           border: InputBorder.none,

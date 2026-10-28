@@ -1,0 +1,27 @@
+{
+  "part": 338,
+  "scope": "Merchant product actions and import clarity",
+  "fixes": [
+    "Send changed fields only; unchanged legacy image and category are not resent on availability edits",
+    "Keep existing product list mounted while editing and on mutation errors",
+    "Avoid dismissed dialog context after delete and post-pop context after edit",
+    "Load edit categories once; safe selection when old category missing",
+    "Scrollable initial error card avoids vertical overflow",
+    "Download real XLSX or CSV template and read in-app four-step import instructions"
+  ],
+  "tests": {
+    "passed": 18,
+    "failed": 0,
+    "includes": [
+      "Popup availability failure keeps product list",
+      "Delete confirmation async lifecycle",
+      "Edit sheet open/close",
+      "Excel template round-trip through real XLSX reader",
+      "Branch-scoped product requests"
+    ]
+  },
+  "adminImport": "No current central platform import UI found; explicitly recorded as not implemented in main plan",
+  "backendPublished": false,
+  "reason": "Client request and UI fixes only; existing backend security/image ownership checks retained",
+  "liveHumanRetest": "Required: repeat make unavailable on simulator after updated application starts"
+}

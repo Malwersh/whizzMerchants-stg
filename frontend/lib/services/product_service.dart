@@ -9,6 +9,24 @@ import 'token_refresh_service.dart';
 import 'merchant_branch_scope.dart';
 
 class ProductService {
+  static String productMutationError(dynamic code) =>
+      const <String, String>{
+        'INVALID_MENU_UPDATE':
+            'تعذر حفظ التغييرات. راجع بيانات المنتج والصورة المرفوعة لهذا الفرع.',
+        'CATEGORY_UNAVAILABLE':
+            'القسم غير متاح. اختر قسمًا من قائمة هذا المطعم.',
+        'INVALID_PRICE': 'أدخل سعرًا صحيحًا موجبًا بالدينار العراقي.',
+        'MENU_PUBLISH_REQUIRED':
+            'انشر قائمة المطعم الحالية أولًا ثم أعد المحاولة.',
+        'VERSION_OR_STATE_CONFLICT':
+            'تغير المنتج أثناء التعديل. حدّث القائمة وأعد المحاولة.',
+        'PRODUCT_UNAVAILABLE': 'المنتج غير موجود في هذا الفرع. حدّث القائمة.',
+        'INVALID_BRANCH_PRODUCT_OPTIONS': 'راجع خيارات المنتج وأسعارها.',
+      }[code] ??
+      (code is String && code.isNotEmpty
+          ? code
+          : 'تعذر حفظ التغيير. أعد المحاولة.');
+
   static String get baseUrl => AppConfig.baseUrl;
 
   static Future<String?> _getPreferredIdToken() async {
@@ -294,7 +312,8 @@ class ProductService {
         final errorData = _safeDecode(response.body);
         return {
           'success': false,
-          'message': errorData['message'] ?? 'Failed to update product',
+          'message':
+              productMutationError(errorData['code'] ?? errorData['message']),
         };
       }
     } catch (e) {
