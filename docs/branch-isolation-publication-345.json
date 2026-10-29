@@ -158,9 +158,20 @@
     "launched": true
   },
   "legacyMerchantSocketCutover": {
-    "status": "NOT_EXECUTED_PENDING_EXPLICIT_USER_APPROVAL",
-    "capturedActiveUnverifiedCount": 30,
-    "autoReviewReason": "Disconnecting active merchant clients and deleting remote session records needs explicit approval; expiry/reconnect alternative available",
-    "businessProfilesOrdersAndMoneyUntouched": true
+    "status": "COMPLETED_VERIFIED",
+    "explicitUserApproval": true,
+    "captured": 30,
+    "closedSockets": 0,
+    "alreadyGoneSockets": 30,
+    "virtualSessionRows": 0,
+    "alreadyAbsentRows": 0,
+    "skippedVerified": 0,
+    "skippedChangedScope": 0,
+    "legacyRowsRemoved": 30,
+    "conditionalConflicts": 0,
+    "failures": 0,
+    "businessProfilesOrdersAndMoneyUntouched": true,
+    "remainingCapturedUnverifiedRows": 0,
+    "completedAtUtc": "2026-10-29T02:03:02.814265+00:00"
   }
 }
