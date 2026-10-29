@@ -15,6 +15,7 @@ import '../config/app_config.dart';
 import './secure_token_storage.dart';
 import './token_refresh_service.dart';
 import './session_manager.dart';
+import './push_notifications_service.dart';
 
 class AppAuthService {
   static bool _isInitialized = false;
@@ -440,6 +441,7 @@ class AppAuthService {
 
   static Future<void> signOut() async {
     try {
+      await PushNotificationsService.instance.unregisterSignedOutDevice();
       // Revoke the Cognito refresh token (EnableTokenRevocation) and clear Amplify's store.
       try {
         await amplify.Amplify.Auth.signOut();

@@ -1,4 +1,5 @@
 import UIKit
+import AVFoundation
 import Flutter
 import GoogleMaps
 import FirebaseCore
@@ -298,11 +299,14 @@ extension AppDelegate {
 }
 
 final class NotificationSoundFiles: NSObject, FlutterPlugin {
+ private var offerPlayer: AVAudioPlayer?
+ private static let offerCueFilePattern = #"^(driver_original|driver_offer|online_chime|soft_chime|merchant_bell|first_nitification_sound|custom_[a-f0-9]{64})\.wav$"#
  static func register(with registrar: FlutterPluginRegistrar) {
   let channel=FlutterMethodChannel(name:"wizz/notification-sound-files",binaryMessenger:registrar.messenger())
   registrar.addMethodCallDelegate(NotificationSoundFiles(),channel:channel)
  }
  func handle(_ call: FlutterMethodCall,result: @escaping FlutterResult) {
+  if call.method == "playOrderCue" { playOrderCue(call,result:result);return }
   guard call.method == "install" else { result(FlutterMethodNotImplemented);return }
   guard let args=call.arguments as? [String:Any],let name=args["file"] as? String,name.range(of:"^custom_[a-f0-9]{64}\\.wav$",options:.regularExpression) != nil,let value=args["bytes"] as? FlutterStandardTypedData,value.data.count>=44,value.data.count<=256000 else {result(FlutterError(code:"INVALID_SOUND",message:nil,details:nil));return}
   do {
@@ -312,5 +316,50 @@ final class NotificationSoundFiles: NSObject, FlutterPlugin {
    if !FileManager.default.fileExists(atPath:file.path){try value.data.write(to:file,options:.atomic)}
    result(["path":file.path,"uri":file.absoluteString])
   } catch {result(FlutterError(code:"SOUND_INSTALL_FAILED",message:nil,details:nil))}
+ }
+}
+
+extension NotificationSoundFiles {
+ private func playOrderCue(_ call: FlutterMethodCall,result: @escaping FlutterResult) {
+  guard UIApplication.shared.applicationState == .active else {
+   let status:[String:Any]=["playing":false,"reason":"APP_NOT_ACTIVE","recordedAt":ISO8601DateFormatter().string(from:Date())]
+   saveCueDiagnostic(status);result(status);return
+  }
+  guard let args=call.arguments as? [String:Any],let file=args["file"] as? String,
+        file.range(of:Self.offerCueFilePattern,options:.regularExpression) != nil else {
+   let status:[String:Any]=["playing":false,"reason":"INVALID_SOUND","recordedAt":ISO8601DateFormatter().string(from:Date())]
+   saveCueDiagnostic(status);result(status);return
+  }
+  do {
+   let session=AVAudioSession.sharedInstance()
+   try session.setCategory(.playback,mode:.default,options:[.mixWithOthers])
+   try session.setActive(true)
+   let library=FileManager.default.urls(for:.libraryDirectory,in:.userDomainMask)[0].appendingPathComponent("Sounds",isDirectory:true)
+   let custom=library.appendingPathComponent(file)
+   let selected=file.hasPrefix("custom_") && FileManager.default.fileExists(atPath:custom.path) ? custom : Bundle.main.url(forResource:URL(fileURLWithPath:file).deletingPathExtension().lastPathComponent,withExtension:"wav")
+   let fallback=Bundle.main.url(forResource:"first_nitification_sound",withExtension:"wav")
+   guard let url=selected ?? fallback else {throw NSError(domain:"OfferAudio",code:1)}
+   offerPlayer?.stop()
+   do {offerPlayer=try AVAudioPlayer(contentsOf:url)}
+   catch {guard let original=fallback else {throw error};offerPlayer=try AVAudioPlayer(contentsOf:original)}
+   let volume=(args["volume"] as? NSNumber)?.floatValue ?? 0.8
+   offerPlayer?.volume=max(0,min(1,volume))
+   offerPlayer?.prepareToPlay()
+   let playing=offerPlayer?.play() == true
+   let status:[String:Any]=["playing":playing,"volume":session.outputVolume,"route":session.currentRoute.outputs.map{$0.portType.rawValue},"file":file,"recordedAt":ISO8601DateFormatter().string(from:Date())]
+   saveCueDiagnostic(status)
+   result(status)
+  }catch {
+   let error=error as NSError
+   let status:[String:Any]=["playing":false,"reason":"NATIVE_AUDIO_FAILED","domain":error.domain,"code":error.code,"recordedAt":ISO8601DateFormatter().string(from:Date())]
+   saveCueDiagnostic(status)
+   result(status)
+  }
+ }
+ private func saveCueDiagnostic(_ status:[String:Any]) {
+  guard let dir=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first,
+        let data=try? JSONSerialization.data(withJSONObject:status) else {return}
+  try? FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
+  try? data.write(to:dir.appendingPathComponent("merchant-order-audio-diagnostic.json"),options:.atomic)
  }
 }
