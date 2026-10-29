@@ -1523,3 +1523,6 @@ module.exports = {
     removeStaleConnection,
     updateConnectionHeartbeat
 };
+
+// Merchant clients use the authenticated, branch-pinned universal websocket.
+module.exports.handler=async event=>({statusCode:event.httpMethod==='OPTIONS'?204:410,headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'},body:JSON.stringify({code:'AUTHENTICATED_REALTIME_REQUIRED'})});

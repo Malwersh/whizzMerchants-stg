@@ -26,6 +26,7 @@ class _MerchantBusinessesScreenState
     extends ConsumerState<MerchantBusinessesScreen> {
   List<Map<String, dynamic>>? _businesses;
   String? _error, _draftError;
+  bool _opening = false;
   List<Map<String, dynamic>> _drafts = [];
   @override
   void initState() {
@@ -176,12 +177,21 @@ class _MerchantBusinessesScreenState
                   ]));
       return;
     }
-    await ref
-        .read(sessionProvider.notifier)
-        .setSessionWithBusinessData(b['businessId'].toString(), b);
-    if (mounted)
-      Navigator.of(context)
+    if (_opening) return;
+    setState(() => _opening = true);
+    final id = b['businessId'].toString();
+    try {
+      await ref
+          .read(sessionProvider.notifier)
+          .setSessionWithBusinessData(id, b);
+      if (!mounted) return;
+      final session = ref.read(sessionProvider);
+      if (!session.isAuthenticated || session.businessId != id) return;
+      await Navigator.of(context)
           .push(MaterialPageRoute(builder: (_) => const BusinessDashboard()));
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
   }
 
   @override
@@ -263,7 +273,7 @@ class _MerchantBusinessesScreenState
                                           onPressed: () => _readiness(b)),
                                     const Icon(Icons.chevron_left)
                                   ]),
-                              onTap: () => _open(b))),
+                              onTap: _opening ? null : () => _open(b))),
                     ],
                     const SizedBox(height: 16),
                     FilledButton.icon(

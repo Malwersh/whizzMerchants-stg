@@ -48,11 +48,14 @@ function merchantLifecycleClient(raw){
   ];
   const items=name==='TransactWriteCommand'?command.input.TransactItems.map(x=>({...x})):[{[name.slice(0,-7)]:{...command.input}}];
   const menuChanges=items.some(x=>{const op=x.Put||x.Update||x.Delete;return ['WhizzMerchants_Products','WhizzMerchants_Categories'].includes(op?.TableName);});
-  if(menuChanges&&!items.some(x=>x.Update?.Key?.sk==='MENU_DRAFT#META'))items.push(require('./menu-draft-version').menuDraftVersion(actor.businessId));
+  let menuDraftWrite;
+  if(menuChanges&&!items.some(x=>x.Update?.Key?.sk==='MENU_DRAFT#META')){menuDraftWrite=require('./menu-draft-version').menuDraftVersion(actor.businessId);items.push(menuDraftWrite);}
   const sharingGuards=[];
   for(let i=0;i<items.length;i++)if((items[i].Put||items[i].Update||items[i].Delete)?.TableName==='WhizzMerchants_Discounts'){if(actor.deviceGuards)throw Error('DEVICE_WRITE_SCOPE_INVALID');items[i]=await require('./campaign-version').ownerOperation(raw,items[i],actor.businessId,{GetCommand,expectedRevision:actor.campaignBaseRevision,lockGuards:sharingGuards});}
   items.push(...sharingGuards);
   for(const item of items){
+   // Only this server-created version update may accompany a device menu mutation.
+   if(item===menuDraftWrite)continue;
    const operation=item.Put||item.Update||item.Delete||item.ConditionCheck;
    if(actor.deviceGuards && !['WizzOrders','WhizzMerchants_Products','WhizzMerchants_BusinessWorkingHours'].includes(operation?.TableName))throw Error('DEVICE_WRITE_SCOPE_INVALID');
    if(actor.deviceGuards && operation?.TableName==='WhizzMerchants_Products'){
@@ -143,7 +146,10 @@ function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({
     owned.push(...page.Items||[]);cursor=page.LastEvaluatedKey;
    }while(cursor);
    let body={};try{body=JSON.parse(event.body||'{}');}catch(_){}
-   const requested=event.pathParameters?.businessId||event.queryStringParameters?.businessId||body.businessId;
+   const requestedIds=[event.pathParameters?.businessId,event.queryStringParameters?.businessId,body?.businessId].filter(id=>id!==undefined);
+   if(requestedIds.some(id=>typeof id!=='string'||!id.trim()||id.length>150))throw Object.assign(Error('INVALID_BRANCH_SCOPE'),{status:400});
+   if(new Set(requestedIds).size>1)throw Object.assign(Error('BRANCH_SCOPE_CONFLICT'),{status:403});
+   const requested=requestedIds[0];
    const business=requested?owned.find(b=>b.businessId===requested):(owned.length===1?owned[0]:null);
    if(!business||business.ownerId!==sub||business.cognitoUserId!==sub)throw Error('OWNER_REQUIRED');
    if(business.deletionRequestId)throw Error('ACCOUNT_CLOSING');

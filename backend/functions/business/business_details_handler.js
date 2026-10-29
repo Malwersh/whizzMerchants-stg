@@ -50,7 +50,7 @@ exports.handler = async (event) => {
 
     // Route to appropriate handler based on method
     if (method === 'GET') {
-      return await handleGetBusinessDetails(userInfo);
+      return await handleGetBusinessDetails(userInfo,event);
     } else {
       return {
         statusCode: 404,
@@ -60,6 +60,7 @@ exports.handler = async (event) => {
     }
 
   } catch (error) {
+    if(error.status)return {statusCode:error.status,headers:corsHeaders,body:JSON.stringify({success:false,code:error.message})};
     console.error('❌ Business Details Handler Error:', error);
     return {
       statusCode: 500,
@@ -116,34 +117,27 @@ async function getUserInfoFromToken(event) {
 /**
  * Get complete business details for the authenticated user
  */
-async function handleGetBusinessDetails(userInfo) {
+async function handleGetBusinessDetails(userInfo,event={}) {
   try {
-    console.log(`🔍 Looking up business for cognitoUserId: ${userInfo.cognitoUserId}`);
-
-    // Query business by cognitoUserId (this is the correct relationship)
-    const businessParams = {
-      TableName: BUSINESSES_TABLE,
-      FilterExpression: 'cognitoUserId = :cognitoUserId',
-      ExpressionAttributeValues: {
-        ':cognitoUserId': userInfo.cognitoUserId
-      }
-    };
-
-    const businessResult = await dynamodb.send(new ScanCommand(businessParams));
-    
-    if (!businessResult.Items || businessResult.Items.length === 0) {
-      console.log(`❌ No business found for cognitoUserId: ${userInfo.cognitoUserId}`);
-      return {
-        statusCode: 404,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          success: false,
-          message: 'No business found for this user'
-        })
-      };
+    const ids=[event.pathParameters?.businessId,event.queryStringParameters?.businessId].filter(v=>v!==undefined);
+    if(ids.some(v=>typeof v!=='string'||!v.trim()||v.length>150))throw Object.assign(Error('INVALID_BRANCH_SCOPE'),{status:400});
+    if(new Set(ids).size>1)throw Object.assign(Error('BRANCH_SCOPE_CONFLICT'),{status:403});
+    const own=b=>b&&b.ownerId===userInfo.cognitoUserId&&b.cognitoUserId===userInfo.cognitoUserId&&!b.deletionRequestId;
+    let business;
+    if(ids.length){
+      const r=await dynamodb.send(new GetCommand({TableName:BUSINESSES_TABLE,Key:{businessId:ids[0]},ConsistentRead:true}));
+      if(!own(r.Item))throw Object.assign(Error('BUSINESS_UNAVAILABLE'),{status:404});
+      business=r.Item;
+    } else {
+      let cursor;const owned=[];
+      do {
+        const r=await dynamodb.send(new ScanCommand({TableName:BUSINESSES_TABLE,ConsistentRead:true,ExclusiveStartKey:cursor,FilterExpression:'ownerId=:sub AND cognitoUserId=:sub',ExpressionAttributeValues:{':sub':userInfo.cognitoUserId}}));
+        owned.push(...(r.Items||[]).filter(own));cursor=r.LastEvaluatedKey;
+      } while(cursor&&owned.length<2);
+      if(owned.length>1)throw Object.assign(Error('BRANCH_SELECTION_REQUIRED'),{status:409});
+      if(!owned.length)throw Object.assign(Error('BUSINESS_UNAVAILABLE'),{status:404});
+      business=owned[0];
     }
-
-    const business = businessResult.Items[0];
     console.log(`✅ Found business: ${business.businessName || business.name} (ID: ${business.businessId})`);
 
     // Get user details from the users table using cognitoUserId
@@ -223,6 +217,7 @@ async function handleGetBusinessDetails(userInfo) {
     };
 
   } catch (error) {
+    if(error.status)throw error;
     console.error('❌ Error getting business details:', error);
     return {
       statusCode: 500,

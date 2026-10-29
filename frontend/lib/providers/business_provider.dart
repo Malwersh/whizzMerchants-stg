@@ -4,6 +4,10 @@ import '../models/business.dart';
 import '../services/api_service.dart';
 import 'session_provider.dart';
 
+final businessListLoaderProvider =
+    Provider<Future<List<Map<String, dynamic>>> Function()>(
+        (ref) => ApiService().getUserBusinesses);
+
 final businessProvider = FutureProvider<Business?>((ref) async {
   final session = ref.watch(sessionProvider);
   debugPrint(
@@ -11,7 +15,7 @@ final businessProvider = FutureProvider<Business?>((ref) async {
   );
   debugPrint(
       '🏢 BusinessProvider: has businessData = ${session.businessData != null}');
-  
+
   if (!session.isAuthenticated || session.businessId == null) {
     debugPrint(
         '🏢 BusinessProvider: returning null - not authenticated or no businessId');
@@ -22,25 +26,30 @@ final businessProvider = FutureProvider<Business?>((ref) async {
   // Fall back to cached session data when the API is unavailable (offline resilience).
   debugPrint('🏢 BusinessProvider: fetching from API...');
   try {
-    final api = ApiService();
-    final businesses = await api.getUserBusinesses();
+    final businesses = await ref.read(businessListLoaderProvider)();
     debugPrint(
         '🏢 BusinessProvider: API returned ${businesses.length} businesses');
 
-    final matches = businesses.where((b) =>
-        (b['businessId'] ?? b['id']) == session.businessId &&
-        b['deletionRequestId'] == null).toList();
+    final matches = businesses
+        .where((b) =>
+            (b['businessId'] ?? b['id']) == session.businessId &&
+            b['deletionRequestId'] == null)
+        .toList();
     if (matches.isNotEmpty) return Business.fromJson(matches.first);
     // A successful server response is authoritative: do not restore a
     // removed business from cached data or synthesize a placeholder for it.
-    await ref.read(sessionProvider.notifier).clearBusinessSelection();
+    await ref
+        .read(sessionProvider.notifier)
+        .clearBusinessSelection(expected: session);
     return null;
   } catch (e) {
     debugPrint('🏢 BusinessProvider: API error, falling back to cache: $e');
   }
 
   // Cached data fallback (also keeps offline behavior)
-  if (session.businessData != null) {
+  if (session.businessData != null &&
+      (session.businessData!['businessId'] ?? session.businessData!['id']) ==
+          session.businessId) {
     debugPrint('🏢 BusinessProvider: trying to parse cached businessData');
     try {
       final business = Business.fromJson(session.businessData!);
@@ -54,7 +63,8 @@ final businessProvider = FutureProvider<Business?>((ref) async {
 
   // Last resort: minimal Business from session
   if (session.businessId != null) {
-    debugPrint('🏢 BusinessProvider: Creating minimal business from session businessId');
+    debugPrint(
+        '🏢 BusinessProvider: Creating minimal business from session businessId');
     return Business(
       id: session.businessId!,
       name: 'Business', // Placeholder - will be updated when API works
