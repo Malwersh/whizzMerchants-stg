@@ -5,6 +5,13 @@ import 'auth_header_builder.dart';
 import 'token_refresh_service.dart';
 import 'app_auth_service.dart';
 
+class LegalRegistrationException implements Exception {
+  final String code;
+  LegalRegistrationException(this.code);
+  @override
+  String toString() => code;
+}
+
 class PersonOnboardingService {
   final http.Client client;
   PersonOnboardingService({http.Client? client})
@@ -36,6 +43,11 @@ class PersonOnboardingService {
         .timeout(const Duration(seconds: 20));
     final data = Map<String, dynamic>.from(jsonDecode(response.body));
     if (response.statusCode != 200) {
+      if ([
+        'LEGAL_VERSION_CHANGED',
+        'LEGAL_ACCEPTANCE_REQUIRED',
+        'LEGAL_DOCUMENTS_UNAVAILABLE'
+      ].contains(data['code'])) throw LegalRegistrationException(data['code']);
       throw Exception(<String, String>{
             'PAYOUT_REAUTH_REQUIRED':
                 'أعد تسجيل الدخول برمز هاتف جديد ثم حاول خلال خمس دقائق.',

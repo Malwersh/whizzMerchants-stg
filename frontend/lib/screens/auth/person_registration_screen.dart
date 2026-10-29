@@ -1,3 +1,6 @@
+import '../../legal/application_legal_service.dart';
+import '../../legal/application_legal_bundle.dart';
+import '../../legal/application_legal_consent.dart';
 import 'auth_surface.dart';
 import 'dart:async';
 import '../../providers/login_intent_provider.dart';
@@ -9,7 +12,8 @@ import '../../providers/auth_provider_riverpod.dart';
 
 class PersonRegistrationScreen extends ConsumerStatefulWidget {
   final PersonOnboardingService? service;
-  const PersonRegistrationScreen({super.key, this.service});
+  final ApplicationLegalService? legalService;
+  const PersonRegistrationScreen({super.key, this.service, this.legalService});
   @override
   ConsumerState<PersonRegistrationScreen> createState() =>
       _PersonRegistrationScreenState();
@@ -29,6 +33,8 @@ class _PersonRegistrationScreenState
   String? _error, _e164;
   Timer? _timer;
   int _seconds = 0;
+  ApplicationLegalBundle? _legalConsent;
+  int _legalEpoch = 0;
   @override
   void initState() {
     super.initState();
@@ -71,7 +77,10 @@ class _PersonRegistrationScreenState
   }
 
   Future<void> _send({bool resend = false}) async {
-    if (!resend && (!_form.currentState!.validate() || !_accepted)) return;
+    if (!resend &&
+        (!_form.currentState!.validate() ||
+            !_accepted ||
+            _legalConsent == null)) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -84,7 +93,9 @@ class _PersonRegistrationScreenState
           'lastName': _last.text.trim(),
           'phoneNumber': _e164,
           'email': _email.text.trim(),
-          'acknowledgementVersion': _ack!['acknowledgementVersion']
+          'acknowledgementVersion': _ack!['acknowledgementVersion'],
+          'legalAccepted': true,
+          'legalAcceptance': _legalConsent!.pin
         });
       }
       final sent = await _api.startPhoneSignIn(_e164!);
@@ -93,7 +104,15 @@ class _PersonRegistrationScreenState
         setState(() => _sent = true);
         _countdown();
       }
-    } catch (_) {
+    } catch (e) {
+      if (mounted && e is LegalRegistrationException) {
+        setState(() {
+          _legalConsent = null;
+          _legalEpoch++;
+          _error = 'راجع السياسات المنشورة وحدد الموافقة مجددًا.';
+        });
+        return;
+      }
       if (mounted)
         setState(() => _error =
             'تعذر إرسال رمز التحقق. تحقق من البيانات والاتصال ثم حاول مجددًا.');
@@ -103,6 +122,10 @@ class _PersonRegistrationScreenState
   }
 
   Future<void> _verify() async {
+    if (_legalConsent == null) {
+      setState(() => _error = 'راجع السياسات المنشورة ووافق عليها.');
+      return;
+    }
     if (!_verified && !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
       setState(() => _error = 'أدخل رمز التحقق المكون من 6 أرقام.');
       return;
@@ -117,12 +140,23 @@ class _PersonRegistrationScreenState
         if (!success) throw Exception('رمز غير صحيح أو منتهي.');
         _verified = true;
       }
-      await _api.call('person-profile',
-          body: {'acknowledgementVersion': _ack!['acknowledgementVersion']});
+      await _api.call('person-profile', body: {
+        'acknowledgementVersion': _ack!['acknowledgementVersion'],
+        'legalAccepted': true,
+        'legalAcceptance': _legalConsent!.pin
+      });
       if (!mounted) return;
       ref.read(authProviderRiverpod.notifier).setAuthenticated();
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
+      if (mounted && e is LegalRegistrationException)
+        setState(() {
+          _legalConsent = null;
+          _legalEpoch++;
+          _error =
+              'تحدثت السياسات؛ راجع النص الجديد ووافق عليه دون إعادة رمز الهاتف.';
+        });
+      if (e is LegalRegistrationException) return;
       if (mounted)
         setState(() => _error = _verified
             ? 'تم تأكيد الهاتف، لكن تعذر حفظ الحساب. اضغط متابعة للمحاولة مجددًا.'
@@ -181,6 +215,12 @@ class _PersonRegistrationScreenState
                                         : 'أنشئ حسابك الشخصي أولًا، ثم أضف أنشطتك وفروعك.'),
                                 style: Theme.of(context).textTheme.titleLarge),
                             const SizedBox(height: 24),
+                            ApplicationLegalConsent(
+                                key: ValueKey('merchant-legal-$_legalEpoch'),
+                                service: widget.legalService,
+                                enabled: !_busy,
+                                onChanged: (b) =>
+                                    setState(() => _legalConsent = b)),
                             if (!_sent) ...[
                               _field(_first, 'الاسم الأول'),
                               _field(_last, 'اسم العائلة'),
@@ -204,7 +244,10 @@ class _PersonRegistrationScreenState
                                     onPressed: _load,
                                     child: const Text('تحميل معلومات التسجيل')),
                               FilledButton(
-                                  onPressed: _busy || !_accepted || _ack == null
+                                  onPressed: _busy ||
+                                          !_accepted ||
+                                          _ack == null ||
+                                          _legalConsent == null
                                       ? null
                                       : () => _send(),
                                   child: Text(_busy

@@ -65,6 +65,8 @@ flutter:
   assets:
     - assets/sounds/
     - assets/images/
+    - assets/images/wizz-wordmark-blue.png
+    - assets/images/wizz-company-primary.png
     - .env
 
 # App Icon Configuration

@@ -1,3 +1,4 @@
+import '../legal/application_legal_screen.dart';
 import 'merchant_payouts_screen.dart';
 import 'settlement_schedules_screen.dart';
 import 'commercial_agreements_screen.dart';
@@ -1052,6 +1053,15 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   Widget _buildPersonalInfoCardWithBusiness(
       AppLocalizations l10n, ThemeData theme, Business business) {
     return _buildModernCard([
+      ListTile(
+          title: const Text('السياسات والشروط'),
+          leading: const Icon(Icons.policy_outlined),
+          trailing: const Icon(Icons.chevron_left),
+          onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const ApplicationLegalScreen()))),
+      const Divider(),
       _buildInfoRow(
           'هاتف تواصل الفرع', business.phone ?? l10n.notProvided, Icons.phone),
       ListTile(

@@ -1,3 +1,4 @@
+import 'application_legal_344_test.dart' show FakeLegal;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,13 +42,19 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final api = FixtureApi();
     await tester.pumpWidget(ProviderScope(
-        child: MaterialApp(home: PersonRegistrationScreen(service: api))));
+        child: MaterialApp(
+            home: PersonRegistrationScreen(
+                service: api, legalService: FakeLegal()))));
     await tester.pumpAndSettle();
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), 'Test');
     await tester.enterText(fields.at(1), 'Owner');
     await tester.enterText(fields.at(2), '07800000000');
-    await tester.tap(find.byType(CheckboxListTile));
+    for (var i = 0; i < 2; i++) {
+      await tester.ensureVisible(find.byType(CheckboxListTile).at(i));
+      await tester.tap(find.byType(CheckboxListTile).at(i));
+    }
+    await tester.ensureVisible(find.text('إرسال رمز التحقق'));
     await tester.pump();
     await tester.tap(find.text('إرسال رمز التحقق'));
     await tester.pump();
