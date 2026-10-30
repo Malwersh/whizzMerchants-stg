@@ -57,6 +57,7 @@ class Discount {
   final String businessId;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? imageUrl;
 
   Discount({
     required this.id,
@@ -87,6 +88,7 @@ class Discount {
     required this.businessId,
     required this.createdAt,
     required this.updatedAt,
+    this.imageUrl,
   })  : title = title ?? name,
         validFrom = validFrom ?? startDate,
         validTo = validTo ?? endDate,
@@ -142,6 +144,7 @@ class Discount {
           json['conditionalRuleData'] ??
           json['conditional_rule_data'],
       businessId: json['businessId'] ?? json['business_id'] ?? '',
+      imageUrl: json['imageUrl'] ?? json['image_url'],
       createdAt:
           DateTime.tryParse(json['createdAt'] ?? json['created_at'] ?? '') ??
               DateTime.now(),
@@ -260,6 +263,7 @@ class Discount {
       'businessId': businessId,
       'createdAt': _wireDate(createdAt),
       'updatedAt': _wireDate(updatedAt),
+      if (imageUrl != null) 'imageUrl': imageUrl,
     };
   }
 
@@ -314,6 +318,7 @@ class Discount {
     String? businessId,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? imageUrl,
   }) {
     return Discount(
       id: id ?? this.id,
@@ -341,6 +346,7 @@ class Discount {
       businessId: businessId ?? this.businessId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      imageUrl: imageUrl ?? this.imageUrl,
     );
   }
 

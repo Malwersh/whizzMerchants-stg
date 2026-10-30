@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../services/branch_employee_access.dart';
+import '../widgets/discount_funding_notice.dart';
 
 class BranchEmployeeDiscountsScreen extends StatefulWidget {
   final BranchEmployeeAccess access;
@@ -152,6 +153,7 @@ class _DiscountState extends State<BranchEmployeeDiscountsScreen> {
                   title: Text(item == null ? 'إضافة خصم' : 'تعديل الخصم'),
                   content: SingleChildScrollView(
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    DiscountFundingNotice(editing: item != null),
                     TextField(
                         controller: title,
                         enabled: !sending,
@@ -331,6 +333,7 @@ class _DiscountState extends State<BranchEmployeeDiscountsScreen> {
   Widget build(BuildContext context) =>
       ListView(padding: const EdgeInsets.all(16), children: [
         const Text('خصومات الفرع'),
+        const DiscountFundingNotice(),
         const Text(
             'تدعم الإدارة هنا خصم النسبة أو المبلغ الثابت لكامل الطلب. الأنواع الأخرى للعرض فقط.'),
         Row(children: [

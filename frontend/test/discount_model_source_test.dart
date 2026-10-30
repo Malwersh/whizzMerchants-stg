@@ -59,4 +59,48 @@ void main() {
     expect(value.currentUsage, 2);
     expect(value.startDate, DateTime.utc(2026, 10, 1));
   });
+  test('parses and emits the optional discount imageUrl', () {
+    final withImage = Discount.fromJson({
+      'id': 'img-1',
+      'name': 'Image Discount',
+      'type': 'percentage',
+      'value': 10,
+      'startDate': '2026-10-01T00:00:00Z',
+      'endDate': '2026-10-31T00:00:00Z',
+      'imageUrl': 'https://cdn.example.com/discounts/one.png',
+    });
+    expect(withImage.imageUrl,
+        'https://cdn.example.com/discounts/one.png');
+    expect(withImage.toJson()['imageUrl'],
+        'https://cdn.example.com/discounts/one.png');
+
+    // snake_case alias used by some consumers
+    final aliased = Discount.fromJson({
+      'id': 'img-2',
+      'name': 'Image Discount 2',
+      'type': 'percentage',
+      'value': 15,
+      'startDate': '2026-10-01T00:00:00Z',
+      'endDate': '2026-10-31T00:00:00Z',
+      'image_url': 'https://cdn.example.com/discounts/two.png',
+    });
+    expect(aliased.imageUrl, 'https://cdn.example.com/discounts/two.png');
+
+    // Field stays null and is omitted from the payload when absent
+    final noImage = Discount.fromJson({
+      'id': 'img-3',
+      'name': 'No Image',
+      'type': 'percentage',
+      'value': 20,
+      'startDate': '2026-10-01T00:00:00Z',
+      'endDate': '2026-10-31T00:00:00Z',
+    });
+    expect(noImage.imageUrl, isNull);
+    expect(noImage.toJson().containsKey('imageUrl'), isFalse);
+
+    // copyWith carries the value through
+    final copied = noImage.copyWith(
+        imageUrl: 'https://cdn.example.com/discounts/copied.png');
+    expect(copied.imageUrl, 'https://cdn.example.com/discounts/copied.png');
+  });
 }
