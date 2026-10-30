@@ -377,7 +377,7 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
                                   ? 'تمويل أجرة بقرار موثق'
                                   : 'قيد يحتاج مراجعة'),
                   subtitle: Text(
-                      '${_states[r['state']] ?? r['state']} · ${_at(r['occurredAt'])}'),
+                      '${r['settlementMode'] == 'OFFSET_ONLY' ? 'تمت التسوية بالمقاصة دون نقد' : (_states[r['state']] ?? r['state'])} · ${_at(r['occurredAt'])}'),
                   children: [
                     Padding(
                         padding: const EdgeInsets.all(12),
@@ -401,6 +401,9 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
                                 Text(
                                     'المخصوم من المتاح: ${-(r['amountIqd'] as num)} د.ع'),
                               if (r['kind'] == 'PAYOUT') ...[
+                                if (r['correctionSettlement'] is Map)
+                                  Text(
+                                      'مستحق الكشف: ${_money(r['settledLiabilityAmount'])}\nمستحق تصحيح إضافي: ${r['correctionSettlement']['creditIqd']} د.ع\nخصم مديونية: ${r['correctionSettlement']['debtIqd']} د.ع'),
                                 Text(
                                     'المبلغ المدفوع للمطعم: ${_money(r['amount'])}'),
                                 Text(

@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../services/person_onboarding_service.dart';
 import '../services/branch_settlement_service.dart';
 import '../widgets/merchant_financial_account.dart';
+import '../widgets/merchant_settlement_corrections.dart';
 
 class MerchantPayoutsScreen extends StatefulWidget {
   final String businessId;
@@ -192,9 +193,12 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                           Text(_periodLabel(data['period'])),
                           const SizedBox(height: 8),
                           Text(data['paymentStatus'] == 'PAID'
-                              ? 'تم الصرف والمطابقة'
+                              ? 'تمت التسوية والمطابقة'
                               : 'لم يُصرف — اعتماد الكشف وحده لا يعني الدفع'),
                           const Divider(),
+                          if (data['correctionSettlement'] is Map)
+                            Text(
+                                'مستحق تصحيح إضافي: ${data['correctionSettlement']['creditIqd']} د.ع · خصم مديونية: ${data['correctionSettlement']['debtIqd']} د.ع · النقد المدفوع فعليًا: ${_money(data['paidCashAmount'])}'),
                           const Text('إجمالي الكشف',
                               style: TextStyle(fontWeight: FontWeight.bold)),
                           amounts(data['summary']['amounts']),
@@ -509,7 +513,7 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                     0
                 ? 'صافي المستحق صفر — لا يتطلب صرفًا'
                 : b['payoutStatus'] == 'PAID'
-                    ? 'تم الصرف'
+                    ? 'تمت التسوية'
                     : b['payoutStatus'] == 'ACTIVE'
                         ? 'مرتبط بطلب صرف قائم'
                         : b['approved'] == true
@@ -535,7 +539,12 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
             Text(
                 '${_money(p['amount'])} · ${p['method'] == 'CASH' ? 'نقدًا' : 'زين كاش'}',
                 style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text(_labels[p['status']] ?? p['status']),
+            Text(p['settlementMode'] == 'OFFSET_ONLY'
+                ? 'تمت التسوية بالمقاصة — دون تسليم نقدي'
+                : (_labels[p['status']] ?? p['status'])),
+            if (p['correctionSettlement'] is Map)
+              Text(
+                  '${p['sourceKind'] == 'CORRECTIONS_ONLY' ? 'صرف تصحيح مستقل' : 'مستحق الكشف: ${_money(p['baseAmount'])}'}\nمستحق تصحيح إضافي: ${p['correctionSettlement']['creditIqd']} د.ع\nخصم مديونية: ${p['correctionSettlement']['debtIqd']} د.ع\nالنقد للتسليم: ${_money(p['amount'])}'),
             Text('المستفيد: ${p['recipientName'] ?? p['destination']}'),
             if (p['recipientRoleLabel'] != null)
               Text(
@@ -670,7 +679,17 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                           businessId: widget.businessId,
                           service: _api,
                           autoRefresh: widget.autoRefreshAccount,
-                          refreshRevision: _accountRevision)
+                          refreshRevision: _accountRevision),
+                      if (!_employee)
+                        MerchantSettlementCorrections(
+                            businessId: widget.businessId,
+                            service: _api,
+                            onPayoutRequested: () {
+                              setState(() {
+                                _section = 2;
+                              });
+                              _load();
+                            })
                     ])),
             Offstage(offstage: _section != 1, child: _pagedList(true)),
             Offstage(offstage: _section != 2, child: _pagedList(false))

@@ -102,10 +102,13 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
           loading = false;
           lastSync = DateTime.now();
         });
-      if (session != null) {
-        final p =
-            await api.call(token, {'action': 'profile'}, session: session);
-        if (mounted && session != null) setState(() => profile = p);
+      final currentSession = session;
+      if (currentSession != null) {
+        final p = await api.call(token, {'action': 'profile'},
+            session: currentSession);
+        if (mounted && session == currentSession) {
+          setState(() => profile = p);
+        }
       }
     } catch (e) {
       if (mounted)
