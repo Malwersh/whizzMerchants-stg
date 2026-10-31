@@ -1,3 +1,4 @@
+import '../utils/readable_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/business.dart';
@@ -62,7 +63,8 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
       String mainAddress = business.address ?? '';
 
       // If we don't have a full address but have components, build it
-      if (mainAddress.isEmpty && (city.isNotEmpty || district.isNotEmpty || street.isNotEmpty)) {
+      if (mainAddress.isEmpty &&
+          (city.isNotEmpty || district.isNotEmpty || street.isNotEmpty)) {
         final addressParts = [street, district, city, country]
             .where((part) => part.isNotEmpty)
             .toList();
@@ -81,15 +83,16 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
       // Try to load additional location settings from API
       final apiService = ApiService();
       try {
-        final settings = await apiService.getBusinessLocationSettings(business.id);
+        final settings =
+            await apiService.getBusinessLocationSettings(business.id);
         if (mounted && settings['settings'] != null) {
           final locationData = settings['settings'];
-          
+
           setState(() {
             // Update GPS coordinates from location settings
             _latitude = locationData['latitude']?.toDouble() ?? _latitude;
             _longitude = locationData['longitude']?.toDouble() ?? _longitude;
-            
+
             // Override with API data if available and more specific
             if (locationData['city']?.toString().isNotEmpty == true) {
               _cityController.text = locationData['city'].toString();
@@ -103,7 +106,7 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
             if (locationData['country']?.toString().isNotEmpty == true) {
               _countryController.text = locationData['country'].toString();
             }
-            
+
             // Update the address variable for LocationSettingsWidget based on API data
             if (locationData['address']?.toString().isNotEmpty == true) {
               _address = locationData['address'].toString();
@@ -141,7 +144,7 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
 
     try {
       final apiService = ApiService();
-      
+
       // Create comprehensive location settings object
       final settings = {
         // Individual address components for mapping
@@ -149,17 +152,17 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
         'district': _districtController.text.trim(),
         'country': _countryController.text.trim(),
         'street': _streetController.text.trim(),
-        
+
         // GPS coordinates
         'latitude': _latitude,
         'longitude': _longitude,
-        
+
         // Build address string for backward compatibility
         'address': _buildAddressString(),
-        
+
         // Additional metadata
         'updated_at': DateTime.now().toIso8601String(),
-        
+
         // Also include the DynamoDB format for backward compatibility
         'address_components': {
           'city': {'S': _cityController.text.trim()},
@@ -170,19 +173,20 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
       };
 
       // Remove empty fields to keep the data clean
-      settings.removeWhere((key, value) => 
-        value == null || (value is String && value.isEmpty));
+      settings.removeWhere(
+          (key, value) => value == null || (value is String && value.isEmpty));
 
       // Also remove empty nested components
       if (settings['address_components'] != null) {
-        final components = settings['address_components'] as Map<String, dynamic>;
+        final components =
+            settings['address_components'] as Map<String, dynamic>;
         components.removeWhere((key, value) {
           if (value is Map<String, dynamic> && value['S'] is String) {
             return (value['S'] as String).isEmpty;
           }
           return false;
         });
-        
+
         if (components.isEmpty) {
           settings.remove('address_components');
         }
@@ -214,12 +218,12 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
       }
     }
   }
-  
+
   /// Build a readable address string from individual components
   String _buildAddressString() {
     // Build from components
     final parts = <String>[];
-    
+
     if (_streetController.text.trim().isNotEmpty) {
       parts.add(_streetController.text.trim());
     }
@@ -232,39 +236,42 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
     if (_countryController.text.trim().isNotEmpty) {
       parts.add(_countryController.text.trim());
     }
-    
+
     return parts.join(', ');
   }
 
-  void _onLocationChanged(double? latitude, double? longitude, String? address) {
+  void _onLocationChanged(
+      double? latitude, double? longitude, String? address) {
     setState(() {
       _latitude = latitude;
       _longitude = longitude;
       _address = address;
     });
-    
+
     // If we got a new address from GPS, try to parse it and update form fields
-    if (address != null && address.isNotEmpty && 
+    if (address != null &&
+        address.isNotEmpty &&
         address != 'Address not available (stub implementation)' &&
         address != 'Address not available') {
-      
       final addressParts = _parseAddress(address);
-      
+
       setState(() {
         // Only update fields that are currently empty to avoid overwriting user input
         if (_cityController.text.isEmpty && addressParts['city'] != null) {
           _cityController.text = addressParts['city']!;
         }
-        
-        if (_districtController.text.isEmpty && addressParts['district'] != null) {
+
+        if (_districtController.text.isEmpty &&
+            addressParts['district'] != null) {
           _districtController.text = addressParts['district']!;
         }
-        
+
         if (_streetController.text.isEmpty && addressParts['street'] != null) {
           _streetController.text = addressParts['street']!;
         }
-        
-        if (_countryController.text == 'Iraq' && addressParts['country'] != null) {
+
+        if (_countryController.text == 'Iraq' &&
+            addressParts['country'] != null) {
           _countryController.text = addressParts['country']!;
         }
       });
@@ -279,16 +286,20 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
       'district': null,
       'country': null,
     };
-    
+
     if (address.isEmpty) return components;
-    
+
     // Split address by common separators
-    final parts = address.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-    
+    final parts = address
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
     if (parts.isNotEmpty) {
       // First part is usually street address
       components['street'] = parts[0];
-      
+
       // Look for common Iraqi city names
       for (final part in parts) {
         final lowerPart = part.toLowerCase();
@@ -297,7 +308,7 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
           break;
         }
       }
-      
+
       // If more than one part, use last part as country (if it looks like a country)
       if (parts.length > 1) {
         final lastPart = parts.last.toLowerCase();
@@ -305,32 +316,48 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
           components['country'] = parts.last;
         }
       }
-      
+
       // Try to identify district (usually middle parts that aren't city or country)
       for (final part in parts) {
-        if (part != components['street'] && 
-            part != components['city'] && 
+        if (part != components['street'] &&
+            part != components['city'] &&
             part != components['country']) {
           components['district'] = part;
           break;
         }
       }
     }
-    
+
     return components;
   }
-  
+
   /// Check if a string contains a known city name
   bool _isKnownCity(String text) {
     final knownCities = [
-      'baghdad', 'basra', 'mosul', 'erbil', 'najaf', 'karbala', 
-      'kirkuk', 'sulaymaniyah', 'ramadi', 'fallujah', 'tikrit',
-      'amarah', 'nasiriyah', 'kut', 'hilla', 'diwaniyah',
-      'samarra', 'duhok', 'zakho', 'halabja'
+      'baghdad',
+      'basra',
+      'mosul',
+      'erbil',
+      'najaf',
+      'karbala',
+      'kirkuk',
+      'sulaymaniyah',
+      'ramadi',
+      'fallujah',
+      'tikrit',
+      'amarah',
+      'nasiriyah',
+      'kut',
+      'hilla',
+      'diwaniyah',
+      'samarra',
+      'duhok',
+      'zakho',
+      'halabja'
     ];
     return knownCities.any((city) => text.contains(city));
   }
-  
+
   /// Check if a string contains a known country name
   bool _isKnownCountry(String text) {
     final knownCountries = ['iraq', 'iraqi', 'kurdistan'];
@@ -361,7 +388,7 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
             children: [
               // Modern App Bar
               _buildModernAppBar(loc),
-              
+
               // Content
               Expanded(
                 child: _isLoading
@@ -383,7 +410,7 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
 
                               // Save Button
                               _buildSaveButton(loc),
-                              
+
                               // Bottom spacing
                               SizedBox(height: AppSpacing.xl),
                             ],
@@ -455,8 +482,8 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
               borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
             ),
             child: IconButton(
-              icon: Icon(Icons.arrow_back_rounded,
-                  color: WhizzColors.secondary),
+              icon:
+                  Icon(Icons.arrow_back_rounded, color: WhizzColors.secondary),
               onPressed: () => Navigator.of(context).pop(),
             ),
           ),
@@ -484,10 +511,7 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  WhizzColors.secondary,
-                  WhizzColors.secondary
-                ],
+                colors: [WhizzColors.secondary, WhizzColors.secondary],
               ),
               borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
               boxShadow: [
@@ -513,88 +537,86 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
     );
   }
 
-
-
   Widget _buildAddressSection(AppLocalizations loc) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-          Row(
-            children: [
-              Icon(
-                Icons.business,
+        Row(
+          children: [
+            Icon(
+              Icons.business,
+              color: Colors.grey.shade600,
+              size: AppSpacing.lg,
+            ),
+            SizedBox(width: AppSpacing.xs),
+            Text(
+              'Business Address',
+              style: AppTypography.bodyLarge.copyWith(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: AppSpacing.md),
+
+        // Address form fields in Material 3 style
+        Row(
+          children: [
+            Expanded(
+              child: _buildModernTextField(
+                controller: _cityController,
+                label: 'City',
+                icon: Icons.location_city,
                 color: Colors.grey.shade600,
-                size: AppSpacing.lg,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'City required';
+                  }
+                  return null;
+                },
               ),
-              SizedBox(width: AppSpacing.xs),
-              Text(
-                'Business Address',
-                style: AppTypography.bodyLarge.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade700,
-                ),
+            ),
+            SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: _buildModernTextField(
+                controller: _districtController,
+                label: 'District',
+                icon: Icons.map,
+                color: Colors.grey.shade600,
               ),
-            ],
-          ),
-          SizedBox(height: AppSpacing.md),
+            ),
+          ],
+        ),
+        SizedBox(height: AppSpacing.lg),
 
-          // Address form fields in Material 3 style
-          Row(
-            children: [
-              Expanded(
-                child: _buildModernTextField(
-                  controller: _cityController,
-                  label: 'City',
-                  icon: Icons.location_city,
-                  color: Colors.grey.shade600,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'City required';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-              SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: _buildModernTextField(
-                  controller: _districtController,
-                  label: 'District',
-                  icon: Icons.map,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: AppSpacing.lg),
+        _buildModernTextField(
+          controller: _countryController,
+          label: 'Country',
+          icon: Icons.public,
+          color: Colors.grey.shade600,
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter country';
+            }
+            return null;
+          },
+        ),
+        SizedBox(height: AppSpacing.md),
 
-          _buildModernTextField(
-            controller: _countryController,
-            label: 'Country',
-            icon: Icons.public,
-            color: Colors.grey.shade600,
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Please enter country';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: AppSpacing.md),
-
-          _buildModernTextField(
-            controller: _streetController,
-            label: 'Street Name',
-            icon: Icons.streetview,
-            color: Colors.grey.shade600,
-            helperText: 'Street name used for location mapping and delivery',
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Street name is required for mapping';
-              }
-              return null;
-            },
-          ),
+        _buildModernTextField(
+          controller: _streetController,
+          label: 'Street Name',
+          icon: Icons.streetview,
+          color: Colors.grey.shade600,
+          helperText: 'Street name used for location mapping and delivery',
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Street name is required for mapping';
+            }
+            return null;
+          },
+        ),
       ],
     );
   }
@@ -671,14 +693,14 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-          Row(
-            children: [
-              Icon(
-                Icons.gps_fixed,
-                color: Colors.grey.shade600,
-                size: AppSpacing.lg,
-              ),
-              SizedBox(width: AppSpacing.xs),
+        Row(
+          children: [
+            Icon(
+              Icons.gps_fixed,
+              color: Colors.grey.shade600,
+              size: AppSpacing.lg,
+            ),
+            SizedBox(width: AppSpacing.xs),
             Expanded(
               child: Text(
                 'GPS Location Settings',
@@ -698,7 +720,8 @@ class _OtherSettingsPageState extends ConsumerState<OtherSettingsPage> {
               ),
               style: IconButton.styleFrom(
                 backgroundColor: WhizzColors.primary.withValues(alpha: 0.1),
-                foregroundColor: WhizzColors.primary,
+                foregroundColor: readableForeground(
+                    WhizzColors.primary.withValues(alpha: 0.1)),
               ),
               icon: Icon(Icons.edit_location),
             ),

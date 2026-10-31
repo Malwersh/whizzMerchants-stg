@@ -101,7 +101,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
 
     try {
       final orders = await _orderService.getMerchantOrders(session.businessId!);
-      if (mounted) {
+      if (mounted && identical(ref.read(sessionProvider),session)) {
         setState(() {
           _orders = orders;
         });
@@ -157,6 +157,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
       // Get current user info
       final user = await apiService.getMerchantDetails();
 
+      if (!mounted || !identical(ref.read(sessionProvider),session)) return;
       // Call API to update online status
       await apiService.updateBusinessOnlineStatus(
         session.businessId!,
@@ -164,6 +165,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
         isOnline,
       );
 
+      if (!mounted || !identical(ref.read(sessionProvider),session)) return;
       // Update local state
       setState(() {
         _isOnline = isOnline;

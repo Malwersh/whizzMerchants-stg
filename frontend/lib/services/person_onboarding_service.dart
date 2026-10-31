@@ -5,6 +5,13 @@ import 'auth_header_builder.dart';
 import 'token_refresh_service.dart';
 import 'app_auth_service.dart';
 
+class LegalRegistrationException implements Exception {
+  final String code;
+  LegalRegistrationException(this.code);
+  @override
+  String toString() => code;
+}
+
 class PersonOnboardingService {
   final http.Client client;
   PersonOnboardingService({http.Client? client})
@@ -36,7 +43,30 @@ class PersonOnboardingService {
         .timeout(const Duration(seconds: 20));
     final data = Map<String, dynamic>.from(jsonDecode(response.body));
     if (response.statusCode != 200) {
+      if ([
+        'LEGAL_VERSION_CHANGED',
+        'LEGAL_ACCEPTANCE_REQUIRED',
+        'LEGAL_DOCUMENTS_UNAVAILABLE'
+      ].contains(data['code'])) {
+        throw LegalRegistrationException(data['code']);
+      }
       throw Exception(<String, String>{
+            'PAYOUT_NO_CORRECTION_CREDIT':
+                'لا يوجد مستحق تصحيح معتمد وغير مصروف لطلبه.',
+            'PAYOUT_CORRECTION_SOURCE_INVALID':
+                'تعذر التحقق من مستحق التصحيح؛ راجع الإدارة.',
+            'CORRECTION_ACTIVE_SETTLEMENT':
+                'يوجد طلب تسوية يحجز التصحيحات. أكمله أو ألغِه قبل طلب جديد.',
+            'CORRECTION_SOURCE_LIMIT':
+                'تحتاج هذه التصحيحات إلى مراجعة المالية قبل إنشاء التسوية.',
+            'CORRECTION_POLICY_REQUIRED':
+                'راجع الإدارة لتأكيد سياسة تصحيحات التسويات أولًا.',
+            'CORRECTION_RESERVATION_CHANGED':
+                'تغير حجز التصحيح. حدّث البيانات دون تكرار طلب الصرف.',
+            'CORRECTION_SETTLED_PROOF_INVALID':
+                'تحتاج إثباتات تسوية التصحيح إلى مراجعة الإدارة.',
+            'PAYOUT_OFFSET_ONLY':
+                'هذا الطلب يُسوّى بالمقاصة، ولا يتطلب تسليم نقد.',
             'PAYOUT_REAUTH_REQUIRED':
                 'أعد تسجيل الدخول برمز هاتف جديد ثم حاول خلال خمس دقائق.',
             'PAYOUT_DESTINATION_VERIFICATION_REQUIRED':

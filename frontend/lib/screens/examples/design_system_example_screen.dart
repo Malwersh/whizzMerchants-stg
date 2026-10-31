@@ -229,7 +229,7 @@ class DesignSystemExampleScreen extends StatelessWidget {
                   Text(
                     '\$24.99',
                     style: AppTypography.titleLarge.copyWith(
-                      color: WhizzColors.primary,
+                      color: const Color(0xFF00296B),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -387,7 +387,8 @@ class DesignSystemExampleScreen extends StatelessWidget {
                 color: WhizzColors.infoContainer,
                 borderRadius:
                     BorderRadius.circular(AppDimensions.borderRadiusMD),
-                border: Border.all(color: WhizzColors.info.withValues(alpha: 0.3)),
+                border:
+                    Border.all(color: WhizzColors.info.withValues(alpha: 0.3)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

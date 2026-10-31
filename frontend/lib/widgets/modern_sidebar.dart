@@ -1,3 +1,4 @@
+import '../utils/readable_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -13,7 +14,8 @@ import '../core/theme/whizz_colors.dart';
 import '../core/design_system/typography_system.dart';
 import '../utils/responsive_helper.dart';
 
-import 'package:flutter/foundation.dart' show kIsWeb, TargetPlatform, defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, TargetPlatform, defaultTargetPlatform;
 
 /// Safe platform detection helper that works across all platforms
 bool get _isIOSPlatform {
@@ -142,7 +144,7 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
     try {
       final session = ref.read(sessionProvider);
       final businessId = session.businessId;
-      
+
       if (businessId == null || businessId.isEmpty) {
         debugPrint('❌ Cannot toggle status: missing businessId');
         _appState.updateOnlineStatus(!value);
@@ -151,13 +153,14 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
 
       // Get userId from session businessData
       // Try cognitoUserId first (main field), then ownerId, then businessId as fallback
-      final userId = session.businessData?['cognitoUserId'] as String? ?? 
-                     session.businessData?['ownerId'] as String? ?? 
-                     session.businessData?['userId'] as String? ?? 
-                     businessId;
+      final userId = session.businessData?['cognitoUserId'] as String? ??
+          session.businessData?['ownerId'] as String? ??
+          session.businessData?['userId'] as String? ??
+          businessId;
 
       debugPrint('📊 Toggle status - businessId: $businessId, userId: $userId');
-      debugPrint('📊 businessData keys: ${session.businessData?.keys.toList()}');
+      debugPrint(
+          '📊 businessData keys: ${session.businessData?.keys.toList()}');
 
       // ✅ Update status via API (polling system - NO WebSocket needed)
       // Status updates propagate through:
@@ -173,7 +176,7 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
       debugPrint('❌ Failed to toggle online status: $e');
       // Revert UI on failure
       _appState.updateOnlineStatus(!value);
-      
+
       // Show error to user
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -194,7 +197,7 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
     } else {
       HapticFeedback.selectionClick();
     }
-    
+
     await _animationController.reverse();
     widget.onClose();
   }
@@ -339,7 +342,7 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
   Widget _buildStatusCard(BuildContext context, AppLocalizations localizations,
       ColorScheme colorScheme) {
     final isOnline = _appState.isOnline;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(
           horizontal: GoldenRatio.spacing16, vertical: GoldenRatio.spacing12),
@@ -445,8 +448,7 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
                           WhizzColors.success.withValues(alpha: 0.3),
                       inactiveTrackColor:
                           WhizzColors.warning.withValues(alpha: 0.3),
-                      materialTapTargetSize:
-                          MaterialTapTargetSize.shrinkWrap,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
             ],
           ),
@@ -681,7 +683,8 @@ class _ModernSidebarState extends ConsumerState<ModernSidebar>
               onPressed: () => Navigator.of(context).pop(),
               style: FilledButton.styleFrom(
                 backgroundColor: WhizzColors.primary.withValues(alpha: 0.1),
-                foregroundColor: WhizzColors.primary,
+                foregroundColor: readableForeground(
+                    WhizzColors.primary.withValues(alpha: 0.1)),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(GoldenRatio.cardRadius),
                 ),

@@ -256,8 +256,7 @@ class _RegistrationFormScreenState
                       height: 4.0,
                       decoration: BoxDecoration(
                         color: isActive
-                            ? WhizzColors
-                                  .primary // 10% primary (yellow)
+                            ? WhizzColors.primary // 10% primary (yellow)
                             : WhizzColors.grey200,
                         borderRadius: BorderRadius.circular(2.0),
                       ),
@@ -273,8 +272,7 @@ class _RegistrationFormScreenState
                       ),
                       decoration: BoxDecoration(
                         color: isCompleted || isActive
-                            ? WhizzColors
-                                  .primary // 10% primary (yellow)
+                            ? WhizzColors.primary // 10% primary (yellow)
                             : WhizzColors.grey200,
                         shape: BoxShape.circle,
                         boxShadow: isActive
@@ -298,8 +296,7 @@ class _RegistrationFormScreenState
                                 '${index + 1}',
                                 style: AppTypography.bodySmall.copyWith(
                                   color: isActive
-                                      ? WhizzColors
-                                            .secondary // 30% secondary
+                                      ? WhizzColors.secondary // 30% secondary
                                       : WhizzColors.textSecondary,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -429,9 +426,9 @@ class _RegistrationFormScreenState
           Text(
             loc.businessInformation,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: WhizzColors.secondary, // 30% secondary (blue)
-            ),
+                  fontWeight: FontWeight.bold,
+                  color: WhizzColors.secondary, // 30% secondary (blue)
+                ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.xl),
@@ -676,15 +673,17 @@ class _RegistrationFormScreenState
           Text(
             loc.businessDocuments,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: WhizzColors.secondary, // 30% secondary (blue)
-            ),
+                  fontWeight: FontWeight.bold,
+                  color: WhizzColors.secondary, // 30% secondary (blue)
+                ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.sm),
           Text(
             loc.uploadOptionalDocumentsToVerifyBusiness,
-            style: Theme.of(context).textTheme.bodyMedium
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
                 ?.copyWith(color: WhizzColors.textSecondary),
             textAlign: TextAlign.center,
           ),
@@ -772,16 +771,18 @@ class _RegistrationFormScreenState
           Text(
             loc.checkYourEmail,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: WhizzColors.secondary, // 30% secondary (blue)
-            ),
+                  fontWeight: FontWeight.bold,
+                  color: WhizzColors.secondary, // 30% secondary (blue)
+                ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: AppSpacing.md),
 
           Text(
             loc.verificationCodeSentToEmail,
-            style: Theme.of(context).textTheme.bodyMedium
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
                 ?.copyWith(color: WhizzColors.textSecondary),
             textAlign: TextAlign.center,
           ),
@@ -859,7 +860,7 @@ class _RegistrationFormScreenState
               Icon(
                 icon,
                 size: 14,
-                color: WhizzColors.primary, // 10% primary (yellow)
+                color: const Color(0xFF00296B), // 10% primary (yellow)
               ),
               SizedBox(width: 4),
               Text(
@@ -889,17 +890,27 @@ class _RegistrationFormScreenState
   }
 
   Future<void> _loadBusinessTypes() async {
-    if (mounted) setState(() { _typesLoading = true; _typesError = null; });
+    if (mounted)
+      setState(() {
+        _typesLoading = true;
+        _typesError = null;
+      });
     final service = OnboardingConfigService();
     try {
       final config = await service.load(regionId: _selectedRegionId);
       if (!mounted) return;
       setState(() {
         _businessTypeConfig = config;
-        if (!config.types.any((t) => t['id'] == _selectedBusinessType)) _selectedBusinessType = '';
+        if (!config.types.any((t) => t['id'] == _selectedBusinessType))
+          _selectedBusinessType = '';
       });
     } catch (_) {
-      if (mounted) setState(() { _businessTypeConfig = null; _selectedBusinessType = ''; _typesError = 'تعذر تحميل أنواع الأنشطة. أعد المحاولة.'; });
+      if (mounted)
+        setState(() {
+          _businessTypeConfig = null;
+          _selectedBusinessType = '';
+          _typesError = 'تعذر تحميل أنواع الأنشطة. أعد المحاولة.';
+        });
     } finally {
       service.close();
       if (mounted) setState(() => _typesLoading = false);
@@ -908,14 +919,30 @@ class _RegistrationFormScreenState
 
   Widget _buildBusinessTypeSelector(AppLocalizations loc) {
     if (_typesLoading) return const LinearProgressIndicator();
-    if (_typesError != null) return Column(children: [Text(_typesError!), TextButton(onPressed: _loadBusinessTypes, child: const Text('إعادة المحاولة'))]);
+    if (_typesError != null)
+      return Column(children: [
+        Text(_typesError!),
+        TextButton(
+            onPressed: _loadBusinessTypes, child: const Text('إعادة المحاولة'))
+      ]);
     final types = _businessTypeConfig?.types ?? [];
-    if (types.isEmpty) return Column(children: [const Text('لا توجد أنواع أنشطة متاحة للتسجيل حاليًا.'), TextButton(onPressed: _loadBusinessTypes, child: const Text('تحديث الأنواع'))]);
+    if (types.isEmpty)
+      return Column(children: [
+        const Text('لا توجد أنواع أنشطة متاحة للتسجيل حاليًا.'),
+        TextButton(
+            onPressed: _loadBusinessTypes, child: const Text('تحديث الأنواع'))
+      ]);
     return DropdownButtonFormField<String>(
       value: _selectedBusinessType.isEmpty ? null : _selectedBusinessType,
       decoration: InputDecoration(labelText: loc.selectYourBusinessType),
       isExpanded: true,
-      items: types.map((t) => DropdownMenuItem<String>(value: t['id'] as String, child: Text(t[Localizations.localeOf(context).languageCode == 'ar' ? 'labelAr' : 'labelEn'] as String))).toList(),
+      items: types
+          .map((t) => DropdownMenuItem<String>(
+              value: t['id'] as String,
+              child: Text(t[Localizations.localeOf(context).languageCode == 'ar'
+                  ? 'labelAr'
+                  : 'labelEn'] as String)))
+          .toList(),
       onChanged: (value) => setState(() => _selectedBusinessType = value ?? ''),
     );
   }
@@ -929,8 +956,7 @@ class _RegistrationFormScreenState
           color: WhizzColors.white, // 60% white
           border: Border.all(
             color: _businessPhotoFile != null
-                ? WhizzColors
-                      .primary // 10% primary (yellow)
+                ? WhizzColors.primary // 10% primary (yellow)
                 : WhizzColors.grey200,
             width: _businessPhotoFile != null ? 2 : 1,
             style: BorderStyle.solid,
@@ -1010,20 +1036,22 @@ class _RegistrationFormScreenState
                   Icon(
                     Icons.add_a_photo_outlined,
                     size: AppDimensions.iconSizeXXL,
-                    color: WhizzColors.primary, // 10% primary (yellow)
+                    color: const Color(0xFF00296B), // 10% primary (yellow)
                   ),
                   SizedBox(height: AppSpacing.sm),
                   Text(
                     loc.tapToUploadBusinessPhoto,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: WhizzColors.primary, // 10% primary
-                      fontWeight: FontWeight.w500,
-                    ),
+                          color: const Color(0xFF00296B), // 10% primary
+                          fontWeight: FontWeight.w500,
+                        ),
                   ),
                   SizedBox(height: AppSpacing.xs),
                   Text(
                     loc.requiredField,
-                    style: Theme.of(context).textTheme.bodySmall
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
                         ?.copyWith(color: Colors.red),
                   ),
                 ],
@@ -1047,8 +1075,7 @@ class _RegistrationFormScreenState
           color: WhizzColors.white, // 60% white
           border: Border.all(
             color: file != null
-                ? WhizzColors
-                      .primary // 10% primary (yellow) when uploaded
+                ? WhizzColors.primary // 10% primary (yellow) when uploaded
                 : WhizzColors.grey200,
             width: file != null ? 2 : 1,
           ),
@@ -1076,8 +1103,7 @@ class _RegistrationFormScreenState
               child: Icon(
                 icon,
                 color: file != null
-                    ? WhizzColors
-                          .primary // 10% primary
+                    ? WhizzColors.primary // 10% primary
                     : WhizzColors.grey400,
                 size: AppDimensions.iconSizeLG,
               ),
@@ -1090,17 +1116,18 @@ class _RegistrationFormScreenState
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: file != null
-                          ? WhizzColors
-                                .secondary // 30% secondary
-                          : WhizzColors.textPrimary,
-                    ),
+                          fontWeight: FontWeight.w600,
+                          color: file != null
+                              ? WhizzColors.secondary // 30% secondary
+                              : WhizzColors.textPrimary,
+                        ),
                   ),
                   SizedBox(height: AppSpacing.xs),
                   Text(
                     subtitle,
-                    style: Theme.of(context).textTheme.bodySmall
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
                         ?.copyWith(color: WhizzColors.textSecondary),
                   ),
                 ],
@@ -1123,7 +1150,7 @@ class _RegistrationFormScreenState
             else
               Icon(
                 Icons.upload_outlined,
-                color: WhizzColors.primary, // 10% primary
+                color: const Color(0xFF00296B), // 10% primary
               ),
           ],
         ),
@@ -1211,15 +1238,14 @@ class _RegistrationFormScreenState
 
       // Try to match governorate (المحافظة)
       if (address.governorate != null) {
-        final governorates = activeRegions
-            .where((r) => r.regionType == 'PROVINCE')
-            .toList();
+        final governorates =
+            activeRegions.where((r) => r.regionType == 'PROVINCE').toList();
         final matchedGovernorate = governorates.firstWhere(
           (region) =>
               region.nameAr.contains(address.governorate!) ||
               region.nameEn.toLowerCase().contains(
-                address.governorate!.toLowerCase(),
-              ) ||
+                    address.governorate!.toLowerCase(),
+                  ) ||
               _normalizeArabicText(region.nameAr) ==
                   _normalizeArabicText(address.governorate!),
           orElse: () => governorates.first, // Fallback to first governorate
@@ -1240,8 +1266,8 @@ class _RegistrationFormScreenState
             (region) =>
                 region.nameAr.contains(address.district!) ||
                 region.nameEn.toLowerCase().contains(
-                  address.district!.toLowerCase(),
-                ) ||
+                      address.district!.toLowerCase(),
+                    ) ||
                 _normalizeArabicText(region.nameAr) ==
                     _normalizeArabicText(address.district!),
             orElse: () => districts.first, // Fallback to first district
@@ -1266,8 +1292,8 @@ class _RegistrationFormScreenState
               (region) =>
                   region.nameAr.contains(address.neighborhood!) ||
                   region.nameEn.toLowerCase().contains(
-                    address.neighborhood!.toLowerCase(),
-                  ) ||
+                        address.neighborhood!.toLowerCase(),
+                      ) ||
                   _normalizeArabicText(region.nameAr) ==
                       _normalizeArabicText(address.neighborhood!),
               orElse: () =>
@@ -1497,9 +1523,9 @@ class _RegistrationFormScreenState
         // Upload business photo (required)
         final businessPhotoUploadResult =
             await ImageUploadService.uploadBusinessPhoto(
-              _businessPhotoFile!,
-              isRegistration: true,
-            );
+          _businessPhotoFile!,
+          isRegistration: true,
+        );
         if (businessPhotoUploadResult['success'] == true) {
           businessPhotoUrl = businessPhotoUploadResult['imageUrl'];
         } else {
@@ -1521,9 +1547,9 @@ class _RegistrationFormScreenState
         if (_licenseFile != null) {
           final licenseUploadResult =
               await DocumentUploadService.uploadBusinessLicense(
-                _licenseFile!,
-                isRegistration: true,
-              );
+            _licenseFile!,
+            isRegistration: true,
+          );
           if (licenseUploadResult['success'] == true) {
             licenseUrl = licenseUploadResult['imageUrl'];
           }
@@ -1532,9 +1558,9 @@ class _RegistrationFormScreenState
         if (_identityFile != null) {
           final identityUploadResult =
               await DocumentUploadService.uploadOwnerIdentity(
-                _identityFile!,
-                isRegistration: true,
-              );
+            _identityFile!,
+            isRegistration: true,
+          );
           if (identityUploadResult['success'] == true) {
             identityUrl = identityUploadResult['imageUrl'];
           }
@@ -1543,9 +1569,9 @@ class _RegistrationFormScreenState
         if (_healthCertificateFile != null) {
           final healthUploadResult =
               await DocumentUploadService.uploadHealthCertificate(
-                _healthCertificateFile!,
-                isRegistration: true,
-              );
+            _healthCertificateFile!,
+            isRegistration: true,
+          );
           if (healthUploadResult['success'] == true) {
             healthCertificateUrl = healthUploadResult['imageUrl'];
           }
@@ -1554,9 +1580,9 @@ class _RegistrationFormScreenState
         if (_ownerPhotoFile != null) {
           final ownerPhotoUploadResult =
               await DocumentUploadService.uploadOwnerPhoto(
-                _ownerPhotoFile!,
-                isRegistration: true,
-              );
+            _ownerPhotoFile!,
+            isRegistration: true,
+          );
           if (ownerPhotoUploadResult['success'] == true) {
             ownerPhotoUrl = ownerPhotoUploadResult['imageUrl'];
           }
@@ -1578,7 +1604,7 @@ class _RegistrationFormScreenState
 
       final normalizedPhone =
           AppAuthService.normalizeIraqiPhone(_phoneController.text) ??
-          _phoneController.text.trim();
+              _phoneController.text.trim();
 
       // Step 3: Register with business data including all document URLs and Google Places address
       final businessData = {
@@ -1695,8 +1721,7 @@ class _RegistrationFormScreenState
           );
 
           // Ensure email is included in business data
-          businessData['email'] =
-              businessData['email'] ??
+          businessData['email'] = businessData['email'] ??
               confirmResult.user!['email'] ??
               _emailController.text.trim();
 

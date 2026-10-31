@@ -236,6 +236,26 @@ class PushNotificationsService {
         '🔔 Push notification order refresh callback ${callback != null ? "registered" : "cleared"}');
   }
 
+  /// Remove only this account's registration before its credentials are cleared.
+  Future<void> unregisterSignedOutDevice() async {
+    final token = _lastRegisteredToken;
+    final auth = await TokenRefreshService.getValidAccessToken();
+    _registrationPending = false;
+    _lastRegisteredToken = null;
+    _lastRegisteredSubjectId = null;
+    _lastRegisteredBusinessId = null;
+    _lastKnownBusinessId = null;
+    try {
+      if (token != null && auth != null) {
+        await http.post(Uri.parse('${AppConfig.pushNotificationsUrl}/push/tokens/unregister'),
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $auth'},
+          body: jsonEncode({'token': token, 'app': 'merchant'}))
+          .timeout(const Duration(seconds: 10));
+      }
+    } catch (_) { AppLogger.debug('Device unregistration unavailable'); }
+    try { await FirebaseMessaging.instance.deleteToken(); } catch (_) {}
+  }
+
   Future<void> registerTokenIfPossible(
       {String? forcedToken, String? businessId}) async {
     if (!_initialized) {

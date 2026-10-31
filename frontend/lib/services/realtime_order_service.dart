@@ -51,6 +51,19 @@ class RealtimeOrderService with WidgetsBindingObserver {
   int _reconnectAttempts = 0;
   String? _businessId;
   String? _authToken;
+  int _branchGeneration = 0;
+  bool _branchSelectionBound = false;
+  void selectBranch(String? id) {
+    _branchSelectionBound = true;
+    if (_businessId == id && id != null) return;
+    ++_branchGeneration;
+    _businessId = id;
+    _authToken = null;
+    _lastKnownOrderIds = [];
+    _soundPlayedForOrders.clear();
+    _pollingTimer?.cancel();
+    unawaited(disconnect());
+  }
   bool _isDisposed = false;
   bool _isConnecting = false;
   Future<void>? _ongoingInitialize;
@@ -152,6 +165,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   // Safe methods to add to stream controllers
   void _safeAddToNewOrderController(Order order) {
+    if (order.businessId != _businessId) return;
     if (!_isDisposed &&
         _newOrderController != null &&
         !_newOrderController!.isClosed) {
@@ -167,6 +181,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
   }
 
   void _safeAddToOrderUpdateController(Map<String, dynamic> update) {
+    if (update['businessId'] != null && update['businessId'] != _businessId) return;
     if (!_isDisposed &&
         _orderUpdateController != null &&
         !_orderUpdateController!.isClosed) {
@@ -262,6 +277,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   /// Initialize the service with business context
   Future<void> initialize(String? businessId) async {
+    if (_branchSelectionBound && businessId != _businessId) return;
     // If already connected to the same business, skip
     if (_isConnected && _businessId != null && _businessId == businessId) {
       debugPrint('ℹ️ RealtimeOrderService already connected for business $_businessId');
@@ -272,6 +288,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
     if (_isConnecting) {
       debugPrint('ℹ️ Initialize already in progress, awaiting existing operation');
       await _ongoingInitialize;
+      if (!_isDisposed && (!_branchSelectionBound || businessId == _businessId) && !_isConnected) await initialize(businessId);
       return;
     }
 
@@ -287,10 +304,14 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   Future<void> _initializeInternal(String? businessId) async {
     _businessId = businessId;
-    _authToken = await AppAuthService.getAccessToken();
+    final generation = _branchGeneration;
+    final token = await AppAuthService.getAccessToken();
+    if (generation != _branchGeneration || _isDisposed) return;
+    _authToken = token;
 
     // Initialize audio service
     await _audioService.initialize();
+    if (generation != _branchGeneration || _isDisposed) return;
     debugPrint('🔊 Audio notification service initialized');
 
     if (_authToken == null || _authToken!.isEmpty) {
@@ -306,6 +327,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   /// Connect to WebSocket
   Future<void> _connectWebSocket() async {
+    final generation = _branchGeneration;
     if (_businessId == null || _businessId!.isEmpty) {
       debugPrint('❌ Cannot connect WebSocket: businessId is null or empty');
       return;
@@ -373,6 +395,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       const appVersion = '1.0.0';
       final deviceId = await _getStableDeviceId(platform);
 
+      if (generation != _branchGeneration || _isDisposed) return;
       // ✅ بناء WebSocket URL الصحيح مع query parameters
       final baseUri = Uri.parse(AppConfig.webSocketUrl);
       final queryParams = {
@@ -431,9 +454,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
       // Listen for messages
       _channel!.stream.listen(
-        _handleWebSocketMessage,
-        onError: _handleWebSocketError,
-        onDone: _handleWebSocketDisconnection,
+        (message) { if (generation == _branchGeneration) _handleWebSocketMessage(message); },
+        onError: (Object error) { if (generation == _branchGeneration) _handleWebSocketError(error); },
+        onDone: () { if (generation == _branchGeneration) _handleWebSocketDisconnection(); },
       );
 
       // 🔥 CRITICAL FIX: Mark as connected immediately for iOS
@@ -447,7 +470,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       // Wait a brief moment for the connection to fully establish
       await Future.delayed(const Duration(milliseconds: 500));
 
-      if (!_isConnected || _manualDisconnect) {
+      if (generation != _branchGeneration || !_isConnected || _manualDisconnect) {
         debugPrint('❌ Connection was closed during establishment');
         return;
       }
@@ -468,7 +491,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       await Future.delayed(const Duration(milliseconds: 300));
 
       // Then send subscription request (only once per connection)
-      if (!_didSendSubscribe && !_manualDisconnect) {
+      if (generation == _branchGeneration && !_didSendSubscribe && !_manualDisconnect) {
         debugPrint('📤 Sending SUBSCRIBE_ORDERS...');
         _sendWebSocketMessage({
           'type': 'SUBSCRIBE_ORDERS',
@@ -1017,7 +1040,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   Future<void> _pollForNewOrders() async {
     try {
-      final orders = await _orderService.getMerchantOrders(_businessId);
+      final branch = _businessId, generation = _branchGeneration;
+      if (branch == null) return;
+      final orders = await _orderService.getMerchantOrders(branch);
+      if (generation != _branchGeneration || _isDisposed || _manualDisconnect) return;
       final currentOrderIds = orders.map((o) => o.id).toList();
 
       // Find new orders

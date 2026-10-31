@@ -29,4 +29,23 @@ void main() {
         '<worksheet><sheetData><row><c r="A1"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>'));
     expect(() => xlsxToCsv(bytes), throwsFormatException);
   });
+
+  test('oversized compressed XML is rejected before it is decoded', () {
+    final bytes = workbook('<worksheet>${'x' * (2 * 1024 * 1024)}</worksheet>');
+    expect(() => xlsxToCsv(bytes), throwsFormatException);
+  });
+  test(
+      'the first workbook sheet follows relationship order, not filename order',
+      () {
+    final a = Archive()
+      ..addFile(ArchiveFile.string('xl/workbook.xml',
+          '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Products" r:id="r2"/></sheets></workbook>'))
+      ..addFile(ArchiveFile.string('xl/_rels/workbook.xml.rels',
+          '<Relationships><Relationship Id="r2" Target="worksheets/sheet2.xml"/></Relationships>'))
+      ..addFile(ArchiveFile.string('xl/worksheets/sheet1.xml',
+          '<worksheet><row><c t="inlineStr"><is><t>wrong</t></is></c></row></worksheet>'))
+      ..addFile(ArchiveFile.string('xl/worksheets/sheet2.xml',
+          '<worksheet><row><c t="inlineStr"><is><t>correct</t></is></c></row></worksheet>'));
+    expect(xlsxToCsv(Uint8List.fromList(ZipEncoder().encode(a))), 'correct');
+  });
 }

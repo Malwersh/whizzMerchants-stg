@@ -5,8 +5,10 @@ import '../models/product.dart';
 import '../models/business.dart';
 import '../providers/product_provider_riverpod.dart';
 import 'add_product_screen.dart';
+import 'product_form_screen.dart';
 import 'product_import_screen.dart';
 import 'branch_categories_screen.dart';
+import 'product_inventory_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/whizz_search_bar.dart';
@@ -53,6 +55,18 @@ class _ProductsManagementScreenState
         child: Column(
           children: [
             _buildPublishBar(),
+            Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF0B2E63)),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => ProductInventoryScreen(
+                                businessId: widget.business.id))),
+                    icon: const Icon(Icons.inventory_2_outlined),
+                    label: const Text('كميات المخزون'))),
             _buildSearchSection(),
             Expanded(
               child: _buildProductContent(),
@@ -65,31 +79,74 @@ class _ProductsManagementScreenState
   }
 
   Future<void> _loadMenuVersions() async {
-    final result = await ProductService.getMenuVersions(widget.business.id);
-    if (!mounted || result['success'] != true) return;
-    setState(() {
-      _activeMenu = result['active'] is Map ? Map<String, dynamic>.from(result['active']) : null;
-      _menuVersions = (result['versions'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-    });
+    try {
+      final result = await ProductService.getMenuVersions(widget.business.id);
+      if (!mounted || result['success'] != true) return;
+      setState(() {
+        _activeMenu = result['active'] is Map
+            ? Map<String, dynamic>.from(result['active'])
+            : null;
+        _menuVersions = (result['versions'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      });
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'تعذر تحميل حالة نشر القائمة. تحقق من الاتصال وأعد المحاولة.')));
+    }
   }
 
   Future<void> _publishMenu() async {
     setState(() => _menuBusy = true);
-    final result = await ProductService.publishMenu(widget.business.id);
+    Map<String, dynamic> result;
+    try {
+      result = await ProductService.publishMenu(widget.business.id);
+    } catch (_) {
+      result = {
+        'success': false,
+        'message': 'تعذر نشر القائمة. تحقق من الاتصال وأعد المحاولة.'
+      };
+    }
     if (!mounted) return;
     setState(() => _menuBusy = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['success'] == true ? (result['active']?['unchanged'] == true ? 'القائمة المنشورة مطابقة لمسودة العمل' : 'تم نشر القائمة للعملاء بأمان') : '${result['message']}')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['success'] == true
+            ? (result['active']?['unchanged'] == true
+                ? 'القائمة المنشورة مطابقة لمسودة العمل'
+                : 'تم نشر القائمة للعملاء بأمان')
+            : '${result['message']}')));
     if (result['success'] == true) await _loadMenuVersions();
   }
 
   Future<void> _rollbackMenu(String version) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: const Text('استرجاع نسخة سابقة؟'), content: const Text('ستصبح هذه النسخة هي القائمة الظاهرة للعملاء فوراً.'), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('استرجاع'))])) ?? false;
+    final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+                    title: const Text('استرجاع نسخة سابقة؟'),
+                    content: const Text(
+                        'ستصبح هذه النسخة هي القائمة الظاهرة للعملاء فوراً.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('إلغاء')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('استرجاع'))
+                    ])) ??
+        false;
     if (!confirmed || !mounted) return;
     setState(() => _menuBusy = true);
-    final result = await ProductService.rollbackMenu(widget.business.id, version);
+    final result =
+        await ProductService.rollbackMenu(widget.business.id, version);
     if (!mounted) return;
     setState(() => _menuBusy = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['success'] == true ? 'تم استرجاع النسخة' : '${result['message']}')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['success'] == true
+            ? 'تم استرجاع النسخة'
+            : '${result['message']}')));
     if (result['success'] == true) await _loadMenuVersions();
   }
 
@@ -100,11 +157,34 @@ class _ProductsManagementScreenState
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(children: [
-          const Icon(Icons.cloud_done_outlined), const SizedBox(width: 10),
-          Expanded(child: Text(publishedAt == null ? 'لم تُنشر القائمة بعد. التعديلات الحالية مسودة.' : 'آخر نشر: ${publishedAt.replaceFirst('T', ' ').split('.').first}')),
-          if (_menuVersions.length > 1) PopupMenuButton<String>(tooltip: 'سجل النسخ', icon: const Icon(Icons.history), onSelected: _rollbackMenu, itemBuilder: (_) => _menuVersions.where((v) => v['status'] != 'ACTIVE').map((v) => PopupMenuItem(value: v['version']?.toString(), child: Text('${v['publishedAt']?.toString().replaceFirst('T', ' ').split('.').first ?? ''} · ${v['productCount'] ?? 0} منتج'))).toList()),
+          const Icon(Icons.cloud_done_outlined),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Text(publishedAt == null
+                  ? 'ابدأ بنشر القائمة الحالية مرة واحدة قبل تعديل المنتجات أو استيرادها. بعدها تبقى التعديلات مسودة حتى تنشرها.'
+                  : 'آخر نشر: ${publishedAt.replaceFirst('T', ' ').split('.').first}')),
+          if (_menuVersions.length > 1)
+            PopupMenuButton<String>(
+                tooltip: 'سجل النسخ',
+                icon: const Icon(Icons.history),
+                onSelected: _rollbackMenu,
+                itemBuilder: (_) => _menuVersions
+                    .where((v) => v['status'] != 'ACTIVE')
+                    .map((v) => PopupMenuItem(
+                        value: v['version']?.toString(),
+                        child: Text(
+                            '${v['publishedAt']?.toString().replaceFirst('T', ' ').split('.').first ?? ''} · ${v['productCount'] ?? 0} منتج')))
+                    .toList()),
           const SizedBox(width: 8),
-          FilledButton.icon(onPressed: _menuBusy ? null : _publishMenu, icon: _menuBusy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.publish), label: const Text('نشر')),
+          FilledButton.icon(
+              onPressed: _menuBusy ? null : _publishMenu,
+              icon: _menuBusy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.publish),
+              label: const Text('نشر')),
         ]),
       ),
     );
@@ -136,7 +216,7 @@ class _ProductsManagementScreenState
           ),
           const SizedBox(width: 8),
           IconButton.filledTonal(
-            tooltip: 'استيراد CSV',
+            tooltip: 'استيراد Excel أو CSV',
             icon: const Icon(Icons.upload_file),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ProductImportScreen(
@@ -156,11 +236,11 @@ class _ProductsManagementScreenState
       builder: (context, ref, child) {
         final productState = ref.watch(productProviderRiverpod);
 
-        if (productState.isLoading) {
+        if (productState.isLoading && productState.products.isEmpty) {
           return _buildLoadingState();
         }
 
-        if (productState.error != null) {
+        if (productState.error != null && productState.products.isEmpty) {
           return _buildErrorState(productState.error!);
         }
 
@@ -241,7 +321,8 @@ class _ProductsManagementScreenState
       displayMessage = error.message;
     }
 
-    return Center(
+    return SingleChildScrollView(
+        child: Center(
       child: Container(
         margin: EdgeInsets.all(AppSpacing.lg),
         padding: EdgeInsets.all(AppSpacing.xl),
@@ -301,24 +382,24 @@ class _ProductsManagementScreenState
                 backgroundColor: WhizzColors.black,
                 foregroundColor: WhizzColors.white,
                 minimumSize: Size(200, 56),
-                padding: EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xl, vertical: AppSpacing.md),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius:
                       BorderRadius.circular(AppDimensions.borderRadiusSM),
                 ),
               ),
-              icon: Icon(Icons.refresh_rounded),
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
               label: Text(
                 loc.tryAgain,
                 style: AppTypography.labelLarge
-                    .copyWith(fontWeight: FontWeight.bold),
+                    .copyWith(fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildEmptyState() {
@@ -384,7 +465,8 @@ class _ProductsManagementScreenState
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => const AddProductScreen(),
+                        builder: (context) =>
+                            AddProductScreen(businessId: widget.business.id),
                       ),
                     );
                   },
@@ -707,19 +789,29 @@ class _ProductsManagementScreenState
                   onSelected: (value) async {
                     switch (value) {
                       case 'edit':
-                        _showEditProductDrawer(context, product);
+                        _openProductEditor(context, product);
                         break;
                       case 'delete':
                         _showDeleteConfirmation(product, ref);
                         break;
                       case 'toggle_availability':
-                        await ref
+                        final success = await ref
                             .read(productProviderRiverpod.notifier)
                             .updateProduct(
                               product.copyWith(
                                 isAvailable: !product.isAvailable,
                               ),
                             );
+                        if (!success && mounted) {
+                          showAdaptiveSnackBar(
+                              context: this.context,
+                              message: ref
+                                      .read(productProviderRiverpod)
+                                      .error
+                                      ?.message ??
+                                  loc.unknownError,
+                              type: AdaptiveSnackBarType.error);
+                        }
                         break;
                     }
                   },
@@ -797,7 +889,8 @@ class _ProductsManagementScreenState
       onPressed: () {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => const AddProductScreen(),
+            builder: (context) =>
+                AddProductScreen(businessId: widget.business.id),
           ),
         );
       },
@@ -808,20 +901,17 @@ class _ProductsManagementScreenState
     );
   }
 
-  void _showEditProductDrawer(BuildContext context, Product product) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _EditProductDrawer(product: product),
-    );
+  void _openProductEditor(BuildContext context, Product product) {
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ProductFormScreen(
+            product: product, businessId: widget.business.id)));
   }
 
   void _showDeleteConfirmation(Product product, WidgetRef ref) {
     final loc = AppLocalizations.of(context)!;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         shape: RoundedRectangleBorder(
@@ -912,402 +1002,6 @@ class _ProductsManagementScreenState
           ),
         ],
         actionsAlignment: MainAxisAlignment.spaceEvenly,
-      ),
-    );
-  }
-}
-
-class _EditProductDrawer extends ConsumerStatefulWidget {
-  final Product product;
-
-  const _EditProductDrawer({required this.product});
-
-  @override
-  ConsumerState<_EditProductDrawer> createState() => _EditProductDrawerState();
-}
-
-class _EditProductDrawerState extends ConsumerState<_EditProductDrawer> {
-  final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController;
-  late TextEditingController _descriptionController;
-  late TextEditingController _priceController;
-
-  String? _selectedCategoryId;
-  bool _isLoading = false;
-  bool _isAvailable = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.product.name);
-    _descriptionController =
-        TextEditingController(text: widget.product.description);
-    _priceController =
-        TextEditingController(text: widget.product.price.toString());
-    _selectedCategoryId = widget.product.categoryId;
-    _isAvailable = widget.product.isAvailable;
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _descriptionController.dispose();
-    _priceController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveProduct() async {
-    final loc = AppLocalizations.of(context)!;
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedCategoryId == null) {
-      showAdaptiveSnackBar(
-        context: context,
-        message: loc.pleaseSelectCategory,
-        type: AdaptiveSnackBarType.error,
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final updatedProduct = widget.product.copyWith(
-        name: _nameController.text.trim(),
-        description: _descriptionController.text.trim(),
-        price: double.parse(_priceController.text.trim()),
-        categoryId: _selectedCategoryId,
-        isAvailable: _isAvailable,
-      );
-
-      final success = await ref
-          .read(productProviderRiverpod.notifier)
-          .updateProduct(updatedProduct);
-
-      if (success && mounted) {
-        Navigator.of(context).pop();
-        showAdaptiveSnackBar(
-          context: context,
-          message: loc.productUpdatedSuccessfully,
-          type: AdaptiveSnackBarType.success,
-        );
-      } else if (mounted) {
-        final error = ref.read(productProviderRiverpod).error?.message ??
-            loc.unknownError;
-        showAdaptiveSnackBar(
-          context: context,
-          message: loc.failedToUpdateProduct(error),
-          type: AdaptiveSnackBarType.error,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        showAdaptiveSnackBar(
-          context: context,
-          message: '${loc.errorOccurred}: $e',
-          type: AdaptiveSnackBarType.error,
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    final productState = ref.watch(productProviderRiverpod);
-    final theme = Theme.of(context);
-
-    // Load categories if needed
-    if (productState.categories.isEmpty && !productState.isLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(productProviderRiverpod.notifier).loadCategories('restaurant');
-      });
-    }
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => Container(
-        decoration: BoxDecoration(
-          color: WhizzColors.backgroundPrimary,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          children: [
-            // Handle bar
-            Container(
-              margin: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: GoldenRatio.spacing16, vertical: 8),
-              child: Row(
-                children: [
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // Form content
-            Expanded(
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(GoldenRatio.spacing16),
-                  children: [
-                    // Name field
-                    _buildTextField(
-                      controller: _nameController,
-                      labelText: loc.productName,
-                      hintText: loc.enterProductName,
-                      prefixIcon: Icons.shopping_bag_rounded,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return loc.pleaseEnterProductName;
-                        }
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Description field
-                    _buildTextField(
-                      controller: _descriptionController,
-                      labelText: loc.description,
-                      hintText: loc.enterProductDescription,
-                      prefixIcon: Icons.description_rounded,
-                      maxLines: 3,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return loc.pleaseEnterProductDescription;
-                        }
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Price field
-                    _buildTextField(
-                      controller: _priceController,
-                      labelText: loc.priceLabel,
-                      hintText: '0.00',
-                      prefixIcon: Icons.attach_money_rounded,
-                      keyboardType:
-                          TextInputType.numberWithOptions(decimal: true),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return loc.pleaseEnterPrice;
-                        }
-                        if (double.tryParse(value) == null) {
-                          return loc.pleaseEnterValidPrice;
-                        }
-                        return null;
-                      },
-                    ),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Category dropdown
-                    _buildCategoryDropdown(productState),
-                    SizedBox(height: GoldenRatio.spacing16),
-                    // Availability toggle
-                    _buildAvailabilityToggle(theme),
-                    SizedBox(height: GoldenRatio.spacing24),
-                    // Save button
-                    _buildSaveButton(),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String labelText,
-    required String hintText,
-    required IconData prefixIcon,
-    required String? Function(String?) validator,
-    TextInputType? keyboardType,
-    int? maxLines,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      maxLines: maxLines ?? 1,
-      style:
-          TypographySystem.bodyLarge.copyWith(color: WhizzColors.textPrimary),
-      decoration: InputDecoration(
-        labelText: labelText,
-        hintText: hintText,
-        prefixIcon: Icon(prefixIcon, color: WhizzColors.secondary),
-        labelStyle: TypographySystem.bodyMedium
-            .copyWith(color: WhizzColors.textSecondary),
-        hintStyle: TypographySystem.bodyMedium
-            .copyWith(color: WhizzColors.textSecondary.withValues(alpha: 0.6)),
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(
-              color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(
-              color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(color: WhizzColors.secondary, width: 2),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(color: WhizzColors.error, width: 1),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          borderSide: BorderSide(color: WhizzColors.error, width: 2),
-        ),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: GoldenRatio.spacing16,
-          vertical: GoldenRatio.spacing16,
-        ),
-      ),
-      validator: validator,
-    );
-  }
-
-  Widget _buildCategoryDropdown(dynamic productState) {
-    final loc = AppLocalizations.of(context)!;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-        border: Border.all(
-            color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-      ),
-      padding: EdgeInsets.symmetric(horizontal: GoldenRatio.spacing16),
-      child: DropdownButtonFormField<String>(
-        value: _selectedCategoryId,
-        decoration: InputDecoration(
-          labelText: loc.category,
-          border: InputBorder.none,
-          prefixIcon:
-              Icon(Icons.category_rounded, color: WhizzColors.secondary),
-        ),
-        items:
-            productState.categories.map<DropdownMenuItem<String>>((category) {
-          return DropdownMenuItem<String>(
-            value: category.id,
-            child: Text(category.name),
-          );
-        }).toList(),
-        onChanged: (value) {
-          setState(() {
-            _selectedCategoryId = value;
-          });
-        },
-        validator: (value) {
-          if (value == null || value.isEmpty) {
-            return loc.pleaseSelectCategory;
-          }
-          return null;
-        },
-      ),
-    );
-  }
-
-  Widget _buildAvailabilityToggle(ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-        border: Border.all(
-            color: WhizzColors.secondary.withValues(alpha: 0.3), width: 1),
-      ),
-      padding: EdgeInsets.all(GoldenRatio.spacing16),
-      child: Row(
-        children: [
-          Icon(Icons.store_rounded, color: WhizzColors.secondary),
-          SizedBox(width: GoldenRatio.spacing12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Toggle Availability',
-                  style: TypographySystem.bodyLarge.copyWith(
-                    color: WhizzColors.textPrimary,
-                  ),
-                ),
-                Text(
-                  'Toggle Availability',
-                  style: TypographySystem.bodySmall.copyWith(
-                    color: WhizzColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: _isAvailable,
-            onChanged: (value) {
-              setState(() {
-                _isAvailable = value;
-              });
-            },
-            activeColor: WhizzColors.secondary,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    final loc = AppLocalizations.of(context)!;
-    return SizedBox(
-      height: 56,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _saveProduct,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: WhizzColors.secondary,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(GoldenRatio.spacing12),
-          ),
-          elevation: 2,
-        ),
-        child: _isLoading
-            ? AdaptiveLoadingIndicator(
-                color: Colors.white,
-                size: 24,
-              )
-            : Text(
-                loc.saveChanges,
-                style: TypographySystem.bodyLarge.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
       ),
     );
   }

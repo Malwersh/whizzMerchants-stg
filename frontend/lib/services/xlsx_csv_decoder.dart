@@ -7,6 +7,31 @@ import 'package:xml/xml.dart';
 /// Reads values from the first XLSX worksheet. Formulas, encrypted files and
 /// macro containers are intentionally outside the import contract.
 String xlsxToCsv(Uint8List bytes, {int maxRows = 501, int maxColumns = 20}) {
+  if (bytes.isEmpty || bytes.length > 5 * 1024 * 1024) {
+    throw const FormatException('الملف فارغ أو أكبر من 5 MB');
+  }
+  final directory = ZipDirectory()..read(InputMemoryStream(bytes));
+  var expanded = 0;
+  final names = <String>{};
+  if (directory.fileHeaders.isEmpty || directory.fileHeaders.length > 256) {
+    throw const FormatException('بنية ملف Excel غير صالحة أو كبيرة جدًا');
+  }
+  for (final entry in directory.fileHeaders) {
+    expanded += entry.uncompressedSize;
+    if (entry.uncompressedSize > 2 * 1024 * 1024 ||
+        expanded > 16 * 1024 * 1024 ||
+        !names.add(entry.filename) ||
+        entry.filename.split('/').contains('..') ||
+        entry.filename.startsWith('/') ||
+        ((entry.externalFileAttributes >> 16) & 0xf000) == 0xa000 ||
+        (entry.generalPurposeBitFlag & 1) != 0) {
+      throw const FormatException(
+          'ملف Excel محمي أو يتجاوز حدود القراءة الآمنة');
+    }
+    if (entry.filename.toLowerCase().endsWith('vbaproject.bin')) {
+      throw const FormatException('ملفات Excel التي تحتوي macros غير مسموحة');
+    }
+  }
   final archive = ZipDecoder().decodeBytes(bytes, verify: true);
   if (archive.findFile('xl/vbaProject.bin') != null) {
     throw const FormatException('ملفات Excel التي تحتوي macros غير مسموحة');
@@ -39,7 +64,29 @@ String xlsxToCsv(Uint8List bytes, {int maxRows = 501, int maxColumns = 20}) {
   if (sheets.isEmpty) {
     throw const FormatException('ملف Excel لا يحتوي ورقة');
   }
-  final document = readXml(sheets.first.name);
+  var sheetPath = sheets.first.name;
+  if (archive.findFile('xl/workbook.xml') != null) {
+    final workbook = readXml('xl/workbook.xml');
+    final sheet = workbook.findAllElements('sheet').firstOrNull;
+    final id = sheet?.getAttribute('id',
+            namespace:
+                'http://schemas.openxmlformats.org/officeDocument/2006/relationships') ??
+        sheet?.getAttribute('r:id');
+    final relationships = readXml('xl/_rels/workbook.xml.rels');
+    final relation = relationships
+        .findAllElements('Relationship')
+        .where((r) => r.getAttribute('Id') == id)
+        .firstOrNull;
+    final target = relation?.getAttribute('Target');
+    if (target == null || relation?.getAttribute('TargetMode') == 'External') {
+      throw const FormatException('مرجع ورقة Excel غير صالح');
+    }
+    sheetPath = target.startsWith('/xl/') ? target.substring(1) : 'xl/$target';
+    if (!RegExp(r'^xl/worksheets/[^/]+\.xml$').hasMatch(sheetPath)) {
+      throw const FormatException('مرجع ورقة Excel غير صالح');
+    }
+  }
+  final document = readXml(sheetPath);
   final output = <String>[];
   for (final row in document.findAllElements('row')) {
     if (output.length >= maxRows) {

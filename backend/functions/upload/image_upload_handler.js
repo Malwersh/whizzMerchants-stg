@@ -59,7 +59,7 @@ function isRegistrationUpload(event) {
     return registrationHeader === 'true';
 }
 
-// Helper function to check if this is a product image upload (no auth needed)
+// Product image requests always pass through verified merchant authentication.
 function isProductImageUpload(event) {
     return event.path && event.path.includes('/upload/product-image');
 }
@@ -152,7 +152,7 @@ exports.handler = async (event) => {
         userEmail = 'registration-user';
         userId = 'registration';
     } else if (isProductUpload) {
-        console.log('🔓 Product image upload detected - bypassing authentication');
+        console.log('Product image upload: verified merchant scope required by the outer handler');
         userEmail = 'product-user';
         userId = 'product';
     }
@@ -245,6 +245,10 @@ exports.handler = async (event) => {
                 });
             }
 
+            if(isProductUpload){
+                try{decodedImage.type=require('../shared/product-image-validation').validateProductImage(decodedImage.data).type;}
+                catch(_){return createResponse(400,{success:false,message:'INVALID_PRODUCT_IMAGE'});}
+            }
             // Generate unique filename with proper extension and user context
             const imageId = uuidv4();
             const fileExtension = decodedImage.type.includes('png') ? 'png' : 'jpg';
@@ -293,4 +297,4 @@ exports.handler = async (event) => {
 
 const originalUploadHandler=module.exports.handler;
 const protectedUploadHandler=merchantHandler(originalUploadHandler,{db:uploadDb});
-module.exports.handler=(event,context)=>isRegistrationUpload(event)&&!event.headers?.Authorization&&!event.headers?.authorization?originalUploadHandler(event,context):protectedUploadHandler(event,context);
+module.exports.handler=(event,context)=>isRegistrationUpload(event)&&!isProductImageUpload(event)&&!event.headers?.Authorization&&!event.headers?.authorization?originalUploadHandler(event,context):protectedUploadHandler(event,context);

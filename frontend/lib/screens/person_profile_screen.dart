@@ -1,3 +1,6 @@
+import '../legal/application_legal_bundle.dart';
+import '../legal/application_legal_consent.dart';
+import '../legal/application_legal_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../services/person_onboarding_service.dart';
@@ -69,22 +72,36 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Future<void> completeProfile() => perform(() async {
         final ack = await api.call('person-registration', authenticated: false);
         if (!mounted) return;
-        final accepted = await showDialog<bool>(
+        ApplicationLegalBundle? selected;
+        final accepted = await showModalBottomSheet<ApplicationLegalBundle>(
             context: context,
-            builder: (_) => AlertDialog(
-                    title: const Text('إكمال الملف الشخصي'),
-                    content: Text(ack['acknowledgementText']),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('إلغاء')),
-                      FilledButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text('موافق'))
-                    ]));
-        if (accepted != true) return;
-        final r = await api.call('person-profile',
-            body: {'acknowledgementVersion': ack['acknowledgementVersion']});
+            isScrollControlled: true,
+            showDragHandle: true,
+            builder: (context) => StatefulBuilder(
+                builder: (context, setSheet) => SafeArea(
+                    child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(22),
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                          const Text('إكمال الملف الشخصي',
+                              style: TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 12),
+                          Text(ack['acknowledgementText']),
+                          ApplicationLegalConsent(
+                              onChanged: (b) => setSheet(() => selected = b)),
+                          FilledButton(
+                              onPressed: selected == null
+                                  ? null
+                                  : () => Navigator.pop(context, selected),
+                              child: const Text('موافقة ومتابعة'))
+                        ])))));
+        if (accepted == null) return;
+        final r = await api.call('person-profile', body: {
+          'acknowledgementVersion': ack['acknowledgementVersion'],
+          'legalAccepted': true,
+          'legalAcceptance': accepted.pin
+        });
         if (mounted)
           setState(() {
             profile = Map<String, dynamic>.from(r['profile']);
@@ -150,8 +167,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Widget build(BuildContext context) => Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-            title: Text(branch ? 'هاتف تواصل الفرع' : 'بياناتي الشخصية')),
+        appBar: AppBar(actions: [
+          IconButton(
+              tooltip: 'السياسات والشروط',
+              icon: const Icon(Icons.policy_outlined),
+              onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const ApplicationLegalScreen())))
+        ], title: Text(branch ? 'هاتف تواصل الفرع' : 'بياناتي الشخصية')),
         body: ListView(padding: const EdgeInsets.all(20), children: [
           Text(branch
               ? 'هذا الرقم لتواصل الفرع فقط؛ تغييره لا يغير هاتف دخولك.'

@@ -1602,6 +1602,17 @@ Resources:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /products/inventory:
+                get:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
+                post:
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${ProductManagementFunction.Arn}/invocations
               /products/imports/preview:
                 post:
                   x-amazon-apigateway-integration:
@@ -3020,6 +3031,10 @@ Resources:
           DYNAMODB_REGION: !Ref AWS::Region
           COGNITO_REGION: !Ref AWS::Region
       Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem,dynamodb:ConditionCheckItem]
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WizzOrders"
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow

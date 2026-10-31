@@ -288,6 +288,7 @@ async function handleCreateDiscount(dynamodb, businessId, discountData) {
             description: discountData.description || '',
             type: discountData.type,
             value: parseFloat(discountData.value),
+            calculationMode: discountData.calculationMode || 'order',
             applicability: discountData.applicability || 'allItems',
             applicable_item_ids: discountData.applicableItemIds || [],
             applicable_category_ids: discountData.applicableCategoryIds || [],
@@ -378,7 +379,7 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
         const expressionAttributeValues = {
             ':timestamp': new Date().toISOString()
         };
-        for(const field of ['perCustomerLimit','maxDiscountAmount'])if(updateData[field]!==undefined){expressionAttributeNames['#'+field]=field;expressionAttributeValues[':'+field]=updateData[field];updateExpression+=', #'+field+' = :'+field;}
+        for(const field of ['perCustomerLimit','maxDiscountAmount','calculationMode'])if(updateData[field]!==undefined){expressionAttributeNames['#'+field]=field;expressionAttributeValues[':'+field]=updateData[field];updateExpression+=', #'+field+' = :'+field;}
         if(updateData.perCustomerLimit!==undefined){expressionAttributeNames['#singleUse']='singleUse';expressionAttributeValues[':singleUse']=updateData.perCustomerLimit===1;updateExpression+=', #singleUse = :singleUse';}
         const validTypes = ['percentage', 'fixedAmount', 'freeDelivery'];
         const effectiveType = updateData.type !== undefined
@@ -490,7 +491,7 @@ async function handleUpdateDiscount(dynamodb, businessId, discountId, updateData
 
         const {revision:_revision,sharingLocked:_sharingLocked,sharingCanActivate:_sharingCanActivate,...old}=JSON.parse(existingDiscount.body).discount;
         const fieldMap={minimumOrderAmount:'minimum_order_amount',validFrom:'valid_from',validTo:'valid_to',usageLimit:'usage_limit',applicableItemIds:'applicable_item_ids',applicableCategoryIds:'applicable_category_ids',conditionalRule:'conditional_rule',conditionalParameters:'conditional_parameters'};
-        const patch=Object.fromEntries(Object.entries(updateData).filter(([key])=>['title','description','type','value','applicability',...Object.keys(fieldMap),'status','imageUrl','perCustomerLimit','maxDiscountAmount'].includes(key)).map(([key,value])=>[fieldMap[key]||key,value]));
+        const patch=Object.fromEntries(Object.entries(updateData).filter(([key])=>['title','description','type','value','calculationMode','applicability',...Object.keys(fieldMap),'status','imageUrl','perCustomerLimit','maxDiscountAmount'].includes(key)).map(([key,value])=>[fieldMap[key]||key,value]));
         if(updateData.perCustomerLimit!==undefined)patch.singleUse=updateData.perCustomerLimit===1;
         const next=patchTerms(old,patch,'merchant');
         if(!supported(next)||!discountEngine.validShape(discountEngine.normalizeDiscount(next),Number.MAX_SAFE_INTEGER))return createResponse(400,{success:false,message:'INVALID_DISCOUNT_TERMS'});

@@ -120,7 +120,7 @@ class TopAppBar extends StatelessWidget implements PreferredSizeWidget {
                 Text(
                   isOnline ? loc.online : loc.offline,
                   style: TextStyle(
-                    color: theme.colorScheme.primary,
+                    color: theme.colorScheme.secondary,
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),

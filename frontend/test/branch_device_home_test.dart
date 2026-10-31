@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../lib/l10n/app_localizations.dart';
 import '../lib/screens/orders_page.dart';
 import '../lib/screens/dashboards/business_dashboard.dart';
@@ -10,6 +11,8 @@ import '../lib/services/branch_device_service.dart';
 class DeviceApi extends BranchDeviceService {
   final calls = <String>[];
   bool revoked = false;
+  Completer<Map<String, dynamic>>? pendingProfile;
+  int unlockCount = 0;
   String role = 'MANAGER';
   @override
   Future<Map<String, dynamic>> call(String token, Map<String, dynamic> body,
@@ -32,10 +35,11 @@ class DeviceApi extends BranchDeviceService {
         };
       case 'unlock':
         return {
-          'staffSession': 'individual',
+          'staffSession': 'individual-${++unlockCount}',
           'expiresAt': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120
         };
       case 'profile':
+        if (pendingProfile != null) return pendingProfile!.future;
         return {
           'staff': {'displayName': 'أحمد', 'role': role},
           'business': {'description': 'الوصف التشغيلي'},
@@ -69,15 +73,45 @@ Future<void> open(WidgetTester t, DeviceApi api) async {
   await t.pumpAndSettle();
 }
 
-Future<void> unlock(WidgetTester t) async {
+Future<void> unlock(WidgetTester t, {bool settle = true}) async {
   await t.tap(find.text('أحمد'));
   await t.pumpAndSettle();
   await t.enterText(find.byType(TextField), '147258');
   await t.tap(find.text('فتح المهام'));
-  await t.pumpAndSettle();
+  if (settle) {
+    await t.pumpAndSettle();
+  } else {
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+  }
 }
 
 void main() {
+  testWidgets('old profile cannot unlock a later employee session', (t) async {
+    final api = DeviceApi()..pendingProfile = Completer();
+    await open(t, api);
+    await unlock(t, settle: false);
+    expect(find.byType(BusinessDashboard), findsNothing);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+    await unlock(t, settle: false);
+    api.pendingProfile!.complete({
+      'staff': {'displayName': 'OLD EMPLOYEE', 'role': 'MANAGER'},
+      'business': {},
+      'capabilities': {}
+    });
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+    expect(find.byType(BusinessDashboard), findsNothing);
+    await t.pumpWidget(const SizedBox());
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+  });
+
   testWidgets('lock keeps device reception and hides individual tasks',
       (t) async {
     final api = DeviceApi();
@@ -100,7 +134,8 @@ void main() {
     expect(find.text('فتوش'), findsOneWidget);
     expect(api.calls.contains('lock'), true);
     await t.pumpWidget(const SizedBox());
-    await t.pump(const Duration(seconds: 1));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
   });
   testWidgets('reception uses original orders with no menu or hours settings',
       (t) async {
@@ -115,7 +150,8 @@ void main() {
     expect(find.text('قفل مهامي'), findsOneWidget);
     expect(find.text('المحفظة'), findsNothing);
     await t.pumpWidget(const SizedBox());
-    await t.pump(const Duration(seconds: 1));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
   });
   testWidgets('timeout hides tasks while device stays available', (t) async {
     final api = DeviceApi();
@@ -126,7 +162,8 @@ void main() {
     expect(find.text('قفل مهامي'), findsNothing);
     expect(find.text('فتوش'), findsOneWidget);
     await t.pumpWidget(const SizedBox());
-    await t.pump(const Duration(seconds: 1));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
   });
   testWidgets('revocation clears employee tasks during synchronization',
       (t) async {
@@ -139,6 +176,7 @@ void main() {
     expect(find.text('القائمة'), findsNothing);
     expect(find.textContaining('سُحبت'), findsOneWidget);
     await t.pumpWidget(const SizedBox());
-    await t.pump(const Duration(seconds: 1));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
   });
 }

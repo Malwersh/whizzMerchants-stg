@@ -1,3 +1,4 @@
+const {menuDraftVersion}=require('./menu-draft-version');
 'use strict';
 const {GetCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
 const {createHash,randomUUID}=require('node:crypto');
@@ -41,7 +42,7 @@ async function mutate(db,actor,event){
   const category=await get(db,categories,{categoryId:body.categoryId});
   if(!category||category.isActive===false||category.is_active===false||category.businessId&&category.businessId!==actor.businessId)fail('CATEGORY_UNAVAILABLE');
   const productId=randomUUID(),now=new Date().toISOString(),product={...content,productId,searchableName:content.name.toLowerCase(),createdAt:now,updatedAt:now};
-  try{await db.send(new TransactWriteCommand({TransactItems:[...(actor.deviceGuards||[]),
+  try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...(actor.deviceGuards||[]),
    {ConditionCheck:{TableName:categories,Key:{categoryId:body.categoryId},ConditionExpression:'attribute_exists(categoryId) AND (attribute_not_exists(isActive) OR isActive=:yes) AND (attribute_not_exists(is_active) OR is_active=:yes) AND (attribute_not_exists(businessId) OR businessId=:b)',ExpressionAttributeValues:{':yes':true,':b':actor.businessId}}},
    {Put:{TableName:products,Item:product,ConditionExpression:'attribute_not_exists(productId)'}},
    {Put:{TableName:TABLE,Item:{...key,businessId:actor.businessId,ownerId:actor.ownerId,fingerprint,productId,createdAt:now},ConditionExpression:'attribute_not_exists(pk)'}},
@@ -87,7 +88,7 @@ async function mutate(db,actor,event){
   const assignments=Object.entries(patch).map(([k,v],i)=>{names['#set'+i]=k;values[':set'+i]=v;return '#set'+i+'=:set'+i;});
   const record=changed?{Update:{TableName:products,Key:{productId},ConditionExpression:condition,ExpressionAttributeNames:names,ExpressionAttributeValues:values,UpdateExpression:'SET '+assignments.join(', ')}}:{ConditionCheck:{TableName:products,Key:{productId},ConditionExpression:condition,ExpressionAttributeNames:Object.fromEntries(Object.entries(names).filter(([k])=>k.startsWith('#before'))),ExpressionAttributeValues:Object.fromEntries(Object.entries(values).filter(([k])=>!k.startsWith(':set')))}};
   const categoryFence=changes.categoryId===undefined?[]:[{ConditionCheck:{TableName:categories,Key:{categoryId:changes.categoryId},ConditionExpression:'attribute_exists(categoryId) AND (attribute_not_exists(isActive) OR isActive=:yes) AND (attribute_not_exists(is_active) OR is_active=:yes) AND (attribute_not_exists(businessId) OR businessId=:b)',ExpressionAttributeValues:{':yes':true,':b':actor.businessId}}}];
-  try{await db.send(new TransactWriteCommand({TransactItems:[...(actor.deviceGuards||[]),...categoryFence,record,
+  try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...(actor.deviceGuards||[]),...categoryFence,record,
    {Put:{TableName:TABLE,Item:{...key,businessId:actor.businessId,ownerId:actor.ownerId,productId,fingerprint,createdAt:now},ConditionExpression:'attribute_not_exists(pk)'}},
    ...(changed?[audit(actor,'MENU_PRODUCT_UPDATED',productId,product,after)]:[])]}));}catch(e){if(e.name!=='TransactionCanceledException')throw e;const retry=await replay();if(retry)return retry;fail('VERSION_OR_STATE_CONFLICT',409);}
   return {statusCode:200,body:JSON.stringify({success:true,product:{...view(after),id:productId},unchanged:!changed})};
@@ -111,7 +112,7 @@ async function mutate(db,actor,event){
   if(product[field]===undefined)condition+=' AND attribute_not_exists('+name+')';
   else{const value=':before'+index;values[value]=product[field];condition+=' AND '+name+'='+value;}
  }
- try{await db.send(new TransactWriteCommand({TransactItems:[...(actor.deviceGuards||[]),{Delete:{TableName:products,Key:{productId},ConditionExpression:condition,ExpressionAttributeValues:values,...(Object.keys(names).length?{ExpressionAttributeNames:names}:{})}},{Put:{TableName:TABLE,Item:{...deletedKey,businessId:actor.businessId,ownerId:actor.ownerId,productId,createdAt:new Date().toISOString()},ConditionExpression:'attribute_not_exists(pk)'}},audit(actor,'MENU_PRODUCT_DELETED',productId,product,null)]}));}catch(e){if(e.name==='TransactionCanceledException'){if(await deleted())return removed();fail('VERSION_OR_STATE_CONFLICT',409);}throw e;}
+ try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...(actor.deviceGuards||[]),{Delete:{TableName:products,Key:{productId},ConditionExpression:condition,ExpressionAttributeValues:values,...(Object.keys(names).length?{ExpressionAttributeNames:names}:{})}},{Put:{TableName:TABLE,Item:{...deletedKey,businessId:actor.businessId,ownerId:actor.ownerId,productId,createdAt:new Date().toISOString()},ConditionExpression:'attribute_not_exists(pk)'}},audit(actor,'MENU_PRODUCT_DELETED',productId,product,null)]}));}catch(e){if(e.name==='TransactionCanceledException'){if(await deleted())return removed();fail('VERSION_OR_STATE_CONFLICT',409);}throw e;}
  return {statusCode:200,body:JSON.stringify({success:true})};
 }
 module.exports={mutate};
