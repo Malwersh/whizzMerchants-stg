@@ -30,6 +30,7 @@ enum ConditionalDiscountRule {
 class Discount {
   final String id;
   final String? revision;
+  final String calculationMode;
   final bool sharingLocked;
   final bool sharingCanActivate;
   final String name;
@@ -62,6 +63,7 @@ class Discount {
   Discount({
     required this.id,
     this.revision,
+    this.calculationMode = 'order',
     this.sharingLocked = false,
     this.sharingCanActivate = false,
     required this.name,
@@ -102,6 +104,8 @@ class Discount {
       id: json['discountId'] ?? json['id'] ?? json['discount_id'] ?? '',
       name: json['title'] ?? json['name'] ?? '',
       description: json['description'] ?? '',
+      calculationMode:
+          json['calculationMode'] == 'perItem' ? 'perItem' : 'order',
       type: _parseDiscountType(json['type']),
       value: (json['value'] ?? 0).toDouble(),
       applicability: _parseDiscountApplicability(json['applicability']),
@@ -121,7 +125,8 @@ class Discount {
       minimumOrderAmount:
           (json['minimum_order_amount'] ?? json['minimumOrderAmount'])
               ?.toDouble(),
-      perCustomerLimit: json['singleUse'] == true ? 1 : json['perCustomerLimit'],
+      perCustomerLimit:
+          json['singleUse'] == true ? 1 : json['perCustomerLimit'],
       maxDiscountAmount: json['maxDiscountAmount'] ?? json['maxDiscount'],
       maxUsage: json['usage_limit'] ??
           json['usageLimit'] ??
@@ -240,6 +245,7 @@ class Discount {
       'name': name,
       'title': title, // Add title field that backend expects
       'description': description,
+      'calculationMode': calculationMode,
       'type': type.name,
       'value': value,
       'applicability': applicability.name,
@@ -323,6 +329,7 @@ class Discount {
     return Discount(
       id: id ?? this.id,
       revision: revision,
+      calculationMode: calculationMode,
       sharingLocked: sharingLocked,
       sharingCanActivate: sharingCanActivate,
       name: name ?? this.name,

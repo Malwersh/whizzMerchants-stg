@@ -1,3 +1,4 @@
+import '../models/discount_overlap.dart';
 import 'dart:io';
 import '../widgets/merchant_discount_value_fields.dart';
 import 'package:flutter/material.dart';
@@ -1231,6 +1232,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     }
     final isEditing = discount != null;
     discount ??= seed;
+    var perItem = discount?.calculationMode == 'perItem';
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: discount?.title ?? '');
     final valueController = TextEditingController(
@@ -2432,6 +2434,34 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                   ),
                                 ],
 
+                                _alternativeOfferNotice(
+                                    applicability: applicability,
+                                    items: selectedItemIds,
+                                    categories: selectedCategoryIds,
+                                    start: startDate,
+                                    end: endDate,
+                                    currentId: isEditing ? discount?.id : null),
+                                SwitchListTile.adaptive(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('خصم على كل قطعة',
+                                      style: TextStyle(
+                                          color: Color(0xFF00296B),
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: const Text(
+                                      'للوجبات المحددة: يظهر السعر السابق والجديد. دون حد أدنى أو سقف خصم أو حد استخدام لكل زبون. يطبق عرض واحد لكل طلب. التوفير مقرب وفق السياسة المعتمدة إلى مضاعفات ٢٥٠ د.ع.'),
+                                  value: perItem,
+                                  onChanged: (value) => setState(() {
+                                    perItem = value;
+                                    if (value) {
+                                      applicability =
+                                          DiscountApplicability.specificItems;
+                                      selectedCategoryIds.clear();
+                                      minOrderController.text = '0';
+                                      customerUsesController.clear();
+                                      discountCapController.clear();
+                                    }
+                                  }),
+                                ),
                                 MerchantDiscountUsageFields(
                                     total: totalUsesController,
                                     customer: customerUsesController,
@@ -2601,43 +2631,6 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                               child: InkWell(
                                 onTap: () async {
                                   if (formKey.currentState!.validate()) {
-                                    // Check for conflicting discounts
-                                    if ((applicability ==
-                                                DiscountApplicability
-                                                    .specificItems &&
-                                            selectedItemIds.isNotEmpty) ||
-                                        (applicability ==
-                                                DiscountApplicability
-                                                    .specificCategories &&
-                                            selectedCategoryIds.isNotEmpty)) {
-                                      if (_hasConflictingDiscounts(
-                                          selectedItemIds,
-                                          selectedCategoryIds,
-                                          discount?.id)) {
-                                        _showArabicOfferDialog(
-                                          context: context,
-                                          builder: (context) => AlertDialog(
-                                            title: Text(
-                                                AppLocalizations.of(context)!
-                                                    .conflictingDiscountsTitle),
-                                            content: Text(AppLocalizations.of(
-                                                    context)!
-                                                .someSelectedItemsAlreadyHaveDiscounts),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(context).pop(),
-                                                child: Text(AppLocalizations.of(
-                                                        context)!
-                                                    .ok),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        return;
-                                      }
-                                    }
-
                                     if (![
                                       DiscountType.percentage,
                                       DiscountType.fixedAmount,
@@ -2733,7 +2726,34 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       }
                                     }
 
+                                    if (perItem &&
+                                        (applicability != DiscountApplicability.specificItems ||
+                                            selectedItemIds.isEmpty ||
+                                            selectedItemIds.length > 40 ||
+                                            ![
+                                              DiscountType.percentage,
+                                              DiscountType.fixedAmount
+                                            ].contains(discountType) ||
+                                            (double.tryParse(minOrderController
+                                                        .text) ??
+                                                    0) !=
+                                                0 ||
+                                            customerUsesController.text
+                                                .trim()
+                                                .isNotEmpty ||
+                                            discountCapController.text
+                                                .trim()
+                                                .isNotEmpty)) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'خصم كل قطعة يتطلب اختيار ١–٤٠ وجبة، ونسبة أو مبلغًا ثابتًا، دون حد أدنى أو سقف أو حد استخدام لكل زبون.')));
+                                      return;
+                                    }
                                     final newDiscount = Discount(
+                                      calculationMode:
+                                          perItem ? 'perItem' : 'order',
+
                                       revision:
                                           isEditing ? discount?.revision : null,
                                       id: (isEditing ? discount?.id : null) ??
@@ -2788,22 +2808,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       if (isEditing) {
                                         await _updateDiscount(newDiscount);
                                       } else {
-                                        // Check for conflicting discounts before adding
-                                        if (!_hasConflictingDiscounts(
-                                            selectedItemIds,
-                                            selectedCategoryIds,
-                                            null)) {
-                                          await _createDiscount(newDiscount);
-                                        } else {
-                                          // Show error message
-                                          showAdaptiveSnackBar(
-                                            context: context,
-                                            message:
-                                                AppLocalizations.of(context)!
-                                                    .conflictingDiscounts,
-                                            type: AdaptiveSnackBarType.error,
-                                          );
-                                        }
+                                        await _createDiscount(newDiscount);
                                       }
                                     } catch (e) {
                                       // Error handling is already done in the individual methods
@@ -2893,41 +2898,55 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     );
   }
 
-  // Add validation method to check for conflicting discounts
-  bool _hasConflictingDiscounts(List<String> selectedItemIds,
-      List<String> selectedCategoryIds, String? currentDiscountId) {
-    final existingDiscounts = _discounts.where((d) =>
-        d.id != currentDiscountId &&
-        d.status == DiscountStatus.active &&
-        d.type != DiscountType.freeDelivery);
-
-    for (final discount in existingDiscounts) {
-      // Check for item conflicts
-      if (discount.applicability == DiscountApplicability.specificItems) {
-        for (final itemId in selectedItemIds) {
-          if (discount.applicableItemIds.contains(itemId)) {
-            return true;
-          }
-        }
-      }
-
-      // Check for category conflicts
-      if (discount.applicability == DiscountApplicability.specificCategories) {
-        for (final categoryId in selectedCategoryIds) {
-          if (discount.applicableCategoryIds.contains(categoryId)) {
-            return true;
-          }
-        }
-      }
-
-      // Check if existing discount applies to all items
-      if (discount.applicability == DiscountApplicability.allItems &&
-          (selectedItemIds.isNotEmpty || selectedCategoryIds.isNotEmpty)) {
-        return true;
-      }
-    }
-
-    return false;
+  Widget _alternativeOfferNotice(
+      {required DiscountApplicability applicability,
+      required List<String> items,
+      required List<String> categories,
+      required DateTime start,
+      required DateTime end,
+      String? currentId}) {
+    final alternatives = alternativeDiscounts(
+        existing: _discounts,
+        applicability: applicability,
+        itemIds: items,
+        categoryIds: categories,
+        productCategories: {for (final p in _products) p.id: p.categoryId},
+        start: start,
+        end: end,
+        currentId: currentId);
+    if (alternatives.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: const Color(0xFFF0F4FA),
+          borderRadius: BorderRadius.circular(14)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Row(children: [
+          Icon(Icons.info_outline, size: 20, color: Color(0xFF00296B)),
+          SizedBox(width: 8),
+          Expanded(
+              child: Text('توجد عروض أخرى تشمل هذه الأصناف',
+                  style: TextStyle(
+                      color: Color(0xFF00296B), fontWeight: FontWeight.w600)))
+        ]),
+        const SizedBox(height: 8),
+        ...alternatives.take(3).map((d) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Text(
+                '• ${d.title} — ${d.calculationMode == 'perItem' ? 'خصم لكل قطعة' : 'عرض على الطلب'}',
+                style:
+                    const TextStyle(color: Color(0xFF536175), fontSize: 13)))),
+        if (alternatives.length > 3)
+          Text('و${alternatives.length - 3} عروض أخرى',
+              style: const TextStyle(color: Color(0xFF536175), fontSize: 13)),
+        const SizedBox(height: 6),
+        const Text(
+            'يمكنك إنشاء هذا العرض كخيار بديل. يُطبَّق عرض واحد فقط على الأصناف في الطلب، ولا تُجمع نسب الخصم أو مبالغه.',
+            style:
+                TextStyle(color: Color(0xFF00296B), height: 1.6, fontSize: 13)),
+      ]),
+    );
   }
 
   void _showItemSelectionDialog(

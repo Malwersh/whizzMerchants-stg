@@ -210,3 +210,14 @@ test('owner preview refuses foreign or unavailable catalog products',async()=>{
 });
 
 test('owner creation persists independent global/customer limits and percentage cap, rejecting malformed counts',async()=>{const f=fixture();const response=await f.create({usageLimit:100,perCustomerLimit:1,maxDiscountAmount:1500});assert.equal(response.statusCode,201);assert.equal(f.writes[0].Item.usage_limit,100);assert.equal(f.writes[0].Item.perCustomerLimit,1);assert.equal(f.writes[0].Item.singleUse,true);assert.equal(f.writes[0].Item.maxDiscountAmount,1500);for(const data of [{usageLimit:0},{perCustomerLimit:-1},{perCustomerLimit:1.5},{usageLimit:'100'}])assert.equal((await fixture().create(data)).statusCode,400);});
+
+test('owner explicitly creates per-piece markdowns while legacy offers keep order calculation', async () => {
+  for (const mode of ['order','perItem']) {
+    const f=fixture(),response=await f.create({calculationMode:mode,applicability:'specificItems',applicableItemIds:['product'],value:20});
+    assert.equal(response.statusCode,201);assert.equal(f.writes[0].Item.calculationMode,mode);
+  }
+  for(const patch of [{minimumOrderAmount:1000},{perCustomerLimit:1},{maxDiscountAmount:1000}]){
+    const f=fixture(),response=await f.create({calculationMode:'perItem',applicability:'specificItems',applicableItemIds:['product'],...patch});
+    assert.equal(response.statusCode,400);assert.equal(f.writes.length,0);
+  }
+});
