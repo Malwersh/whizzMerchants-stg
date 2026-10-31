@@ -1,10 +1,12 @@
-import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import '../services/secure_token_storage.dart';
+import '../services/branch_session_store.dart';
+import '../services/merchant_branch_scope.dart';
+import '../services/app_state.dart';
+import '../services/realtime_order_service.dart';
 
 class Session {
   final String? businessId;
@@ -39,7 +41,8 @@ class Session {
         isAuthenticated: isAuthenticated ?? this.isAuthenticated,
         businessData: businessData ?? this.businessData,
         isExpired: isExpired ?? this.isExpired,
-        isExpiredDueToInactivity: isExpiredDueToInactivity ?? this.isExpiredDueToInactivity,
+        isExpiredDueToInactivity:
+            isExpiredDueToInactivity ?? this.isExpiredDueToInactivity,
         isReady: isReady ?? this.isReady,
       );
 }
@@ -49,10 +52,31 @@ class SessionNotifier extends StateNotifier<Session> {
   bool _isSessionReady = false;
   Completer<void>? _sessionReadyCompleter;
   bool _isPerformingLogout = false;
-  bool _isRestoringSession = false;
 
-  SessionNotifier() : super(Session.initial()) {
-    _restoreSession();
+  final BranchSessionStore _store;
+  int _generation = 0;
+  Future<void> _persistence = Future<void>.value();
+  SessionNotifier({BranchSessionStore? store, bool restoreOnStart = true})
+      : _store = store ?? BranchSessionStore(),
+        super(Session.initial()) {
+    if (restoreOnStart) {
+      _restoreSession();
+    } else {
+      _isSessionReady = true;
+    }
+  }
+
+  Future<void> _enqueue(Future<void> Function() action) {
+    final next = _persistence.then((_) => action());
+    _persistence = next.catchError((Object _) {});
+    return next;
+  }
+
+  void _ready() {
+    _isSessionReady = true;
+    if (_sessionReadyCompleter?.isCompleted == false)
+      _sessionReadyCompleter!.complete();
+    _sessionReadyCompleter = null;
   }
 
   /// Wait for session to be fully ready before making API calls
@@ -69,88 +93,47 @@ class SessionNotifier extends StateNotifier<Session> {
     }
   }
 
-  /// Safe state update - prevents updates during logout or restoration
-  void _safeStateUpdate(Session newState) {
-    // Prevent updates during critical operations
-    if (_isPerformingLogout && newState.isAuthenticated) {
-      debugPrint('⚠️ SessionProvider: Blocking state update during logout');
-      return;
-    }
-    
-    if (_isRestoringSession && mounted) {
-      // Allow updates during restoration
-      state = newState;
-      return;
-    }
-    
-    if (mounted) {
-      state = newState;
-    }
-  }
-
-  /// Safe emit - prevents duplicate state emissions
-  void _safeEmit(Session newState) {
-    // Ignore updates during logout (except initial state)
-    if (_isPerformingLogout && newState.isAuthenticated) {
-      debugPrint('⚠️ SessionProvider: Blocking state emission during logout');
-      return;
-    }
-    
-    // Prevent duplicate states
-    if (state.isAuthenticated == newState.isAuthenticated &&
-        state.businessId == newState.businessId &&
-        state.isExpired == newState.isExpired) {
-      debugPrint('⚠️ SessionProvider: Preventing duplicate state emission');
-      return;
-    }
-    
-    if (mounted) {
-      state = newState;
-      debugPrint('✅ SessionProvider: State emitted - auth: ${newState.isAuthenticated}, expired: ${newState.isExpired}');
-    }
-  }
-
-  /// Validate current session (check token expiry)
   /// Following wizzuser's approach: JWT validation only, no auto-logout
   Future<void> _validateCurrentSession() async {
     if (!state.isAuthenticated) {
       debugPrint('ℹ️ SessionProvider: Not authenticated, skipping validation');
       return;
     }
-    
+
     // Prevent validation during logout
     if (_isPerformingLogout) {
       debugPrint('⏸️ SessionProvider: Skipping validation during logout');
       return;
     }
-    
+
     debugPrint('🔍 SessionProvider: Validating current session...');
-    
+
     try {
       final token = await SecureTokenStorage.getAccessToken();
-      
+
       if (token == null || token.isEmpty) {
-        debugPrint('⚠️ SessionProvider: No token found - user needs to re-login');
+        debugPrint(
+            '⚠️ SessionProvider: No token found - user needs to re-login');
         // Don't auto-logout - like wizzuser approach
         return;
       }
-      
+
       // Check JWT expiry locally (like wizzuser) - NO auto-logout!
       try {
         if (JwtDecoder.isExpired(token)) {
-          debugPrint('⚠️ SessionProvider: Token expired - user will need to re-login');
+          debugPrint(
+              '⚠️ SessionProvider: Token expired - user will need to re-login');
           // Log only - don't clear session (wizzuser approach)
           return;
         }
-        
+
         final remainingTime = JwtDecoder.getRemainingTime(token);
-        debugPrint('✅ SessionProvider: Session valid, remaining: ${remainingTime.inMinutes} min');
-        
+        debugPrint(
+            '✅ SessionProvider: Session valid, remaining: ${remainingTime.inMinutes} min');
       } catch (jwtError) {
         debugPrint('⚠️ SessionProvider: Could not validate token: $jwtError');
         // Don't clear session on JWT errors (wizzuser approach)
       }
-      
     } catch (e) {
       debugPrint('❌ SessionProvider: Error validating session: $e');
       // Don't clear session on validation errors - just log
@@ -171,193 +154,85 @@ class SessionNotifier extends StateNotifier<Session> {
   }
 
   Future<void> _restoreSession() async {
-    debugPrint('🔄 SessionProvider: _restoreSession started');
-    _isRestoringSession = true;
-    _isSessionReady = false;
-    
-    try {
-      await restoreBusinessId();
-      
-      // Mark session as ready
-      _isSessionReady = true;
-      _sessionReadyCompleter?.complete();
-      debugPrint('✅ SessionProvider: Session restoration complete and ready');
-    } catch (e) {
-      debugPrint('❌ SessionProvider: Error during session restoration: $e');
-      _isSessionReady = true;
-      _sessionReadyCompleter?.complete();
-    } finally {
-      _isRestoringSession = false;
-    }
+    await restoreBusinessId();
   }
 
   Future<void> setSessionWithBusinessData(
-    String businessId,
-    Map<String, dynamic> businessData,
-  ) async {
-    debugPrint(
-        '📝 SessionProvider: setSessionWithBusinessData called with businessId=$businessId');
-
-    // Prevent updates during logout
-    if (_isPerformingLogout) {
-      debugPrint('⏸️ SessionProvider: Ignoring session update during logout');
-      return;
+      String businessId, Map<String, dynamic> businessData) async {
+    if (_isPerformingLogout || !mounted) return;
+    if (businessId.trim().isEmpty ||
+        ((businessData['businessId'] ?? businessData['id']) != null &&
+            (businessData['businessId'] ?? businessData['id']) != businessId)) {
+      throw ArgumentError('بيانات الفرع لا تطابق الفرع المختار.');
     }
-
-    // 🔧 Following wizzuser: Mark session as not ready during update
-    _isSessionReady = false;
-    _sessionReadyCompleter = Completer<void>();
-
-    try {
-      // 🔧 Following wizzuser: Update in-memory state IMMEDIATELY before persistence
-      final newSession = state.copyWith(
+    final generation = ++_generation;
+    final data = Map<String, dynamic>.from(businessData);
+    // Publish the selection synchronously. Old readers are invalid immediately.
+    MerchantBranchScope.selectionChanged(businessId);
+    AppState().selectBranch(businessId);
+    RealtimeOrderService().selectBranch(businessId);
+    state = Session(
         isAuthenticated: true,
         businessId: businessId,
-        businessData: businessData,
-        isExpired: false,
-        isExpiredDueToInactivity: false,
-      );
-      
-      _safeStateUpdate(newSession);
-      debugPrint('✅ SessionProvider: In-memory state updated immediately (wizzuser pattern)');
-
-      // Persist to disk (async, but memory already updated)
-      await _persistBusinessId(businessId);
-      await _persistBusinessData(businessData);
-      
-      debugPrint('✅ SessionProvider: Session persisted to disk');
-    } finally {
-      // 🔧 Following wizzuser: Mark session as ready
-      _isSessionReady = true;
-      _sessionReadyCompleter?.complete();
-      _sessionReadyCompleter = null;
-      debugPrint('✅ SessionProvider: Session is now ready');
-    }
-  }
-
-  Future<void> _persistBusinessId(String businessId) async {
-    debugPrint(
-        '💾 SessionProvider: _persistBusinessId called with businessId=$businessId');
-    final prefs = await SharedPreferences.getInstance();
-    final ok = await prefs.setString('business_id', businessId);
-    debugPrint('✅ SessionProvider: business_id persisted: $ok');
-
-    // Also persist securely for cold-start restore
-    try {
-      await SecureTokenStorage.setBusinessId(businessId);
-    } catch (e) {
-      debugPrint('⚠️ SessionProvider: failed to store businessId securely: $e');
-    }
-  }
-
-  Future<void> _persistBusinessData(Map<String, dynamic> businessData) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = jsonEncode(businessData);
-    final ok = await prefs.setString('business_data', jsonString);
-    debugPrint(
-        '✅ SessionProvider: business_data persisted: $ok, length=${jsonString.length}');
+        businessData: data,
+        isReady: true);
+    _ready();
+    await _enqueue(() async {
+      if (generation != _generation || !mounted) return;
+      await _store.save(businessId, data);
+    });
   }
 
   Future<void> restoreBusinessId() async {
-    debugPrint('🔍 🔄 SessionProvider: restoreBusinessId called');
-    
+    final generation = _generation;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      String? storedId = prefs.getString('business_id');
-
-      // Fallback to secure storage if SharedPreferences is empty
-      storedId ??= await SecureTokenStorage.getBusinessId();
-      debugPrint('🔍 🔄 SessionProvider: stored business_id=$storedId');
-
-      if (storedId == null || storedId.isEmpty) {
-        debugPrint('🔍 🔄 SessionProvider: no stored business_id found');
-        return;
-      }
-
-      // 🔧 FIX: Don't check token expiry during cold start - just restore session
-      // Following wizzbussiness pattern: restore businessId immediately, let API calls handle expired tokens
-      final token = await SecureTokenStorage.getAccessToken();
-      if (token == null || token.isEmpty) {
-        debugPrint('⚠️ SessionProvider: no access token found - restoring businessId without token');
-        // Still restore businessId - user will be prompted to login when making API calls
-      } else {
-        // Just log token info without blocking session restoration
-        try {
-          if (JwtDecoder.isExpired(token)) {
-            debugPrint('⚠️ SessionProvider: Token expired - user will be prompted to re-login on first API call');
-          } else {
-            final remainingTime = JwtDecoder.getRemainingTime(token);
-            debugPrint('✅ SessionProvider: Token valid, remaining time: ${remainingTime.inMinutes} minutes');
-          }
-        } catch (jwtError) {
-          debugPrint('⚠️ SessionProvider: Token validation failed: $jwtError');
-        }
-      }
-
-      // ✅ Always restore businessId - don't block on token expiry
-      // This matches wizzbussiness approach: restore session, let UI handle expired tokens
-      final restoredSession = state.copyWith(
-        isAuthenticated: true,
-        businessId: storedId,
-        isExpired: false,
-        isExpiredDueToInactivity: false,
-      );
-      
-      _safeStateUpdate(restoredSession);
-
-      // Try to restore cached business data
-      final jsonString = prefs.getString('business_data');
-      if (jsonString != null && jsonString.isNotEmpty) {
-        try {
-          final map = jsonDecode(jsonString) as Map<String, dynamic>;
-          final sessionWithData = state.copyWith(businessData: map);
-          _safeStateUpdate(sessionWithData);
-          debugPrint('✅ SessionProvider: restored cached business_data');
-        } catch (e) {
-          debugPrint('⚠️ SessionProvider: failed to decode business_data: $e');
-        }
-      }
-      
-      debugPrint('✅ SessionProvider: Business session restored successfully');
-    } catch (e) {
-      debugPrint('❌ SessionProvider: Error restoring business session: $e');
+      final restored = await _store.read();
+      if (!mounted || generation != _generation || _isPerformingLogout) return;
+      MerchantBranchScope.selectionChanged(restored.businessId);
+      AppState().selectBranch(restored.businessId);
+      RealtimeOrderService().selectBranch(restored.businessId);
+      state = Session(
+          isAuthenticated: restored.authenticated,
+          businessId: restored.businessId,
+          businessData: restored.businessData,
+          isReady: true);
+      if (restored.businessId == null)
+        await _enqueue(() async {
+          if (generation == _generation) await _store.clear();
+        });
+    } catch (_) {
+      if (mounted && generation == _generation)
+        state = const Session(isReady: true);
+    } finally {
+      _ready();
     }
   }
 
-  Future<void> clearSession() async {
-    debugPrint('🧹 SessionProvider: clearSession called');
-    
-    // 🔧 Following wizzuser: Set logout flag to prevent race conditions
-    _isPerformingLogout = true;
-    _isSessionReady = false;
-    
-    try {
-      // 🔧 Following wizzuser: Clear in-memory state first
-      _safeStateUpdate(Session.initial());
-      debugPrint('✅ SessionProvider: In-memory state cleared');
+  /// Only the reader that observed this exact session may clear its selection.
+  Future<void> clearBusinessSelection({Session? expected}) async {
+    if (!mounted || (expected != null && !identical(state, expected))) return;
+    ++_generation;
+    MerchantBranchScope.selectionChanged(null);
+    AppState().selectBranch(null);
+    RealtimeOrderService().selectBranch(null);
+    state = Session(isAuthenticated: state.isAuthenticated, isReady: true);
+    _ready();
+    await _enqueue(_store.clear);
+  }
 
-      // Clear persistent storage
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('business_id');
-      await prefs.remove('business_data');
-      
-      // Also clear from secure storage
-      try {
-        await SecureTokenStorage.setBusinessId(''); // Clear business ID from secure storage
-      } catch (e) {
-        debugPrint('⚠️ SessionProvider: failed to clear businessId from secure storage: $e');
-      }
-      
-      debugPrint(
-          '✅ SessionProvider: cleared persisted business_id and business_data from all storage');
+  Future<void> clearSession() async {
+    if (!mounted) return;
+    ++_generation;
+    _isPerformingLogout = true;
+    MerchantBranchScope.selectionChanged(null);
+    AppState().selectBranch(null);
+    RealtimeOrderService().selectBranch(null);
+    state = const Session(isReady: true);
+    _ready();
+    try {
+      await _enqueue(_store.clear);
     } finally {
-      // 🔧 Following wizzuser: Reset flags after delay
-      await Future.delayed(const Duration(milliseconds: 500));
       _isPerformingLogout = false;
-      _isSessionReady = true;
-      _sessionReadyCompleter?.complete();
-      _sessionReadyCompleter = null;
-      debugPrint('✅ SessionProvider: Session clear complete, flags reset');
     }
   }
 }

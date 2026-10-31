@@ -1,4 +1,9 @@
+import '../models/discount_overlap.dart';
+import 'dart:io';
+import '../widgets/merchant_discount_value_fields.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../widgets/merchant_discount_usage_fields.dart';
 import '../l10n/app_localizations.dart';
 import '../models/business.dart';
 import '../models/discount.dart';
@@ -7,12 +12,24 @@ import '../models/product.dart';
 import '../services/app_state.dart';
 import '../services/api_service.dart';
 import '../services/app_auth_service.dart';
+import '../services/image_upload_service.dart';
 import '../services/product_service.dart';
 import '../screens/auth/auth_screen.dart';
 import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../core/utils/app_logger.dart';
 import '../core/exceptions/auth_exceptions.dart';
+import '../widgets/discount_funding_notice.dart';
+import 'commercial_agreements_screen.dart';
+
+/// Formats a discount value without unnecessary trailing zeros.
+/// 10.0 -> "10", 10.5 -> "10.5".
+String _formatDiscountValue(double value) {
+  if (value == value.truncateToDouble()) {
+    return value.toInt().toString();
+  }
+  return value.toString();
+}
 
 class DiscountManagementPage extends StatefulWidget {
   final Business business;
@@ -70,12 +87,26 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant DiscountManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.business.id != widget.business.id) {
+      _discounts = [];
+      _products = [];
+      _categories = [];
+      _isInitializing = true;
+      _isLoading = false;
+      _validateAuthenticationAndInitialize();
+    }
+  }
+
+  @override
   void dispose() {
     _appState.removeListener(_onAppStateChanged);
     super.dispose();
   }
 
   Future<void> _validateAuthenticationAndInitialize() async {
+    final businessId = widget.business.id;
     try {
       // Check if we have a valid business ID first
       if (widget.business.id == 'unknown-id' || widget.business.id.isEmpty) {
@@ -89,7 +120,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
 
       // Auth validation removed - API calls will handle auth errors via Phase 4 exception handling
       // If tokens are invalid, the API calls will throw AuthTokenExpiredException and clear session
-      
+
       // Load all data in parallel
       await Future.wait([
         _loadDiscounts(),
@@ -97,7 +128,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         _loadCategories(),
       ]);
 
-      if (mounted) {
+      if (mounted && widget.business.id == businessId) {
         setState(() {
           _isInitializing = false;
         });
@@ -112,12 +143,15 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _loadDiscounts() async {
+    final businessId = widget.business.id;
     try {
       setState(() {
         _isLoading = true;
       });
 
-      final discountsData = await _apiService.getDiscounts();
+      final discountsData =
+          await _apiService.getDiscounts(businessId: businessId);
+      if (!mounted || widget.business.id != businessId) return;
       final discounts =
           discountsData.map((data) => Discount.fromJson(data)).toList();
 
@@ -126,6 +160,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         _isLoading = false;
       });
     } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error('[DiscountManagement] Auth token expired: ${e.message}');
       setState(() {
         _isLoading = false;
@@ -139,6 +174,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error('[DiscountManagement] Unauthorized: ${e.message}');
       setState(() {
         _isLoading = false;
@@ -152,6 +188,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       setState(() {
         _isLoading = false;
       });
@@ -167,8 +204,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _loadProducts() async {
+    final businessId = widget.business.id;
     try {
-      final result = await ProductService.getProducts();
+      final result = await ProductService.getProducts(businessId: businessId);
+      if (!mounted || widget.business.id != businessId) return;
 
       if (result['success'] && result['products'] != null) {
         final productsList = result['products'] as List;
@@ -182,6 +221,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         throw Exception(result['message'] ?? 'Failed to load products');
       }
     } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Auth token expired loading products: ${e.message}',
       );
@@ -194,6 +234,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Unauthorized loading products: ${e.message}',
       );
@@ -206,10 +247,12 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       if (mounted) {
         showAdaptiveSnackBar(
           context: context,
-          message: 'Failed to load products: $e',
+          message:
+              'تعذر تحميل المنتجات: ${e.toString().replaceFirst('Exception: ', '')}',
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -217,11 +260,14 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _loadCategories() async {
+    final businessId = widget.business.id;
     try {
       final businessTypeString =
           _getBusinessTypeString(widget.business.businessType);
-      final result =
-          await ProductService.getCategoriesForBusinessType(businessTypeString);
+      final result = await ProductService.getCategoriesForBusinessType(
+          businessTypeString,
+          businessId: businessId);
+      if (!mounted || widget.business.id != businessId) return;
 
       if (result['success'] && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
@@ -245,6 +291,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         throw Exception(result['message'] ?? 'Failed to load categories');
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       // ✅ PERMANENT FIX: Check for session expiry after auto-refresh attempt
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('401') ||
@@ -265,7 +312,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         }
         return;
       }
-      
+
       if (mounted) {
         showAdaptiveSnackBar(
           context: context,
@@ -305,6 +352,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _createDiscount(Discount discount) async {
+    final businessId = widget.business.id;
     final loc = AppLocalizations.of(context)!;
     try {
       setState(() {
@@ -313,8 +361,9 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
 
       final discountData = discount.toJson();
 
-      final createdDiscountData =
-          await _apiService.createDiscount(discountData);
+      final createdDiscountData = await _apiService.createDiscount(discountData,
+          businessId: businessId);
+      if (!mounted || widget.business.id != businessId) return;
       final createdDiscount = Discount.fromJson(createdDiscountData);
 
       setState(() {
@@ -330,6 +379,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Auth token expired creating discount: ${e.message}',
       );
@@ -344,6 +394,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Unauthorized creating discount: ${e.message}',
       );
@@ -358,6 +409,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       setState(() {
         _isLoading = false;
       });
@@ -373,6 +425,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _updateDiscount(Discount discount) async {
+    final businessId = widget.business.id;
     final loc = AppLocalizations.of(context)!;
     try {
       setState(() {
@@ -380,8 +433,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       });
 
       final discountData = discount.toJson();
-      final updatedDiscountData =
-          await _apiService.updateDiscount(discount.id, discountData);
+      final updatedDiscountData = await _apiService.updateDiscount(
+          discount.id, discountData,
+          businessId: businessId, baseRevision: discount.revision);
+      if (!mounted || widget.business.id != businessId) return;
       final updatedDiscount = Discount.fromJson(updatedDiscountData);
 
       setState(() {
@@ -400,6 +455,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Auth token expired updating discount: ${e.message}',
       );
@@ -414,6 +470,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Unauthorized updating discount: ${e.message}',
       );
@@ -428,6 +485,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       setState(() {
         _isLoading = false;
       });
@@ -443,14 +501,21 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   Future<void> _deleteDiscount(String discountId) async {
+    final businessId = widget.business.id;
+    String? baseRevision;
+    for (final value in _discounts) {
+      if (value.id == discountId) baseRevision = value.revision;
+    }
     final loc = AppLocalizations.of(context)!;
     try {
       setState(() {
         _isLoading = true;
       });
 
-      await _apiService.deleteDiscount(discountId);
+      await _apiService.deleteDiscount(discountId,
+          businessId: businessId, baseRevision: baseRevision);
 
+      if (!mounted || widget.business.id != businessId) return;
       setState(() {
         _discounts.removeWhere((d) => d.id == discountId);
         _isLoading = false;
@@ -464,6 +529,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Auth token expired deleting discount: ${e.message}',
       );
@@ -478,6 +544,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       AppLogger.error(
         '[DiscountManagement] Unauthorized deleting discount: ${e.message}',
       );
@@ -492,6 +559,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         );
       }
     } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
       setState(() {
         _isLoading = false;
       });
@@ -500,6 +568,106 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         showAdaptiveSnackBar(
           context: context,
           message: '${loc.failedToDeleteDiscount}: $e',
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _showSharedDiscountReplacement(Discount discount) async {
+    final businessId = widget.business.id;
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: const Text('خصم مشترك — الشروط مقفلة'),
+              content: const Text(
+                  'لا يمكن تعديل أو حذف شروط هذا الخصم بعد اعتماد المشاركة. يمكنك إيقافه وإنشاء خصم بديل يحتاج مشاركة وموافقة جديدتين. الطلبات السابقة تحتفظ بشروطها.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('رجوع')),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('إيقاف الخصم وإنشاء بديل'))
+              ],
+            ));
+    if (confirmed != true || !mounted || widget.business.id != businessId)
+      return;
+    try {
+      if (discount.status != DiscountStatus.inactive) {
+        await _apiService.updateDiscount(discount.id, {'status': 'inactive'},
+            businessId: businessId, baseRevision: discount.revision);
+      }
+      if (!mounted || widget.business.id != businessId) return;
+      await _loadDiscounts();
+      if (!mounted || widget.business.id != businessId) return;
+      _showDiscountDialog(seed: discount);
+    } catch (_) {
+      if (!mounted || widget.business.id != businessId) return;
+      showAdaptiveSnackBar(
+          context: context,
+          message: 'تعذر إيقاف الخصم. أعد تحميل القائمة وحاول مجددًا.',
+          type: AdaptiveSnackBarType.error);
+    }
+  }
+
+  Future<void> _toggleDiscountStatus(Discount discount) async {
+    if (discount.sharingLocked &&
+        !discount.sharingCanActivate &&
+        discount.status != DiscountStatus.active) {
+      await _showSharedDiscountReplacement(discount);
+      return;
+    }
+    final businessId = widget.business.id;
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      await _apiService.toggleDiscountStatus(discount.id,
+          businessId: businessId, baseRevision: discount.revision);
+      if (!mounted || widget.business.id != businessId) return;
+      await _loadDiscounts();
+    } on AuthTokenExpiredException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
+      AppLogger.error(
+        '[DiscountManagement] Auth token expired toggling discount: ${e.message}',
+      );
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        _showAuthenticationRequiredDialog(
+          AppLocalizations.of(context)!.sessionExpiredTitle,
+          'Your session has expired. Please sign in again.',
+        );
+      }
+    } on UnauthorizedException catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
+      AppLogger.error(
+        '[DiscountManagement] Unauthorized toggling discount: ${e.message}',
+      );
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        _showAuthenticationRequiredDialog(
+          AppLocalizations.of(context)!.sessionExpiredTitle,
+          'Your session has expired. Please sign in again.',
+        );
+      }
+    } catch (e) {
+      if (!mounted || widget.business.id != businessId) return;
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        showAdaptiveSnackBar(
+          context: context,
+          message: '$e',
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -612,9 +780,13 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       discount: discount,
                                       onEdit: () =>
                                           _showEditDiscountDialog(discount),
-                                      onDelete: () =>
-                                          _showDeleteConfirmationDialog(
+                                      onDelete: () => discount.sharingLocked
+                                          ? _showSharedDiscountReplacement(
+                                              discount)
+                                          : _showDeleteConfirmationDialog(
                                               discount),
+                                      onToggleStatus: () =>
+                                          _toggleDiscountStatus(discount),
                                     ),
                                   );
                                 },
@@ -758,7 +930,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                 child: Column(
                   children: [
                     Text(
-                      'Boost Your Sales with Discounts',
+                      'عروض تساعدك على زيادة الطلبات',
                       style: TypographySystem.titleMedium.copyWith(
                         fontWeight: FontWeight.bold,
                         color: WhizzColors.onSurface,
@@ -771,8 +943,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                         Expanded(
                           child: _buildBenefitItem(
                             icon: Icons.trending_up_rounded,
-                            title: 'Increase Orders',
-                            subtitle: 'Attract more customers',
+                            title: 'زيادة الطلبات',
+                            subtitle: 'الوصول إلى زبائن أكثر',
                             color: WhizzColors.success,
                           ),
                         ),
@@ -780,8 +952,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                         Expanded(
                           child: _buildBenefitItem(
                             icon: Icons.favorite_rounded,
-                            title: 'Customer Loyalty',
-                            subtitle: 'Reward repeat customers',
+                            title: 'ولاء الزبائن',
+                            subtitle: 'مكافأة الزبائن الدائمين',
                             color: WhizzColors.secondary,
                           ),
                         ),
@@ -789,8 +961,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                         Expanded(
                           child: _buildBenefitItem(
                             icon: Icons.schedule_rounded,
-                            title: 'Smart Timing',
-                            subtitle: 'Schedule promotions',
+                            title: 'جدولة العروض',
+                            subtitle: 'اختيار وقت بداية العرض ونهايته',
                             color: WhizzColors.warning,
                           ),
                         ),
@@ -836,7 +1008,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                           ),
                           SizedBox(width: GoldenRatio.spacing12),
                           Text(
-                            loc.createDiscount,
+                            'إنشاء خصم',
                             style: TypographySystem.titleMedium.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -903,6 +1075,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
   }
 
   void _showEditDiscountDialog(Discount discount) {
+    if (discount.sharingLocked) {
+      _showSharedDiscountReplacement(discount);
+      return;
+    }
     _showDiscountDialog(discount: discount);
   }
 
@@ -1021,19 +1197,66 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     );
   }
 
-  void _showDiscountDialog({Discount? discount}) {
+  Future<T?> _showArabicOfferDialog<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+  }) =>
+      showDialog<T>(
+        context: context,
+        builder: (routeContext) =>
+            arabicMerchantDiscountContent(routeContext, builder),
+      );
+
+  void _showDiscountDialog({Discount? discount, Discount? seed}) {
+    // The goods editor has no delivery policy controls. Preserve legacy delivery
+    // offers instead of silently converting them into percentage discounts.
+    if (discount?.type == DiscountType.freeDelivery) {
+      showDialog<void>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+                content: SingleChildScrollView(
+                    child: DiscountFundingNotice(
+                        delivery: true,
+                        onReview: () => Navigator.of(dialog).push(
+                            MaterialPageRoute(
+                                builder: (_) => CommercialAgreementsScreen(
+                                    businessId: widget.business.id))))),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.of(dialog).pop(),
+                      child: Text(
+                          MaterialLocalizations.of(dialog).closeButtonLabel))
+                ],
+              ));
+      return;
+    }
     final isEditing = discount != null;
+    discount ??= seed;
+    var perItem = discount?.calculationMode == 'perItem';
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: discount?.title ?? '');
-    final valueController =
-        TextEditingController(text: discount?.value.toString() ?? '');
+    final valueController = TextEditingController(
+        text: discount != null ? _formatDiscountValue(discount.value) : '');
     final minOrderController = TextEditingController(
         text: discount?.minimumOrderAmount.toString() ?? '');
+
+    final totalUsesController =
+        TextEditingController(text: discount?.maxUsage?.toString() ?? '');
+    final customerUsesController = TextEditingController(
+        text: discount?.perCustomerLimit?.toString() ?? '');
+    final discountCapController = TextEditingController(
+        text: discount?.maxDiscountAmount == null
+            ? ''
+            : _formatDiscountValue(discount!.maxDiscountAmount!.toDouble()));
 
     // If editing a free delivery discount, default the main type to percentage
     var discountType = discount?.type == DiscountType.freeDelivery
         ? DiscountType.percentage
         : (discount?.type ?? DiscountType.percentage);
+    if (discountType == DiscountType.percentage &&
+        valueController.text.isEmpty) {
+      valueController.text = '10';
+    }
 
     // Handle discount applicability
     var applicability =
@@ -1058,6 +1281,13 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     var endDate =
         discount?.validTo ?? DateTime.now().add(const Duration(days: 7));
 
+    // Optional discount image state
+    final imagePicker = ImagePicker();
+    File? _pickedImage;
+    String? _existingImageUrl = discount?.imageUrl;
+    bool _uploadingImage = false;
+    void Function(void Function())? sheetSetState;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1068,7 +1298,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         vsync: Navigator.of(context),
         duration: AppAnimations.bottomSheetSlide,
       ),
-      builder: (context) {
+      builder: (routeContext) =>
+          arabicMerchantDiscountContent(routeContext, (context) {
         return DraggableScrollableSheet(
           initialChildSize: 0.9,
           minChildSize: 0.5,
@@ -1077,6 +1308,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
           builder: (_, scrollController) {
             return AnimatedContainer(
               duration: AppAnimations.normal,
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom),
               decoration: BoxDecoration(
                 color: WhizzColors.white,
                 borderRadius: BorderRadius.only(
@@ -1188,6 +1421,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                   Expanded(
                     child: StatefulBuilder(
                       builder: (context, setState) {
+                        sheetSetState = setState;
                         return Form(
                           key: formKey,
                           child: SingleChildScrollView(
@@ -1198,6 +1432,17 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 // Section: Basic Information
+                                DiscountFundingNotice(
+                                  editing: isEditing,
+                                  delivery:
+                                      discountType == DiscountType.freeDelivery,
+                                  onReview: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              CommercialAgreementsScreen(
+                                                  businessId:
+                                                      widget.business.id))),
+                                ),
                                 Text(
                                   AppLocalizations.of(context)!
                                       .basicInformation,
@@ -1235,7 +1480,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       ),
                                       floatingLabelStyle:
                                           AppTypography.bodySmall.copyWith(
-                                        color: WhizzColors.primary,
+                                        color: const Color(0xFF00296B),
                                         fontWeight: FontWeight.w600,
                                       ),
                                       border: InputBorder.none,
@@ -1285,6 +1530,156 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                   ),
                                 ),
                                 SizedBox(height: AppSpacing.lg),
+
+                                // Section: Discount Image (optional)
+                                Text(
+                                  AppLocalizations.of(context)!.uploadImage,
+                                  style: AppTypography.titleMedium.copyWith(
+                                    color: WhizzColors.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(height: AppSpacing.sm),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Preview of picked file or existing URL
+                                    Container(
+                                      width: 72,
+                                      height: 72,
+                                      decoration: BoxDecoration(
+                                        color: WhizzColors.grey50,
+                                        borderRadius: BorderRadius.circular(
+                                            AppDimensions.borderRadiusMD),
+                                        border: Border.all(
+                                          color: WhizzColors.grey200,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: _pickedImage != null
+                                          ? Image.file(
+                                              _pickedImage!,
+                                              fit: BoxFit.cover,
+                                              width: 72,
+                                              height: 72,
+                                            )
+                                          : (_existingImageUrl != null &&
+                                                  _existingImageUrl!.isNotEmpty)
+                                              ? Image.network(
+                                                  _existingImageUrl!,
+                                                  fit: BoxFit.cover,
+                                                  width: 72,
+                                                  height: 72,
+                                                  errorBuilder: (context, error,
+                                                          stackTrace) =>
+                                                      Icon(
+                                                    Icons.broken_image_outlined,
+                                                    color: WhizzColors.grey400,
+                                                  ),
+                                                )
+                                              : Icon(
+                                                  Icons.image_outlined,
+                                                  color: WhizzColors.grey400,
+                                                  size:
+                                                      AppDimensions.iconSizeLG,
+                                                ),
+                                    ),
+                                    SizedBox(width: AppSpacing.sm),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          OutlinedButton.icon(
+                                            onPressed: _uploadingImage
+                                                ? null
+                                                : () async {
+                                                    try {
+                                                      final XFile? pickedFile =
+                                                          await imagePicker
+                                                              .pickImage(
+                                                        source:
+                                                            ImageSource.gallery,
+                                                        maxWidth: 1080,
+                                                        maxHeight: 1080,
+                                                        imageQuality: 85,
+                                                      );
+                                                      if (pickedFile != null) {
+                                                        setState(() {
+                                                          _pickedImage = File(
+                                                              pickedFile.path);
+                                                          _existingImageUrl =
+                                                              null;
+                                                        });
+                                                      }
+                                                    } catch (e) {
+                                                      AppLogger.error(
+                                                          '[DiscountManagement] Error picking image: $e');
+                                                      if (context.mounted) {
+                                                        showAdaptiveSnackBar(
+                                                          context: context,
+                                                          message:
+                                                              '${AppLocalizations.of(context)!.errorPickingImage}: $e',
+                                                          type:
+                                                              AdaptiveSnackBarType
+                                                                  .error,
+                                                        );
+                                                      }
+                                                    }
+                                                  },
+                                            icon: Icon(
+                                              Icons.photo_library_outlined,
+                                              size: AppDimensions.iconSizeSM,
+                                            ),
+                                            label: Text(
+                                              (_pickedImage != null ||
+                                                      (_existingImageUrl !=
+                                                              null &&
+                                                          _existingImageUrl!
+                                                              .isNotEmpty))
+                                                  ? AppLocalizations.of(
+                                                          context)!
+                                                      .changeImage
+                                                  : AppLocalizations.of(
+                                                          context)!
+                                                      .uploadImage,
+                                            ),
+                                          ),
+                                          if (_pickedImage != null ||
+                                              (_existingImageUrl != null &&
+                                                  _existingImageUrl!
+                                                      .isNotEmpty)) ...[
+                                            SizedBox(height: AppSpacing.xs),
+                                            TextButton.icon(
+                                              onPressed: _uploadingImage
+                                                  ? null
+                                                  : () {
+                                                      setState(() {
+                                                        _pickedImage = null;
+                                                        _existingImageUrl =
+                                                            null;
+                                                      });
+                                                    },
+                                              icon: Icon(
+                                                Icons.close_rounded,
+                                                size: AppDimensions.iconSizeSM,
+                                                color: WhizzColors.error,
+                                              ),
+                                              label: Text(
+                                                AppLocalizations.of(context)!
+                                                    .delete,
+                                                style: TextStyle(
+                                                    color: WhizzColors.error),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: AppSpacing.lg),
                                 // Section: Discount Configuration
                                 Text(
                                   AppLocalizations.of(context)!
@@ -1295,343 +1690,19 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                   ),
                                 ),
                                 SizedBox(height: AppSpacing.sm),
-                                
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 2,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: WhizzColors.grey50,
-                                          borderRadius: BorderRadius.circular(
-                                              AppDimensions.borderRadiusMD),
-                                          border: Border.all(
-                                            color: WhizzColors.grey200,
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: DropdownButtonFormField<
-                                            DiscountType>(
-                                          value: discountType,
-                                          style:
-                                              AppTypography.bodyLarge.copyWith(
-                                            color: WhizzColors.textPrimary,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                          dropdownColor: WhizzColors.white,
-                                          decoration: InputDecoration(
-                                            labelText:
-                                                AppLocalizations.of(context)!
-                                                    .discountType,
-                                            labelStyle: AppTypography.bodyMedium
-                                                .copyWith(
-                                              color: WhizzColors.grey600,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                            floatingLabelStyle: AppTypography
-                                                .bodySmall
-                                                .copyWith(
-                                              color: WhizzColors.primary,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                            border: InputBorder.none,
-                                            enabledBorder: InputBorder.none,
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                      AppDimensions
-                                                          .borderRadiusMD),
-                                              borderSide: BorderSide(
-                                                color: WhizzColors.primary,
-                                                width: 2,
-                                              ),
-                                            ),
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                              horizontal: AppSpacing.md,
-                                              vertical: AppSpacing.sm,
-                                            ),
-                                            filled: false,
-                                            prefixIcon: Icon(
-                                              Icons.discount_rounded,
-                                              color: WhizzColors.grey600,
-                                              size: AppDimensions.iconSizeMD,
-                                            ),
-                                          ),
-                                          isExpanded: true,
-                                        items: DiscountType.values.map((type) {
-                                          String label;
-                                          switch (type) {
-                                            case DiscountType.percentage:
-                                              label =
-                                                  AppLocalizations.of(context)!
-                                                      .percentage;
-                                              break;
-                                            case DiscountType.fixedAmount:
-                                                label = AppLocalizations.of(
-                                                        context)!
-                                                    .fixedAmount;
-                                              break;
-                                            case DiscountType.conditional:
-                                              label =
-                                                  AppLocalizations.of(context)!
-                                                      .conditional;
-                                              break;
-                                            case DiscountType.buyXGetY:
-                                              label =
-                                                  AppLocalizations.of(context)!
-                                                      .buyXGetY;
-                                              break;
-                                            case DiscountType.freeDelivery:
-                                              label =
-                                                  AppLocalizations.of(context)!
-                                                      .freeDelivery;
-                                                break;
-                                            }
-                                            return DropdownMenuItem<
-                                                DiscountType>(
-                                              value: type,
-                                              child: Text(
-                                                label,
-                                                overflow: TextOverflow.ellipsis,
-                                                maxLines: 1,
-                                              ),
-                                            );
-                                          }).toList(),
-                                          onChanged: (value) {
-                                            if (value != null) {
-                                              setState(() {
-                                                discountType = value;
-                                                // Initialize value controller based on discount type
-                                                if (value ==
-                                                        DiscountType
-                                                            .percentage &&
-                                                    valueController
-                                                        .text.isEmpty) {
-                                                  valueController.text = '10.0';
-                                                } else if (value !=
-                                                    DiscountType.percentage) {
-                                                  // Set to 0.0 for all non-percentage types
-                                                  valueController.text = '0.0';
-                                                }
-                                              });
-                                            }
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                    SizedBox(width: AppSpacing.sm),
-                                    Expanded(
-                                      flex: 1,
-                                      child: discountType ==
-                                              DiscountType.percentage
-                                          ? Container(
-                                              decoration: BoxDecoration(
-                                                color: WhizzColors.primary
-                                                    .withValues(alpha: 0.1),
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                        AppDimensions
-                                                            .borderRadiusMD),
-                                                border: Border.all(
-                                                  color: WhizzColors.primary
-                                                      .withValues(alpha: 0.3),
-                                                  width: 1,
-                                                ),
-                                              ),
-                                              child: DropdownButtonFormField<
-                                                  double>(
-                                                value: () {
-                                                  double? parsed =
-                                                      double.tryParse(
-                                                          valueController.text);
-                                                  List<double> validValues = [
-                                                    10.0,
-                                                    15.0,
-                                                    20.0,
-                                                    25.0,
-                                                    30.0,
-                                                    35.0,
-                                                    40.0,
-                                                    45.0,
-                                                    50.0
-                                                  ];
-                                                  if (parsed != null &&
-                                                      validValues
-                                                          .contains(parsed)) {
-                                                    return parsed;
-                                                  }
-                                                  if (valueController
-                                                      .text.isEmpty) {
-                                                    valueController.text =
-                                                        '10.0';
-                                                  }
-                                                  return 10.0;
-                                                }(),
-                                                style: AppTypography.bodyLarge
-                                                    .copyWith(
-                                                  color:
-                                                      WhizzColors.textPrimary,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                                dropdownColor:
-                                                    WhizzColors.white,
-                                                decoration: InputDecoration(
-                                                  labelText:
-                                                      AppLocalizations.of(
-                                                              context)!
-                                                          .value,
-                                                  labelStyle: AppTypography
-                                                      .bodySmall
-                                                      .copyWith(
-                                                    color: WhizzColors.grey600,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                  floatingLabelStyle:
-                                                      AppTypography.bodySmall
-                                                          .copyWith(
-                                                    color: WhizzColors.primary,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                  border: InputBorder.none,
-                                                  enabledBorder:
-                                                      InputBorder.none,
-                                                  focusedBorder:
-                                                      OutlineInputBorder(
-                                                    borderRadius: BorderRadius
-                                                        .circular(AppDimensions
-                                                            .borderRadiusMD),
-                                                    borderSide: BorderSide(
-                                                      color:
-                                                          WhizzColors.primary,
-                                                      width: 2,
-                                                    ),
-                                                  ),
-                                                  contentPadding:
-                                                      EdgeInsets.symmetric(
-                                                    horizontal: AppSpacing.md,
-                                                    vertical: AppSpacing.sm,
-                                                  ),
-                                                  filled: false,
-                                                  prefixIcon: Icon(
-                                                    Icons.percent_rounded,
-                                                    color: WhizzColors.primary,
-                                                    size: AppDimensions
-                                                        .iconSizeSM,
-                                                  ),
-                                                ),
-                                                items: [
-                                                  10,
-                                                  15,
-                                                  20,
-                                                  25,
-                                                  30,
-                                                  35,
-                                                  40,
-                                                  45,
-                                                  50
-                                                ]
-                                                    .map((percent) =>
-                                                        DropdownMenuItem<
-                                                            double>(
-                                                          value: percent
-                                                              .toDouble(),
-                                                          child: Text(
-                                                            '$percent%',
-                                                            style: AppTypography
-                                                                .bodyLarge
-                                                                .copyWith(
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                            ),
-                                                          ),
-                                                        ))
-                                                    .toList(),
-                                                onChanged: (value) {
-                                                  if (value != null) {
-                                                    setState(() {
-                                                      valueController.text =
-                                                          value.toString();
-                                                    });
-                                                  }
-                                                },
-                                                validator: (value) {
-                                                  if (value == null) {
-                                                    return AppLocalizations.of(
-                                                            context)!
-                                                        .pleaseEnterValue;
-                                                  }
-                                                  return null;
-                                                },
-                                              ),
-                                            )
-                                          : Container(
-                                              decoration: BoxDecoration(
-                                                color: WhizzColors.grey100,
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                        AppDimensions
-                                                            .borderRadiusMD),
-                                                border: Border.all(
-                                                  color: WhizzColors.grey300,
-                                                  width: 1,
-                                                ),
-                                              ),
-                                              child: TextFormField(
-                                                controller: valueController,
-                                                enabled: false,
-                                                style: AppTypography.bodyLarge
-                                                    .copyWith(
-                                                  color: WhizzColors.grey500,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                                decoration: InputDecoration(
-                                                  labelText:
-                                                      AppLocalizations.of(
-                                                              context)!
-                                                          .value,
-                                                  labelStyle: AppTypography
-                                                      .bodySmall
-                                                      .copyWith(
-                                                    color: WhizzColors.grey500,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                  border: InputBorder.none,
-                                                  disabledBorder:
-                                                      InputBorder.none,
-                                                  hintText: discountType ==
-                                                          DiscountType
-                                                              .freeDelivery
-                                                      ? 'Free Delivery'
-                                                      : discountType ==
-                                                              DiscountType
-                                                                  .buyXGetY
-                                                          ? 'Buy X Get Y'
-                                                          : 'Conditional',
-                                                  hintStyle: AppTypography
-                                                      .bodyMedium
-                                                      .copyWith(
-                                                    color: WhizzColors.grey400,
-                                                    fontStyle: FontStyle.italic,
-                                                  ),
-                                                  filled: false,
-                                                  contentPadding:
-                                                      EdgeInsets.symmetric(
-                                                    horizontal: AppSpacing.md,
-                                                    vertical: AppSpacing.sm,
-                                                  ),
-                                                  prefixIcon: Icon(
-                                                    Icons.lock_outline_rounded,
-                                                    color: WhizzColors.grey400,
-                                                    size: AppDimensions
-                                                        .iconSizeSM,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                  ],
+
+                                MerchantDiscountValueFields(
+                                  type: discountType,
+                                  controller: valueController,
+                                  onTypeChanged: (value) => setState(() {
+                                    discountType = value;
+                                    valueController.text =
+                                        value == DiscountType.percentage
+                                            ? '10'
+                                            : value == DiscountType.fixedAmount
+                                                ? ''
+                                                : '0';
+                                  }),
                                 ),
                                 const SizedBox(height: 10),
 
@@ -1732,7 +1803,6 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-
                                         // Buy X Configuration
                                         Text(
                                           AppLocalizations.of(context)!
@@ -1787,8 +1857,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                     floatingLabelStyle:
                                                         AppTypography.bodySmall
                                                             .copyWith(
-                                                      color:
-                                                          WhizzColors.primary,
+                                                      color: const Color(
+                                                          0xFF00296B),
                                                       fontWeight:
                                                           FontWeight.w600,
                                                     ),
@@ -1926,7 +1996,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                 controller:
                                                     getYQuantityController,
                                                 decoration: InputDecoration(
-                                                  labelText: 'Quantity',
+                                                  labelText: 'الكمية',
                                                   border:
                                                       const OutlineInputBorder(),
                                                   isDense: true,
@@ -2196,8 +2266,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                         const EdgeInsets.all(8),
                                                     decoration: BoxDecoration(
                                                       border: Border.all(
-                                                          color:
-                                                              WhizzColors
+                                                          color: WhizzColors
                                                               .border),
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -2290,8 +2359,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                         const EdgeInsets.all(8),
                                                     decoration: BoxDecoration(
                                                       border: Border.all(
-                                                          color:
-                                                              WhizzColors
+                                                          color: WhizzColors
                                                               .border),
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -2366,6 +2434,40 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                   ),
                                 ],
 
+                                _alternativeOfferNotice(
+                                    applicability: applicability,
+                                    items: selectedItemIds,
+                                    categories: selectedCategoryIds,
+                                    start: startDate,
+                                    end: endDate,
+                                    currentId: isEditing ? discount?.id : null),
+                                SwitchListTile.adaptive(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('خصم على كل قطعة',
+                                      style: TextStyle(
+                                          color: Color(0xFF00296B),
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: const Text(
+                                      'للوجبات المحددة: يظهر السعر السابق والجديد. دون حد أدنى أو سقف خصم أو حد استخدام لكل زبون. يطبق عرض واحد لكل طلب. التوفير مقرب وفق السياسة المعتمدة إلى مضاعفات ٢٥٠ د.ع.'),
+                                  value: perItem,
+                                  onChanged: (value) => setState(() {
+                                    perItem = value;
+                                    if (value) {
+                                      applicability =
+                                          DiscountApplicability.specificItems;
+                                      selectedCategoryIds.clear();
+                                      minOrderController.text = '0';
+                                      customerUsesController.clear();
+                                      discountCapController.clear();
+                                    }
+                                  }),
+                                ),
+                                MerchantDiscountUsageFields(
+                                    total: totalUsesController,
+                                    customer: customerUsesController,
+                                    cap: discountCapController,
+                                    percentage: discountType ==
+                                        DiscountType.percentage),
                                 const SizedBox(height: 10),
                                 TextFormField(
                                   controller: minOrderController,
@@ -2528,148 +2630,191 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                               color: Colors.transparent,
                               child: InkWell(
                                 onTap: () async {
-                              if (formKey.currentState!.validate()) {
-                                // Check for conflicting discounts
-                                if ((applicability ==
-                                            DiscountApplicability
-                                                .specificItems &&
-                                        selectedItemIds.isNotEmpty) ||
-                                    (applicability ==
-                                            DiscountApplicability
-                                                .specificCategories &&
-                                        selectedCategoryIds.isNotEmpty)) {
-                                  if (_hasConflictingDiscounts(selectedItemIds,
-                                      selectedCategoryIds, discount?.id)) {
-                                    showDialog(
-                                      context: context,
-                                      builder: (context) => AlertDialog(
-                                        title: Text(
-                                            AppLocalizations.of(context)!
-                                                .conflictingDiscountsTitle),
-                                        content: Text(AppLocalizations.of(
-                                                context)!
-                                            .someSelectedItemsAlreadyHaveDiscounts),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.of(context).pop(),
-                                            child: Text(
+                                  if (formKey.currentState!.validate()) {
+                                    if (![
+                                      DiscountType.percentage,
+                                      DiscountType.fixedAmount,
+                                      DiscountType.freeDelivery
+                                    ].contains(discountType)) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'هذا النوع من العروض غير مدعوم حالياً.')));
+                                      return;
+                                    }
+                                    // Prepare conditional parameters for Buy X Get Y and Conditional discounts
+                                    Map<String, dynamic> conditionalParams = {};
+                                    ConditionalDiscountRule? conditionalRule;
+
+                                    if (discountType == DiscountType.buyXGetY ||
+                                        discountType ==
+                                            DiscountType.conditional) {
+                                      if (selectedBuyItemId == null ||
+                                          selectedGetItemId == null) {
+                                        _showArabicOfferDialog(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: Text(
                                                 AppLocalizations.of(context)!
+                                                    .missingItems),
+                                            content: Text(AppLocalizations.of(
+                                                    context)!
+                                                .missingItemsMessage(
+                                                    discountType ==
+                                                            DiscountType
+                                                                .conditional
+                                                        ? AppLocalizations.of(
+                                                                context)!
+                                                            .conditional
+                                                        : AppLocalizations.of(
+                                                                context)!
+                                                            .buyXGetY)),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(context).pop(),
+                                                child: Text(AppLocalizations.of(
+                                                        context)!
                                                     .ok),
+                                              ),
+                                            ],
                                           ),
-                                        ],
-                                      ),
-                                    );
-                                    return;
-                                  }
-                                }
+                                        );
+                                        return;
+                                      }
 
-                                // Prepare conditional parameters for Buy X Get Y and Conditional discounts
-                                Map<String, dynamic> conditionalParams = {};
-                                ConditionalDiscountRule? conditionalRule;
+                                      conditionalRule =
+                                          ConditionalDiscountRule.buyXGetY;
+                                      conditionalParams = {
+                                        'buyItemId': selectedBuyItemId,
+                                        'buyQuantity': int.parse(
+                                            buyXQuantityController.text),
+                                        'getItemId': selectedGetItemId,
+                                        'getQuantity': int.parse(
+                                            getYQuantityController.text),
+                                      };
+                                    }
 
-                                if (discountType == DiscountType.buyXGetY ||
-                                    discountType == DiscountType.conditional) {
-                                  if (selectedBuyItemId == null ||
-                                      selectedGetItemId == null) {
-                                    showDialog(
-                                      context: context,
-                                      builder: (context) => AlertDialog(
-                                        title: Text(
-                                            AppLocalizations.of(context)!
-                                                .missingItems),
-                                        content: Text(AppLocalizations.of(
-                                                context)!
-                                            .missingItemsMessage(discountType ==
-                                                    DiscountType.conditional
-                                                ? AppLocalizations.of(context)!
-                                                    .conditional
-                                                : AppLocalizations.of(context)!
-                                                    .buyXGetY)),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.of(context).pop(),
-                                            child: Text(
-                                                AppLocalizations.of(context)!
-                                                    .ok),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    return;
-                                  }
-
-                                  conditionalRule =
-                                      ConditionalDiscountRule.buyXGetY;
-                                  conditionalParams = {
-                                    'buyItemId': selectedBuyItemId,
-                                    'buyQuantity':
-                                        int.parse(buyXQuantityController.text),
-                                    'getItemId': selectedGetItemId,
-                                    'getQuantity':
-                                        int.parse(getYQuantityController.text),
-                                  };
-                                }
-
-                                final newDiscount = Discount(
-                                  id: discount?.id ??
-                                      DateTime.now()
-                                          .millisecondsSinceEpoch
-                                          .toString(),
-                                  name: titleController.text,
-                                  description:
-                                      '', // Description field removed from creation
-                                  type: discountType,
-                                  value: double.parse(valueController.text),
-                                  applicability: applicability,
-                                  applicableItemIds: selectedItemIds,
-                                  applicableCategoryIds: selectedCategoryIds,
-                                  minimumOrderAmount: double.tryParse(
-                                          minOrderController.text) ??
-                                      0.0,
-                                  startDate: startDate,
-                                  endDate: endDate,
-                                  validFrom: startDate,
-                                  validTo: endDate,
-                                  businessId: widget.business.id,
-                                  createdAt:
-                                      discount?.createdAt ?? DateTime.now(),
-                                  updatedAt: DateTime.now(),
-                                  status: DiscountStatus.active,
-                                  conditionalRule: conditionalRule,
-                                  conditionalParameters: conditionalParams,
-                                );
-
-                                Navigator.of(context).pop();
-
-                                // Call API methods to create or update the discount
-                                try {
-                                  if (isEditing) {
-                                    await _updateDiscount(newDiscount);
-                                  } else {
-                                    // Check for conflicting discounts before adding
-                                    if (!_hasConflictingDiscounts(
-                                        selectedItemIds,
-                                        selectedCategoryIds,
-                                        null)) {
-                                      await _createDiscount(newDiscount);
-                                    } else {
-                                      // Show error message
+                                    // Upload the picked image first (if any) so
+                                    // the returned URL can be stored on the
+                                    // discount record as imageUrl.
+                                    String? imageUrl = _existingImageUrl;
+                                    if (_pickedImage != null) {
+                                      sheetSetState?.call(() {
+                                        _uploadingImage = true;
+                                      });
+                                      final uploadResult =
+                                          await ImageUploadService
+                                              .uploadProductImage(
+                                                  _pickedImage!);
+                                      sheetSetState?.call(() {
+                                        _uploadingImage = false;
+                                      });
+                                      if (uploadResult['success'] == true) {
+                                        imageUrl =
+                                            uploadResult['imageUrl'] as String?;
+                                      } else {
+                                        if (context.mounted) {
                                           showAdaptiveSnackBar(
                                             context: context,
                                             message:
-                                                AppLocalizations.of(context)!
-                                                    .conflictingDiscounts,
+                                                '${AppLocalizations.of(context)!.imageUploadFailed}: ${uploadResult['message']}',
                                             type: AdaptiveSnackBarType.error,
-                                      );
+                                          );
+                                        }
+                                        return;
+                                      }
+                                    }
+
+                                    if (perItem &&
+                                        (applicability != DiscountApplicability.specificItems ||
+                                            selectedItemIds.isEmpty ||
+                                            selectedItemIds.length > 40 ||
+                                            ![
+                                              DiscountType.percentage,
+                                              DiscountType.fixedAmount
+                                            ].contains(discountType) ||
+                                            (double.tryParse(minOrderController
+                                                        .text) ??
+                                                    0) !=
+                                                0 ||
+                                            customerUsesController.text
+                                                .trim()
+                                                .isNotEmpty ||
+                                            discountCapController.text
+                                                .trim()
+                                                .isNotEmpty)) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'خصم كل قطعة يتطلب اختيار ١–٤٠ وجبة، ونسبة أو مبلغًا ثابتًا، دون حد أدنى أو سقف أو حد استخدام لكل زبون.')));
+                                      return;
+                                    }
+                                    final newDiscount = Discount(
+                                      calculationMode:
+                                          perItem ? 'perItem' : 'order',
+
+                                      revision:
+                                          isEditing ? discount?.revision : null,
+                                      id: (isEditing ? discount?.id : null) ??
+                                          DateTime.now()
+                                              .millisecondsSinceEpoch
+                                              .toString(),
+                                      name: titleController.text,
+                                      description:
+                                          '', // Description field removed from creation
+                                      type: discountType,
+                                      value: double.parse(valueController.text),
+                                      applicability: applicability,
+                                      applicableItemIds: selectedItemIds,
+                                      applicableCategoryIds:
+                                          selectedCategoryIds,
+                                      maxUsage:
+                                          MerchantDiscountUsageFields.parse(
+                                              totalUsesController.text),
+                                      perCustomerLimit:
+                                          MerchantDiscountUsageFields.parse(
+                                              customerUsesController.text),
+                                      maxDiscountAmount: discountType ==
+                                              DiscountType.percentage
+                                          ? MerchantDiscountUsageFields.parse(
+                                              discountCapController.text)
+                                          : null,
+                                      minimumOrderAmount: double.tryParse(
+                                              minOrderController.text) ??
+                                          0.0,
+                                      startDate: startDate,
+                                      endDate: endDate,
+                                      validFrom: startDate,
+                                      validTo: endDate,
+                                      businessId: widget.business.id,
+                                      createdAt: (isEditing
+                                              ? discount?.createdAt
+                                              : null) ??
+                                          DateTime.now(),
+                                      updatedAt: DateTime.now(),
+                                      status: seed != null
+                                          ? DiscountStatus.inactive
+                                          : DiscountStatus.active,
+                                      conditionalRule: conditionalRule,
+                                      conditionalParameters: conditionalParams,
+                                      imageUrl: imageUrl,
+                                    );
+
+                                    Navigator.of(context).pop();
+
+                                    // Call API methods to create or update the discount
+                                    try {
+                                      if (isEditing) {
+                                        await _updateDiscount(newDiscount);
+                                      } else {
+                                        await _createDiscount(newDiscount);
+                                      }
+                                    } catch (e) {
+                                      // Error handling is already done in the individual methods
                                     }
                                   }
-                                } catch (e) {
-                                  // Error handling is already done in the individual methods
-                                }
-                              }
-                            },
+                                },
                                 borderRadius: BorderRadius.circular(
                                     AppDimensions.borderRadiusMD),
                                 child: Ink(
@@ -2749,45 +2894,59 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
             );
           },
         );
-      },
+      }),
     );
   }
 
-  // Add validation method to check for conflicting discounts
-  bool _hasConflictingDiscounts(List<String> selectedItemIds,
-      List<String> selectedCategoryIds, String? currentDiscountId) {
-    final existingDiscounts = _discounts.where((d) =>
-        d.id != currentDiscountId &&
-        d.status == DiscountStatus.active &&
-        d.type != DiscountType.freeDelivery);
-
-    for (final discount in existingDiscounts) {
-      // Check for item conflicts
-      if (discount.applicability == DiscountApplicability.specificItems) {
-        for (final itemId in selectedItemIds) {
-          if (discount.applicableItemIds.contains(itemId)) {
-            return true;
-          }
-        }
-      }
-
-      // Check for category conflicts
-      if (discount.applicability == DiscountApplicability.specificCategories) {
-        for (final categoryId in selectedCategoryIds) {
-          if (discount.applicableCategoryIds.contains(categoryId)) {
-            return true;
-          }
-        }
-      }
-
-      // Check if existing discount applies to all items
-      if (discount.applicability == DiscountApplicability.allItems &&
-          (selectedItemIds.isNotEmpty || selectedCategoryIds.isNotEmpty)) {
-        return true;
-      }
-    }
-
-    return false;
+  Widget _alternativeOfferNotice(
+      {required DiscountApplicability applicability,
+      required List<String> items,
+      required List<String> categories,
+      required DateTime start,
+      required DateTime end,
+      String? currentId}) {
+    final alternatives = alternativeDiscounts(
+        existing: _discounts,
+        applicability: applicability,
+        itemIds: items,
+        categoryIds: categories,
+        productCategories: {for (final p in _products) p.id: p.categoryId},
+        start: start,
+        end: end,
+        currentId: currentId);
+    if (alternatives.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: const Color(0xFFF0F4FA),
+          borderRadius: BorderRadius.circular(14)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Row(children: [
+          Icon(Icons.info_outline, size: 20, color: Color(0xFF00296B)),
+          SizedBox(width: 8),
+          Expanded(
+              child: Text('توجد عروض أخرى تشمل هذه الأصناف',
+                  style: TextStyle(
+                      color: Color(0xFF00296B), fontWeight: FontWeight.w600)))
+        ]),
+        const SizedBox(height: 8),
+        ...alternatives.take(3).map((d) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Text(
+                '• ${d.title} — ${d.calculationMode == 'perItem' ? 'خصم لكل قطعة' : 'عرض على الطلب'}',
+                style:
+                    const TextStyle(color: Color(0xFF536175), fontSize: 13)))),
+        if (alternatives.length > 3)
+          Text('و${alternatives.length - 3} عروض أخرى',
+              style: const TextStyle(color: Color(0xFF536175), fontSize: 13)),
+        const SizedBox(height: 6),
+        const Text(
+            'يمكنك إنشاء هذا العرض كخيار بديل. يُطبَّق عرض واحد فقط على الأصناف في الطلب، ولا تُجمع نسب الخصم أو مبالغه.',
+            style:
+                TextStyle(color: Color(0xFF00296B), height: 1.6, fontSize: 13)),
+      ]),
+    );
   }
 
   void _showItemSelectionDialog(
@@ -2810,7 +2969,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         (cat) => cat.id == product.categoryId,
         orElse: () => ProductCategory(
           id: '',
-          name: 'Unknown',
+          name: 'بدون فئة',
           businessType: '',
           sortOrder: 0,
           createdAt: DateTime.now(),
@@ -2835,7 +2994,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       return;
     }
 
-    showDialog(
+    _showArabicOfferDialog(
       context: context,
       builder: (context) {
         List<String> tempSelected = List.from(selectedItemIds);
@@ -2925,7 +3084,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       return;
     }
 
-    showDialog(
+    _showArabicOfferDialog(
       context: context,
       builder: (context) {
         List<String> tempSelected = List.from(selectedCategoryIds);
@@ -3039,7 +3198,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
         (cat) => cat.id == product.categoryId,
         orElse: () => ProductCategory(
           id: '',
-          name: 'Unknown',
+          name: 'بدون فئة',
           businessType: '',
           sortOrder: 0,
           createdAt: DateTime.now(),
@@ -3064,7 +3223,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       return;
     }
 
-    showDialog(
+    _showArabicOfferDialog(
       context: context,
       builder: (context) {
         String? tempSelected = selectedItemId;
@@ -3102,19 +3261,19 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                               },
                             ),
                             title: Text(item['name']),
-                              subtitle: Text(AppLocalizations.of(context)!
-                                  .categoryAndPrice(
-                                      item['categoryName'],
-                                      AppLocalizations.of(context)!.kwd,
-                                      item['price'].toStringAsFixed(2))),
-                              onTap: () {
-                                setDialogState(() {
-                                  tempSelected = item['id'];
-                                });
-                              },
-                            );
-                          },
-                        ),
+                            subtitle: Text(AppLocalizations.of(context)!
+                                .categoryAndPrice(
+                                    item['categoryName'],
+                                    AppLocalizations.of(context)!.kwd,
+                                    item['price'].toStringAsFixed(2))),
+                            onTap: () {
+                              setDialogState(() {
+                                tempSelected = item['id'];
+                              });
+                            },
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -3167,6 +3326,14 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
       child: Column(
         children: [
           // Filter chips
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton.icon(
+              onPressed: _isLoading ? null : _showCreateDiscountDialog,
+              icon: const Icon(Icons.add_rounded),
+              label: Text('إنشاء خصم'),
+            ),
+          ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -3222,13 +3389,10 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
           vertical: AppSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: isSelected
-              ? WhizzColors.primary : WhizzColors.white,
+          color: isSelected ? WhizzColors.primary : WhizzColors.white,
           borderRadius: BorderRadius.circular(AppDimensions.borderRadiusFull),
           border: Border.all(
-            color: isSelected
-                ? WhizzColors.primary
-                : WhizzColors.grey300,
+            color: isSelected ? WhizzColors.primary : WhizzColors.grey300,
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
@@ -3255,8 +3419,7 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
             Text(
               label,
               style: AppTypography.labelLarge.copyWith(
-                color: isSelected
-                    ? WhizzColors.black : WhizzColors.grey800,
+                color: isSelected ? WhizzColors.black : WhizzColors.grey800,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
             ),
@@ -3275,9 +3438,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                 child: Text(
                   count.toString(),
                   style: AppTypography.labelSmall.copyWith(
-                    color: isSelected
-                        ? WhizzColors.primary
-                        : WhizzColors.grey700,
+                    color:
+                        isSelected ? WhizzColors.primary : WhizzColors.grey700,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -3295,12 +3457,14 @@ class DiscountCard extends StatelessWidget {
   final Discount discount;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onToggleStatus;
 
   const DiscountCard({
     super.key,
     required this.discount,
     required this.onEdit,
     required this.onDelete,
+    required this.onToggleStatus,
   });
 
   @override
@@ -3332,184 +3496,225 @@ class DiscountCard extends StatelessWidget {
           children: [
             // Header section with secondary color accent
             Container(
-                padding: EdgeInsets.all(4.8),
-                decoration: BoxDecoration(
-                  color:
-                      Theme.of(context)
+              padding: EdgeInsets.all(4.8),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
                     .colorScheme
                     .secondary
                     .withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(GoldenRatio.radiusLg),
-                    topRight: Radius.circular(GoldenRatio.radiusLg),
-                  ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(GoldenRatio.radiusLg),
+                  topRight: Radius.circular(GoldenRatio.radiusLg),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Status badge only
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 4.8,
-                        vertical: 2.4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: WhizzColors.white,
-                        borderRadius:
-                            BorderRadius.circular(GoldenRatio.radiusMd),
-                        border: Border.all(
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Status badge only
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 4.8,
+                      vertical: 2.4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: WhizzColors.white,
+                      borderRadius: BorderRadius.circular(GoldenRatio.radiusMd),
+                      border: Border.all(
                         color: statusColor.withValues(alpha: 0.3),
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 2.4,
-                            height: 2.4,
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          SizedBox(width: 2.4),
-                          Text(
-                            statusText,
-                            style: TypographySystem.labelSmall.copyWith(
-                              color: statusColor,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ],
+                        width: 1.5,
                       ),
                     ),
-                    SizedBox(width: 4.8),
-                    // Title and discount type section
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          // Title without container - inherits header background (no borders)
-                          Text(
-                            discount.title,
-                            style: TypographySystem.titleLarge.copyWith(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 2.4,
+                          height: 2.4,
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        SizedBox(width: 2.4),
+                        Text(
+                          statusText,
+                          style: TypographySystem.labelSmall.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: 4.8),
+                  // Title and discount type section
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        // Title without container - inherits header background (no borders)
+                        Text(
+                          discount.title,
+                          style: TypographySystem.titleLarge.copyWith(
+                            color: Theme.of(context).colorScheme.secondary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                        ),
+                        SizedBox(height: 2.4),
+                        // Discount value badge (no background, no border, right aligned)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 9.6,
+                            vertical: 4.8,
+                          ),
+                          child: Text(
+                            discount.type == DiscountType.percentage
+                                ? '${_formatDiscountValue(discount.value)}% ${AppLocalizations.of(context)!.off}'
+                                : discount.type == DiscountType.freeDelivery
+                                    ? AppLocalizations.of(context)!.freeDelivery
+                                    : '${AppLocalizations.of(context)!.conditional} ${AppLocalizations.of(context)!.discount}',
+                            style: TypographySystem.bodyLarge.copyWith(
                               color: Theme.of(context).colorScheme.secondary,
                               fontWeight: FontWeight.bold,
                             ),
+                            overflow: TextOverflow.ellipsis,
                             maxLines: 1,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        if (discount.description.isNotEmpty) ...[
+                          SizedBox(height: 2.4),
+                          Text(
+                            discount.description,
+                            style: TypographySystem.bodyMedium.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .secondary
+                                  .withValues(alpha: 0.7),
+                              height: 1.2,
+                            ),
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.right,
                           ),
-                          SizedBox(height: 2.4),
-                          // Discount value badge (no background, no border, right aligned)
-                          Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 9.6,
-                              vertical: 4.8,
-                            ),
-                            child: Text(
-                              discount.type == DiscountType.percentage
-                                  ? '${discount.value}% ${AppLocalizations.of(context)!.off}'
-                                  : discount.type == DiscountType.freeDelivery
-                                      ? AppLocalizations.of(context)!
-                                          .freeDelivery
-                                      : '${AppLocalizations.of(context)!.conditional} ${AppLocalizations.of(context)!.discount}',
-                              style: TypographySystem.bodyLarge.copyWith(
-                                color: Theme.of(context).colorScheme.secondary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                          if (discount.description.isNotEmpty) ...[
-                            SizedBox(height: 2.4),
-                            Text(
-                              discount.description,
-                              style: TypographySystem.bodyMedium.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .secondary
-                                  .withValues(alpha: 0.7),
-                                height: 1.2,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.right,
-                            ),
-                          ],
                         ],
-                      ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+            ),
 
-              // White content area with discount details
-              Padding(
-                padding: EdgeInsets.all(GoldenRatio.spacing12),
-                child: Column(
-                  children: [
-                    // Details grid
-                    Row(
-                      children: [
+            // White content area with discount details
+            Padding(
+              padding: EdgeInsets.all(GoldenRatio.spacing12),
+              child: Column(
+                children: [
+                  // Details grid
+                  DiscountFundingNotice(
+                      delivery: discount.type == DiscountType.freeDelivery),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDetailItem(
+                          context,
+                          icon: Icons.category_outlined,
+                          label:
+                              getLocalizedApplicabilityText(context, discount),
+                        ),
+                      ),
+                      SizedBox(width: GoldenRatio.spacing12),
+                      if ((discount.minimumOrderAmount ?? 0) > 0)
                         Expanded(
                           child: _buildDetailItem(
                             context,
-                            icon: Icons.category_outlined,
-                            label: getLocalizedApplicabilityText(
-                                context, discount),
+                            icon: Icons.shopping_cart_outlined,
+                            label:
+                                'الحد الأدنى: ${_formatDiscountValue(discount.minimumOrderAmount ?? 0)} د.ع',
                           ),
                         ),
-                        SizedBox(width: GoldenRatio.spacing12),
-                        if ((discount.minimumOrderAmount ?? 0) > 0)
-                          Expanded(
-                            child: _buildDetailItem(
-                              context,
-                              icon: Icons.shopping_cart_outlined,
-                              label:
-                                  'Min: \$${(discount.minimumOrderAmount ?? 0).toStringAsFixed(2)}',
-                            ),
-                          ),
-                      ],
-                    ),
+                    ],
+                  ),
 
-                    SizedBox(height: GoldenRatio.spacing8),
+                  SizedBox(height: GoldenRatio.spacing8),
 
-                    // Date range
-                    _buildDetailItem(
-                      context,
-                      icon: Icons.date_range_outlined,
-                      label:
-                          '${discount.validFrom.day}/${discount.validFrom.month}/${discount.validFrom.year} - ${discount.validTo.day}/${discount.validTo.month}/${discount.validTo.year}',
-                    ),
+                  // Date range
+                  _buildDetailItem(
+                    context,
+                    icon: Icons.date_range_outlined,
+                    label:
+                        '${discount.validFrom.day}/${discount.validFrom.month}/${discount.validFrom.year} - ${discount.validTo.day}/${discount.validTo.month}/${discount.validTo.year}',
+                  ),
 
-                    SizedBox(height: GoldenRatio.spacing12),
+                  SizedBox(height: GoldenRatio.spacing12),
 
-                    // Action buttons
+                  if (discount.sharingLocked)
+                    const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                            'خصم مشترك معتمد — الشروط مقفلة. لتغييرها أوقفه وأنشئ بديلًا.')),
+                  Text(
+                      'لكل زبون: ${discount.perCustomerLimit?.toString() ?? "بلا حد"} • إجمالي استخدامات العرض: ${discount.maxUsage?.toString() ?? "بلا حد"}'),
+                  // Explicit actions for approved shared campaigns.
+                  if (discount.sharingLocked)
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      if (discount.status == DiscountStatus.active ||
+                          discount.sharingCanActivate)
+                        TextButton.icon(
+                            onPressed: onToggleStatus,
+                            icon: Icon(discount.status == DiscountStatus.active
+                                ? Icons.pause
+                                : Icons.play_arrow),
+                            label: Text(discount.status == DiscountStatus.active
+                                ? 'إيقاف الخصم'
+                                : 'تشغيل الخصم')),
+                      OutlinedButton.icon(
+                          onPressed: onEdit,
+                          icon: const Icon(Icons.copy_outlined),
+                          label: Text(discount.status == DiscountStatus.active
+                              ? 'إيقاف الخصم وإنشاء بديل'
+                              : 'إنشاء خصم بديل')),
+                    ]),
+                  // Actions for independently funded discounts.
+                  if (!discount.sharingLocked)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         _buildActionButton(
-                          icon: Icons.edit_outlined,
-                        color: WhizzColors.secondary,
+                          icon: discount.status == DiscountStatus.inactive
+                              ? Icons.play_arrow_outlined
+                              : Icons.pause_outlined,
+                          color: discount.status == DiscountStatus.inactive
+                              ? Colors.green
+                              : WhizzColors.secondary,
+                          onPressed: onToggleStatus,
+                        ),
+                        SizedBox(width: GoldenRatio.spacing8),
+                        _buildActionButton(
+                          icon: discount.sharingLocked
+                              ? Icons.copy_outlined
+                              : Icons.edit_outlined,
+                          color: WhizzColors.secondary,
                           onPressed: onEdit,
                         ),
                         SizedBox(width: GoldenRatio.spacing8),
                         _buildActionButton(
-                          icon: Icons.delete_outline,
-                        color: WhizzColors.error,
+                          icon: discount.sharingLocked
+                              ? Icons.stop_circle_outlined
+                              : Icons.delete_outline,
+                          color: WhizzColors.error,
                           onPressed: onDelete,
                         ),
                       ],
                     ),
-                  ],
-                ),
+                ],
               ),
+            ),
           ],
         ),
       ),

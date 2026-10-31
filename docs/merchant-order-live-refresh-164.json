@@ -1,0 +1,20 @@
+{
+  "part": 164,
+  "merchantAppInstalledOnIosSimulator": true,
+  "simulator": "iPhone 16 Pro",
+  "changes": [
+    "Orders page subscribes directly to branch-scoped arrival events",
+    "Arrival refresh requested during a load is queued",
+    "Shared attention snapshots update empty and open order lists",
+    "Older page loads cannot overwrite newer attention snapshots",
+    "Initial pending-order snapshot starts the reminder delay rather than reminding immediately",
+    "Polling discoveries are announced once using existing persistent sound history",
+    "Order header uses bounded flexible text alongside countdown and status"
+  ],
+  "targetedTestsPassed": 9,
+  "dartAnalysisErrors": 0,
+  "physicalArrivalRetestPending": true,
+  "orderStatusChangedByRepair": false,
+  "financialWrites": false,
+  "serverDeployment": false
+}

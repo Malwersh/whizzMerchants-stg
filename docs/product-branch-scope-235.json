@@ -1,0 +1,14 @@
+{
+  "function": "order-receiver-regional-staging-product-management-v4-sam",
+  "status": "PUBLISHED_VERIFIED",
+  "changedFile": "product_management_handler.js",
+  "sha256": "EWHrnsXxp+fIDDLQBYJEtoSzaBMOT3oZIG0J4HBffqo=",
+  "unrelatedEntriesPreserved": true,
+  "configurationAndIamUnchanged": true,
+  "businessWritesPerformed": false,
+  "nativeBuild": 235,
+  "tests": {
+    "backend": 7,
+    "flutter": 5
+  }
+}

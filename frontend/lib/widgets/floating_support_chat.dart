@@ -215,7 +215,7 @@ class _FloatingSupportChatState extends ConsumerState<FloatingSupportChat>
                           child: Text(
                             unreadCount > 99 ? '99+' : unreadCount.toString(),
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: Colors.black,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),

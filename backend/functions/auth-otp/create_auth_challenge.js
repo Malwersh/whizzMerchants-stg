@@ -11,7 +11,7 @@ const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 
 const ssm = new SSMClient({});
 const OTPIQ_URL = 'https://api.otpiq.com/api/sms';
-const PROVIDER = process.env.OTPIQ_PROVIDER || 'sms';
+const PROVIDER = process.env.OTPIQ_PROVIDER || 'whatsapp-telegram-sms';
 const SENDER_ID = process.env.OTPIQ_SENDER_ID || '';
 
 let cachedKey;
