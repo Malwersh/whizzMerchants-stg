@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -9,8 +11,27 @@ import 'token_refresh_service.dart';
 import 'merchant_branch_scope.dart';
 
 class ProductService {
+  static final publicationChanges = ValueNotifier<int>(0);
+  static Future<bool> hasPendingPublication(String businessId) async =>
+      (await SharedPreferences.getInstance())
+          .getBool('menu_publication_pending:$businessId') ??
+      false;
+  static Future<void> recordPublication(
+      String businessId, dynamic publication) async {
+    if (publication is! Map ||
+        !['pending', 'published'].contains(publication['status'])) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('menu_publication_pending:$businessId',
+        publication['status'] == 'pending');
+    publicationChanges.value++;
+  }
+
   static String productMutationError(dynamic code) =>
       const <String, String>{
+        'CLASSIFICATION_OWNER_REQUIRED':
+            'تعديل التصنيفات متاح لمالك الفرع. اطلب منه تحديث التصنيف.',
+        'INVALID_MENU_CLASSIFICATION':
+            'التصنيف لم يعد متاحًا لنشاط الفرع. حدّث التصنيفات وأعد المحاولة.',
         'INVALID_MENU_UPDATE':
             'تعذر حفظ التغييرات. راجع بيانات المنتج والصورة المرفوعة لهذا الفرع.',
         'CATEGORY_UNAVAILABLE':
@@ -26,6 +47,17 @@ class ProductService {
       (code is String && code.isNotEmpty
           ? code
           : 'تعذر حفظ التغيير. أعد المحاولة.');
+
+  static Future<List<Map<String, dynamic>>> taxonomy(String? businessId) async {
+    final scope = await MerchantBranchScope.capture(businessId: businessId);
+    final response = await _resilientGet(
+        scope.uri('$baseUrl/products', query: {'taxonomy': '1'}));
+    if (response.statusCode != 200)
+      throw StateError('تعذر تحميل التصنيفات. أعد المحاولة.');
+    await scope.assertCurrent();
+    return List<Map<String, dynamic>>.from(
+        _safeDecode(response.body)['classifications'] ?? []);
+  }
 
   static String get baseUrl => AppConfig.baseUrl;
 
@@ -212,10 +244,12 @@ class ProductService {
       }
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
+        await recordPublication(scope.businessId, data['publication']);
         return {
           'success': true,
           'product': data['product'],
           'message': 'Product created successfully',
+          'publication': data['publication'],
         };
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
@@ -289,10 +323,12 @@ class ProductService {
       }
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        await recordPublication(scope.businessId, data['publication']);
         return {
           'success': true,
           'product': data['product'],
           'message': 'Product updated successfully',
+          'publication': data['publication'],
         };
       } else if (response.statusCode == 401) {
         // ⚠️ Following wizzuser: Log only, NO exception
@@ -348,6 +384,7 @@ class ProductService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        await recordPublication(scope.businessId, data['publication']);
         return {
           'success': true,
           'message': 'Product deleted successfully',
@@ -531,6 +568,7 @@ class ProductService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        await scope.assertCurrent();
         return {
           'success': true,
           'categories': data['categories'] ?? [],
@@ -557,6 +595,8 @@ class ProductService {
     String? name,
     int? sortOrder,
     bool? isActive,
+    List<String>? cuisineIds,
+    String? requestId,
   }) async {
     final scope = await MerchantBranchScope.capture(businessId: businessId);
     final token = await _getBestToken();
@@ -567,9 +607,10 @@ class ProductService {
         ? '$baseUrl/categories'
         : '$baseUrl/categories/${Uri.encodeComponent(categoryId)}');
     final body = scope.body({
-      'requestId': const Uuid().v4(),
+      'requestId': requestId ?? const Uuid().v4(),
       if (name != null) 'name': name,
       if (sortOrder != null) 'sortOrder': sortOrder,
+      if (cuisineIds != null) 'cuisineIds': cuisineIds,
       if (isActive != null) 'isActive': isActive,
     });
     late http.Response response;
@@ -695,6 +736,7 @@ class ProductService {
     if (response.statusCode != 200)
       return {'success': false, 'message': data['code'] ?? 'تعذر نشر القائمة'};
     await scope.assertCurrent();
+    await recordPublication(scope.businessId, {'status': 'published'});
     return {'success': true, 'active': data['active']};
   }
 

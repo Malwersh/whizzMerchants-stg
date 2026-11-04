@@ -46,32 +46,68 @@ class _BranchCategoriesScreenState extends State<BranchCategoriesScreen> {
                 ''),
         order = TextEditingController(
             text: (row?['sortOrder'] ?? rows.length).toString());
+    List<Map<String, dynamic>> taxonomy;
+    try {
+      taxonomy = await ProductService.taxonomy(widget.businessId);
+    } catch (_) {
+      name.dispose();
+      order.dispose();
+      if (mounted)
+        setState(() => error = 'تعذر تحميل تصنيفات النشاط. أعد المحاولة.');
+      return;
+    }
+    if (!mounted) {
+      name.dispose();
+      order.dispose();
+      return;
+    }
+    final cuisineIds = List<String>.from(row?['cuisineIds'] ?? []);
     final result = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (context) => AlertDialog(
-                title: Text(row == null ? 'إضافة قسم' : 'تعديل القسم'),
-                content: Column(mainAxisSize: MainAxisSize.min, children: [
-                  TextField(
-                      controller: name,
-                      autofocus: true,
-                      decoration:
-                          const InputDecoration(labelText: 'اسم القسم')),
-                  TextField(
-                      controller: order,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'الترتيب'))
-                ]),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('إلغاء')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(context, {
-                            'name': name.text.trim(),
-                            'sortOrder': int.tryParse(order.text)
-                          }),
-                      child: const Text('حفظ'))
-                ]));
+        builder: (context) => StatefulBuilder(
+            builder: (context, refresh) => AlertDialog(
+                    title: Text(row == null ? 'إضافة قسم' : 'تعديل القسم'),
+                    content: SingleChildScrollView(
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(
+                          controller: name,
+                          autofocus: true,
+                          decoration:
+                              const InputDecoration(labelText: 'اسم القسم')),
+                      TextField(
+                          controller: order,
+                          keyboardType: TextInputType.number,
+                          decoration:
+                              const InputDecoration(labelText: 'الترتيب')),
+                      const Text('ربط القسم بالتصنيفات المركزية (اختياري)'),
+                      if (taxonomy.isEmpty)
+                        const Text('لا توجد تصنيفات متاحة لهذا النشاط.'),
+                      for (final entry in taxonomy)
+                        CheckboxListTile(
+                            title: Text(entry['label'].toString()),
+                            value: cuisineIds.contains(entry['id']),
+                            onChanged: (checked) => refresh(() {
+                                  if (checked == true) {
+                                    if (cuisineIds.length < 12)
+                                      cuisineIds.add(entry['id'] as String);
+                                  } else {
+                                    cuisineIds.remove(entry['id']);
+                                  }
+                                })),
+                    ])),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('إلغاء')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(context, {
+                                'name': name.text.trim(),
+                                'cuisineIds': cuisineIds,
+                                'sortOrder': int.tryParse(order.text)
+                              }),
+                          child: const Text('حفظ'))
+                    ])));
     name.dispose();
     order.dispose();
     if (result == null ||
@@ -85,7 +121,8 @@ class _BranchCategoriesScreenState extends State<BranchCategoriesScreen> {
         categoryId: own ? row!['categoryId']?.toString() : null,
         method: own ? 'PUT' : 'POST',
         name: result['name'],
-        sortOrder: result['sortOrder']);
+        sortOrder: result['sortOrder'],
+        cuisineIds: List<String>.from(result['cuisineIds']));
     if (r['success'] == true) {
       await load();
     } else if (mounted) {

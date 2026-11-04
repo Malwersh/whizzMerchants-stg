@@ -116,18 +116,17 @@ class ProductNotifier extends StateNotifier<ProductState> {
     }
   }
 
-  Future<void> loadCategories(String businessType) async {
+  Future<void> loadCategories(String businessType, {bool force = false}) async {
     // Don't reload if categories are already loaded for this business type
-    if (state.categories.isNotEmpty) {
+    if (!force && state.categories.isNotEmpty) {
       return;
     }
 
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.getCategoriesForBusinessType(
-          businessType,
-          businessId: businessId);
+      final result =
+          await ProductService.getAllCategories(businessId: businessId);
       if (result['success'] == true && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
         List<ProductCategory> categories = categoriesList
@@ -172,9 +171,8 @@ class ProductNotifier extends StateNotifier<ProductState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await ProductService.getCategoriesForBusinessType(
-          businessType,
-          businessId: businessId);
+      final result =
+          await ProductService.getAllCategories(businessId: businessId);
       if (result['success'] == true && result['categories'] != null) {
         final categoriesList = result['categories'] as List;
         List<ProductCategory> categories = categoriesList
@@ -230,6 +228,7 @@ class ProductNotifier extends StateNotifier<ProductState> {
         isAvailable: product.isAvailable,
         additionalData: {
           'optionGroups': product.optionGroups,
+          'cuisineIds': product.cuisineIds,
           if (requestId != null) 'requestId': requestId,
           if (product.barcode != null && product.barcode!.isNotEmpty)
             'barcode': product.barcode,
@@ -245,7 +244,12 @@ class ProductNotifier extends StateNotifier<ProductState> {
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
-          error: null,
+          error: result['publication']?['status'] == 'pending'
+              ? const ProductError(
+                  message:
+                      'حُفظ المنتج، لكن تعذر نشره للزبائن. استخدم «إعادة المحاولة» في قائمة المنتجات.',
+                  isServer: true)
+              : null,
         );
         return true;
       } else {
@@ -320,7 +324,12 @@ class ProductNotifier extends StateNotifier<ProductState> {
         state = state.copyWith(
           products: updatedProducts,
           isLoading: false,
-          error: null,
+          error: result['publication']?['status'] == 'pending'
+              ? const ProductError(
+                  message:
+                      'حُفظ المنتج، لكن تعذر نشره للزبائن. استخدم «إعادة المحاولة» في قائمة المنتجات.',
+                  isServer: true)
+              : null,
         );
         return true;
       } else {

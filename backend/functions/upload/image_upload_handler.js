@@ -246,12 +246,12 @@ exports.handler = async (event) => {
             }
 
             if(isProductUpload){
-                try{decodedImage.type=require('../shared/product-image-validation').validateProductImage(decodedImage.data).type;}
+                try{decodedImage.type=require('../shared/product-image-validation').validateProductImage(decodedImage.data,{allowGif:parsedBody?.purpose==='discount'}).type;}
                 catch(_){return createResponse(400,{success:false,message:'INVALID_PRODUCT_IMAGE'});}
             }
             // Generate unique filename with proper extension and user context
             const imageId = uuidv4();
-            const fileExtension = decodedImage.type.includes('png') ? 'png' : 'jpg';
+            const fileExtension = decodedImage.type==='image/gif' ? 'gif' : decodedImage.type.includes('png') ? 'png' : 'jpg';
             const owner=merchantRequestContext.getStore();
             const fileName = owner ? `merchants/${owner.businessId}/${folderName}/${imageId}.${fileExtension}` : `${folderName}/${userId}/${imageId}.${fileExtension}`;
 

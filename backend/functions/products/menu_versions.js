@@ -5,8 +5,8 @@ const PLATFORM=process.env.MERCHANT_PLATFORM_TABLE||'staging-MerchantPlatform';
 const PRODUCTS=process.env.PRODUCTS_TABLE||'WhizzMerchants_Products';
 const CATEGORIES=process.env.CATEGORIES_TABLE||'WhizzMerchants_Categories';
 const BUSINESSES=process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses';
-const PRODUCT_FIELDS=['productId','businessId','globalProductId','name','name_ar','name_en','description','description_ar','description_en','price','categoryId','imageUrl','imageUrls','images','barcode','isAvailable','isFeatured','searchableName','optionGroups','addons','variations','nutritionalInfo','allergens','preparationTime','rating','reviewCount','stock','createdAt','updatedAt'];
-const CATEGORY_FIELDS=['categoryId','categoryName','name','name_ar','name_en','businessId','sortOrder','isActive','is_active','updatedAt','version'];
+const PRODUCT_FIELDS=['productId','businessId','globalProductId','name','name_ar','name_en','description','description_ar','description_en','price','categoryId','imageUrl','imageUrls','images','barcode','isAvailable','isFeatured','searchableName','cuisineIds','optionGroups','addons','variations','nutritionalInfo','allergens','preparationTime','rating','reviewCount','stock','createdAt','updatedAt'];
+const CATEGORY_FIELDS=['categoryId','categoryName','cuisineIds','name','name_ar','name_en','businessId','sortOrder','isActive','is_active','updatedAt','version'];
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
 const versionId=v=>typeof v==='string'&&/^\d{10,16}_[a-f0-9]{12}$/i.test(v);
@@ -33,22 +33,23 @@ function createMenuVersionService(db,{now=()=>new Date(),nonce=randomUUID,actor=
    if(!item||(item.businessId!==undefined&&item.businessId!==b)||item.isActive===false||item.is_active===false)fail('MENU_CATEGORY_UNAVAILABLE',409);
    categories.set(categoryId,project(item,CATEGORY_FIELDS));
   }
-  const ordered=products.map(row=>({...project(row,PRODUCT_FIELDS.filter(k=>k!=='stock')),publishedCategory:categories.get(row.categoryId)})).sort((x,y)=>x.productId.localeCompare(y.productId));
+  const taxonomy=await require('../shared/menu-taxonomy').publication(db,b,products,categories);
+  const ordered=taxonomy.products.map(row=>({...project(row,PRODUCT_FIELDS.filter(k=>k!=='stock')),publishedCategory:categories.get(row.categoryId)})).sort((x,y)=>x.productId.localeCompare(y.productId));
   const contentHash=createHash('sha256').update(JSON.stringify(ordered)).digest('hex'),previous=await active(b);
-  if(previous?.contentHash===contentHash){const at=now().toISOString(),result={...previous,unchanged:true};await db.send(new TransactWriteCommand({TransactItems:[{ConditionCheck:{TableName:PLATFORM,Key:{pk:pk(b),sk:'MENU_VERSION#ACTIVE'},ConditionExpression:'publishedVersion=:v AND contentHash=:h',ExpressionAttributeValues:{':v':previous.publishedVersion,':h':contentHash}}},{Put:{TableName:PLATFORM,Item:{...requestKey,businessId:b,result,createdAt:at,expiresAt:Math.floor(now().getTime()/1000)+90*86400},ConditionExpression:'attribute_not_exists(pk)'}}]}));return result;}
+  if(previous?.contentHash===contentHash){const at=now().toISOString(),result={...previous,unchanged:true};await db.send(new TransactWriteCommand({TransactItems:[...(actor()?.deviceGuards||[]),{ConditionCheck:{TableName:PLATFORM,Key:{pk:pk(b),sk:'MENU_VERSION#ACTIVE'},ConditionExpression:'publishedVersion=:v AND contentHash=:h',ExpressionAttributeValues:{':v':previous.publishedVersion,':h':contentHash}}},{Put:{TableName:PLATFORM,Item:{...requestKey,businessId:b,result,createdAt:at,expiresAt:Math.floor(now().getTime()/1000)+90*86400},ConditionExpression:'attribute_not_exists(pk)'}}]}));return result;}
   const clock=now(),createdAt=clock.toISOString(),epoch=clock.getTime(),version=epoch+'_'+nonce().replaceAll('-','').slice(0,12),expiresAt=Math.floor(epoch/1000)+90*86400;
   for(let i=0;i<ordered.length;i+=20){
    const TransactItems=ordered.slice(i,i+20).map(product=>({Put:{TableName:PLATFORM,Item:{pk:pk(b),sk:`MENU_VERSION#${version}#PRODUCT#${product.productId}`,businessId:b,version,productId:product.productId,product,createdAt},ConditionExpression:'attribute_not_exists(pk) AND attribute_not_exists(sk)'}}));
    await db.send(new TransactWriteCommand({TransactItems}));
   }
-  const pointer={pk:pk(b),sk:'MENU_VERSION#ACTIVE',businessId:b,publishedVersion:version,previousVersion:previous?.publishedVersion||null,menuVersion:Math.max(epoch,Number(previous?.menuVersion||0)+1),contentHash,productCount:ordered.length,publishedAt:createdAt};
+  const pointer={pk:pk(b),sk:'MENU_VERSION#ACTIVE',businessId:b,publishedVersion:version,previousVersion:previous?.publishedVersion||null,menuVersion:Math.max(epoch,Number(previous?.menuVersion||0)+1),contentHash,productCount:ordered.length,cuisineIds:[...new Set(ordered.filter(p=>p.isAvailable).flatMap(p=>p.cuisineIds||[]))],publishedAt:createdAt};
   const history={...pointer,sk:'MENU_HISTORY#'+version,version,status:'PUBLISHED',actorId:(actor()||{}).sub||'',createdAt,expiresAt};
-  await db.send(new TransactWriteCommand({TransactItems:[
+  await db.send(new TransactWriteCommand({TransactItems:[...(actor()?.deviceGuards||[]),...taxonomy.guards,
    {ConditionCheck:{TableName:PLATFORM,Key:{pk:pk(b),sk:'MENU_DRAFT#META'},ConditionExpression:draft?'#v=:v':'attribute_not_exists(pk)',...(draft?{ExpressionAttributeNames:{'#v':'version'},ExpressionAttributeValues:{':v':draft.version}}:{})}},
    {Put:{TableName:PLATFORM,Item:pointer,ConditionExpression:previous?'publishedVersion=:v':'attribute_not_exists(pk)',...(previous?{ExpressionAttributeValues:{':v':previous.publishedVersion}}:{})}},
    {Put:{TableName:PLATFORM,Item:history,ConditionExpression:'attribute_not_exists(pk) AND attribute_not_exists(sk)'}},
    {Put:{TableName:PLATFORM,Item:{...requestKey,businessId:b,result:pointer,createdAt,expiresAt},ConditionExpression:'attribute_not_exists(pk)'}},
-   {Update:{TableName:BUSINESSES,Key:{businessId:b},UpdateExpression:'SET menuVersion=:m, menuLastUpdated=:at',ConditionExpression:'businessId=:b',ExpressionAttributeValues:{':m':pointer.menuVersion,':at':createdAt,':b':b}}},
+   {Update:{TableName:BUSINESSES,Key:{businessId:b},UpdateExpression:'SET menuVersion=:m, menuLastUpdated=:at, publishedCuisineIds=:c',ConditionExpression:'businessId=:b'+(taxonomy.activityId?' AND businessTypeId=:a':taxonomy.guards.length?' AND attribute_not_exists(businessTypeId)'+(taxonomy.legacyType?' AND #legacyActivity=:legacyActivity':''):''),ExpressionAttributeValues:{':m':pointer.menuVersion,':at':createdAt,':b':b,':c':[...new Set(ordered.filter(p=>p.isAvailable).flatMap(p=>p.cuisineIds||[]))],...(taxonomy.activityId?{':a':taxonomy.activityId}:taxonomy.legacyType?{':legacyActivity':taxonomy.legacyType}:{})},...(!taxonomy.activityId&&taxonomy.legacyType?{ExpressionAttributeNames:{'#legacyActivity':taxonomy.legacyField}}:{})}},
    audit(b,'MENU_VERSION_PUBLISHED',version,previous?{publishedVersion:previous.publishedVersion}:null,{publishedVersion:version,productCount:ordered.length,contentHash},createdAt)
   ]}));
   return pointer;
@@ -62,11 +63,11 @@ function createMenuVersionService(db,{now=()=>new Date(),nonce=randomUUID,actor=
   if(!meta||meta.businessId!==b)fail('MENU_VERSION_NOT_FOUND',404);
   const previous=await active(b);if(!previous)fail('MENU_VERSION_NOT_FOUND',404);
   const clock=now(),at=clock.toISOString(),menuVersion=Math.max(clock.getTime(),Number(previous.menuVersion||0)+1);
-  const pointer={...previous,publishedVersion:body.version,previousVersion:previous.publishedVersion,menuVersion,contentHash:meta.contentHash,productCount:meta.productCount,publishedAt:at};
+  const pointer={...previous,publishedVersion:body.version,previousVersion:previous.publishedVersion,menuVersion,contentHash:meta.contentHash,productCount:meta.productCount,cuisineIds:meta.cuisineIds||[],publishedAt:at};
   await db.send(new TransactWriteCommand({TransactItems:[
    {Put:{TableName:PLATFORM,Item:pointer,ConditionExpression:'publishedVersion=:v',ExpressionAttributeValues:{':v':previous.publishedVersion}}},
    {Put:{TableName:PLATFORM,Item:{...requestKey,businessId:b,version:body.version,result:pointer,createdAt:at,expiresAt:Math.floor(clock.getTime()/1000)+90*86400},ConditionExpression:'attribute_not_exists(pk)'}},
-   {Update:{TableName:BUSINESSES,Key:{businessId:b},UpdateExpression:'SET menuVersion=:m, menuLastUpdated=:at',ConditionExpression:'businessId=:b',ExpressionAttributeValues:{':m':menuVersion,':at':at,':b':b}}},
+   {Update:{TableName:BUSINESSES,Key:{businessId:b},UpdateExpression:'SET menuVersion=:m, menuLastUpdated=:at, publishedCuisineIds=:c',ConditionExpression:'businessId=:b',ExpressionAttributeValues:{':m':menuVersion,':at':at,':b':b,':c':pointer.cuisineIds}}},
    audit(b,'MENU_VERSION_ROLLED_BACK',body.version,{publishedVersion:previous.publishedVersion},{publishedVersion:body.version},at)
   ]}));return pointer;
  }

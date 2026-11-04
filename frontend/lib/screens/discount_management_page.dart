@@ -1234,6 +1234,8 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
     discount ??= seed;
     var perItem = discount?.calculationMode == 'perItem';
     final formKey = GlobalKey<FormState>();
+    final submissionMessage = ValueNotifier<String>('');
+    var submitting = false;
     final titleController = TextEditingController(text: discount?.title ?? '');
     final valueController = TextEditingController(
         text: discount != null ? _formatDiscountValue(discount.value) : '');
@@ -1601,9 +1603,6 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                               .pickImage(
                                                         source:
                                                             ImageSource.gallery,
-                                                        maxWidth: 1080,
-                                                        maxHeight: 1080,
-                                                        imageQuality: 85,
                                                       );
                                                       if (pickedFile != null) {
                                                         setState(() {
@@ -2587,304 +2586,357 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                     padding: EdgeInsets.all(AppSpacing.md),
                     child: SafeArea(
                       top: false,
-                      child: Row(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => Navigator.of(context).pop(),
-                                borderRadius: BorderRadius.circular(
-                                    AppDimensions.borderRadiusMD),
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.lg,
-                                    vertical: AppSpacing.md,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: WhizzColors.grey100,
-                                    borderRadius: BorderRadius.circular(
-                                        AppDimensions.borderRadiusMD),
-                                    border: Border.all(
-                                      color: WhizzColors.grey300,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      AppLocalizations.of(context)!.cancel,
-                                      style: AppTypography.titleMedium.copyWith(
-                                        color: WhizzColors.grey700,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
+                          ValueListenableBuilder<String>(
+                            valueListenable: submissionMessage,
+                            builder: (context, message, _) => message.isEmpty
+                                ? const SizedBox.shrink()
+                                : Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Semantics(
+                                        liveRegion: true,
+                                        child: Text(message,
+                                            style: const TextStyle(
+                                                color: Color(0xFFB3261E),
+                                                fontSize: 13)))),
                           ),
-                          SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            flex: 2,
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () async {
-                                  if (formKey.currentState!.validate()) {
-                                    if (![
-                                      DiscountType.percentage,
-                                      DiscountType.fixedAmount,
-                                      DiscountType.freeDelivery
-                                    ].contains(discountType)) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(const SnackBar(
-                                              content: Text(
-                                                  'هذا النوع من العروض غير مدعوم حالياً.')));
-                                      return;
-                                    }
-                                    // Prepare conditional parameters for Buy X Get Y and Conditional discounts
-                                    Map<String, dynamic> conditionalParams = {};
-                                    ConditionalDiscountRule? conditionalRule;
-
-                                    if (discountType == DiscountType.buyXGetY ||
-                                        discountType ==
-                                            DiscountType.conditional) {
-                                      if (selectedBuyItemId == null ||
-                                          selectedGetItemId == null) {
-                                        _showArabicOfferDialog(
-                                          context: context,
-                                          builder: (context) => AlertDialog(
-                                            title: Text(
-                                                AppLocalizations.of(context)!
-                                                    .missingItems),
-                                            content: Text(AppLocalizations.of(
-                                                    context)!
-                                                .missingItemsMessage(
-                                                    discountType ==
-                                                            DiscountType
-                                                                .conditional
-                                                        ? AppLocalizations.of(
-                                                                context)!
-                                                            .conditional
-                                                        : AppLocalizations.of(
-                                                                context)!
-                                                            .buyXGetY)),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(context).pop(),
-                                                child: Text(AppLocalizations.of(
-                                                        context)!
-                                                    .ok),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        return;
-                                      }
-
-                                      conditionalRule =
-                                          ConditionalDiscountRule.buyXGetY;
-                                      conditionalParams = {
-                                        'buyItemId': selectedBuyItemId,
-                                        'buyQuantity': int.parse(
-                                            buyXQuantityController.text),
-                                        'getItemId': selectedGetItemId,
-                                        'getQuantity': int.parse(
-                                            getYQuantityController.text),
-                                      };
-                                    }
-
-                                    // Upload the picked image first (if any) so
-                                    // the returned URL can be stored on the
-                                    // discount record as imageUrl.
-                                    String? imageUrl = _existingImageUrl;
-                                    if (_pickedImage != null) {
-                                      sheetSetState?.call(() {
-                                        _uploadingImage = true;
-                                      });
-                                      final uploadResult =
-                                          await ImageUploadService
-                                              .uploadProductImage(
-                                                  _pickedImage!);
-                                      sheetSetState?.call(() {
-                                        _uploadingImage = false;
-                                      });
-                                      if (uploadResult['success'] == true) {
-                                        imageUrl =
-                                            uploadResult['imageUrl'] as String?;
-                                      } else {
-                                        if (context.mounted) {
-                                          showAdaptiveSnackBar(
-                                            context: context,
-                                            message:
-                                                '${AppLocalizations.of(context)!.imageUploadFailed}: ${uploadResult['message']}',
-                                            type: AdaptiveSnackBarType.error,
-                                          );
-                                        }
-                                        return;
-                                      }
-                                    }
-
-                                    if (perItem &&
-                                        (applicability != DiscountApplicability.specificItems ||
-                                            selectedItemIds.isEmpty ||
-                                            selectedItemIds.length > 40 ||
-                                            ![
-                                              DiscountType.percentage,
-                                              DiscountType.fixedAmount
-                                            ].contains(discountType) ||
-                                            (double.tryParse(minOrderController
-                                                        .text) ??
-                                                    0) !=
-                                                0 ||
-                                            customerUsesController.text
-                                                .trim()
-                                                .isNotEmpty ||
-                                            discountCapController.text
-                                                .trim()
-                                                .isNotEmpty)) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(const SnackBar(
-                                              content: Text(
-                                                  'خصم كل قطعة يتطلب اختيار ١–٤٠ وجبة، ونسبة أو مبلغًا ثابتًا، دون حد أدنى أو سقف أو حد استخدام لكل زبون.')));
-                                      return;
-                                    }
-                                    final newDiscount = Discount(
-                                      calculationMode:
-                                          perItem ? 'perItem' : 'order',
-
-                                      revision:
-                                          isEditing ? discount?.revision : null,
-                                      id: (isEditing ? discount?.id : null) ??
-                                          DateTime.now()
-                                              .millisecondsSinceEpoch
-                                              .toString(),
-                                      name: titleController.text,
-                                      description:
-                                          '', // Description field removed from creation
-                                      type: discountType,
-                                      value: double.parse(valueController.text),
-                                      applicability: applicability,
-                                      applicableItemIds: selectedItemIds,
-                                      applicableCategoryIds:
-                                          selectedCategoryIds,
-                                      maxUsage:
-                                          MerchantDiscountUsageFields.parse(
-                                              totalUsesController.text),
-                                      perCustomerLimit:
-                                          MerchantDiscountUsageFields.parse(
-                                              customerUsesController.text),
-                                      maxDiscountAmount: discountType ==
-                                              DiscountType.percentage
-                                          ? MerchantDiscountUsageFields.parse(
-                                              discountCapController.text)
-                                          : null,
-                                      minimumOrderAmount: double.tryParse(
-                                              minOrderController.text) ??
-                                          0.0,
-                                      startDate: startDate,
-                                      endDate: endDate,
-                                      validFrom: startDate,
-                                      validTo: endDate,
-                                      businessId: widget.business.id,
-                                      createdAt: (isEditing
-                                              ? discount?.createdAt
-                                              : null) ??
-                                          DateTime.now(),
-                                      updatedAt: DateTime.now(),
-                                      status: seed != null
-                                          ? DiscountStatus.inactive
-                                          : DiscountStatus.active,
-                                      conditionalRule: conditionalRule,
-                                      conditionalParameters: conditionalParams,
-                                      imageUrl: imageUrl,
-                                    );
-
-                                    Navigator.of(context).pop();
-
-                                    // Call API methods to create or update the discount
-                                    try {
-                                      if (isEditing) {
-                                        await _updateDiscount(newDiscount);
-                                      } else {
-                                        await _createDiscount(newDiscount);
-                                      }
-                                    } catch (e) {
-                                      // Error handling is already done in the individual methods
-                                    }
-                                  }
-                                },
-                                borderRadius: BorderRadius.circular(
-                                    AppDimensions.borderRadiusMD),
-                                child: Ink(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        WhizzColors.primary,
-                                        WhizzColors.primary,
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(
-                                        AppDimensions.borderRadiusMD),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: WhizzColors.primary
-                                            .withValues(alpha: 0.4),
-                                        blurRadius: 12,
-                                        offset: const Offset(0, 4),
-                                        spreadRadius: 0,
-                                      ),
-                                    ],
-                                  ),
+                          Row(children: [
+                            Expanded(
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () => Navigator.of(context).pop(),
+                                  borderRadius: BorderRadius.circular(
+                                      AppDimensions.borderRadiusMD),
                                   child: Container(
                                     padding: EdgeInsets.symmetric(
                                       horizontal: AppSpacing.lg,
                                       vertical: AppSpacing.md,
                                     ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Container(
-                                          padding:
-                                              EdgeInsets.all(AppSpacing.xxs),
-                                          decoration: BoxDecoration(
-                                            color: WhizzColors.black
-                                                .withValues(alpha: 0.2),
-                                            borderRadius: BorderRadius.circular(
-                                                AppDimensions.borderRadiusSM),
-                                          ),
-                                          child: Icon(
-                                            isEditing
-                                                ? Icons.save_rounded
-                                                : Icons.add_rounded,
-                                            color: WhizzColors.black,
-                                            size: AppDimensions.iconSizeSM,
-                                          ),
+                                    decoration: BoxDecoration(
+                                      color: WhizzColors.grey100,
+                                      borderRadius: BorderRadius.circular(
+                                          AppDimensions.borderRadiusMD),
+                                      border: Border.all(
+                                        color: WhizzColors.grey300,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        AppLocalizations.of(context)!.cancel,
+                                        style:
+                                            AppTypography.titleMedium.copyWith(
+                                          color: WhizzColors.grey700,
+                                          fontWeight: FontWeight.w600,
                                         ),
-                                        SizedBox(width: AppSpacing.xs),
-                                        Text(
-                                          isEditing
-                                              ? AppLocalizations.of(context)!
-                                                  .saveChanges
-                                              : AppLocalizations.of(context)!
-                                                  .create,
-                                          style: AppTypography.titleMedium
-                                              .copyWith(
-                                            color: WhizzColors.black,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
+                            SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              flex: 2,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () async {
+                                    if (submitting) return;
+                                    submissionMessage.value = '';
+                                    final invalid = formKey.currentState!
+                                        .validateGranularly();
+                                    if (invalid.isNotEmpty) {
+                                      submissionMessage.value =
+                                          'راجع الحقل الموضّح: ${invalid.first.errorText ?? 'أكمل البيانات المطلوبة'}';
+                                      await Scrollable.ensureVisible(
+                                          invalid.first.context,
+                                          duration:
+                                              const Duration(milliseconds: 250),
+                                          alignment: 0.25);
+                                      return;
+                                    }
+                                    submitting = true;
+                                    try {
+                                      if (![
+                                        DiscountType.percentage,
+                                        DiscountType.fixedAmount,
+                                        DiscountType.freeDelivery
+                                      ].contains(discountType)) {
+                                        submissionMessage.value =
+                                            'هذا النوع من العروض غير مدعوم حالياً.';
+                                        return;
+                                      }
+                                      // Prepare conditional parameters for Buy X Get Y and Conditional discounts
+                                      Map<String, dynamic> conditionalParams =
+                                          {};
+                                      ConditionalDiscountRule? conditionalRule;
+
+                                      if (discountType ==
+                                              DiscountType.buyXGetY ||
+                                          discountType ==
+                                              DiscountType.conditional) {
+                                        if (selectedBuyItemId == null ||
+                                            selectedGetItemId == null) {
+                                          _showArabicOfferDialog(
+                                            context: context,
+                                            builder: (context) => AlertDialog(
+                                              title: Text(
+                                                  AppLocalizations.of(context)!
+                                                      .missingItems),
+                                              content: Text(AppLocalizations.of(
+                                                      context)!
+                                                  .missingItemsMessage(
+                                                      discountType ==
+                                                              DiscountType
+                                                                  .conditional
+                                                          ? AppLocalizations.of(
+                                                                  context)!
+                                                              .conditional
+                                                          : AppLocalizations.of(
+                                                                  context)!
+                                                              .buyXGetY)),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.of(context)
+                                                          .pop(),
+                                                  child: Text(
+                                                      AppLocalizations.of(
+                                                              context)!
+                                                          .ok),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        conditionalRule =
+                                            ConditionalDiscountRule.buyXGetY;
+                                        conditionalParams = {
+                                          'buyItemId': selectedBuyItemId,
+                                          'buyQuantity': int.parse(
+                                              buyXQuantityController.text),
+                                          'getItemId': selectedGetItemId,
+                                          'getQuantity': int.parse(
+                                              getYQuantityController.text),
+                                        };
+                                      }
+
+                                      // Upload the picked image first (if any) so
+                                      // the returned URL can be stored on the
+                                      // discount record as imageUrl.
+                                      String? imageUrl = _existingImageUrl;
+                                      if (_pickedImage != null) {
+                                        sheetSetState?.call(() {
+                                          _uploadingImage = true;
+                                        });
+                                        final uploadResult =
+                                            await ImageUploadService
+                                                .uploadDiscountImage(
+                                                    _pickedImage!,
+                                                    businessId:
+                                                        widget.business.id);
+                                        sheetSetState?.call(() {
+                                          _uploadingImage = false;
+                                        });
+                                        if (uploadResult['success'] == true) {
+                                          imageUrl = uploadResult['imageUrl']
+                                              as String?;
+                                        } else {
+                                          submissionMessage.value =
+                                              'تعذر رفع الصورة: ${uploadResult['message'] ?? 'أعد المحاولة.'}';
+                                          if (context.mounted) {
+                                            showAdaptiveSnackBar(
+                                              context: context,
+                                              message:
+                                                  '${AppLocalizations.of(context)!.imageUploadFailed}: ${uploadResult['message']}',
+                                              type: AdaptiveSnackBarType.error,
+                                            );
+                                          }
+                                          return;
+                                        }
+                                      }
+
+                                      if (perItem &&
+                                          (applicability !=
+                                                  DiscountApplicability
+                                                      .specificItems ||
+                                              selectedItemIds.isEmpty ||
+                                              selectedItemIds.length > 40 ||
+                                              ![
+                                                DiscountType.percentage,
+                                                DiscountType.fixedAmount
+                                              ].contains(discountType) ||
+                                              (double.tryParse(
+                                                          minOrderController
+                                                              .text) ??
+                                                      0) !=
+                                                  0 ||
+                                              customerUsesController.text
+                                                  .trim()
+                                                  .isNotEmpty ||
+                                              discountCapController.text
+                                                  .trim()
+                                                  .isNotEmpty)) {
+                                        submissionMessage.value =
+                                            'خصم كل قطعة يتطلب اختيار ١–٤٠ وجبة، ونسبة أو مبلغًا ثابتًا، دون حد أدنى أو سقف أو حد استخدام لكل زبون.';
+                                        return;
+                                      }
+                                      final newDiscount = Discount(
+                                        calculationMode:
+                                            perItem ? 'perItem' : 'order',
+
+                                        revision: isEditing
+                                            ? discount?.revision
+                                            : null,
+                                        id: (isEditing ? discount?.id : null) ??
+                                            DateTime.now()
+                                                .millisecondsSinceEpoch
+                                                .toString(),
+                                        name: titleController.text,
+                                        description:
+                                            '', // Description field removed from creation
+                                        type: discountType,
+                                        value:
+                                            double.parse(valueController.text),
+                                        applicability: applicability,
+                                        applicableItemIds: selectedItemIds,
+                                        applicableCategoryIds:
+                                            selectedCategoryIds,
+                                        maxUsage:
+                                            MerchantDiscountUsageFields.parse(
+                                                totalUsesController.text),
+                                        perCustomerLimit:
+                                            MerchantDiscountUsageFields.parse(
+                                                customerUsesController.text),
+                                        maxDiscountAmount: discountType ==
+                                                DiscountType.percentage
+                                            ? MerchantDiscountUsageFields.parse(
+                                                discountCapController.text)
+                                            : null,
+                                        minimumOrderAmount: double.tryParse(
+                                                minOrderController.text) ??
+                                            0.0,
+                                        startDate: startDate,
+                                        endDate: endDate,
+                                        validFrom: startDate,
+                                        validTo: endDate,
+                                        businessId: widget.business.id,
+                                        createdAt: (isEditing
+                                                ? discount?.createdAt
+                                                : null) ??
+                                            DateTime.now(),
+                                        updatedAt: DateTime.now(),
+                                        status: seed != null
+                                            ? DiscountStatus.inactive
+                                            : DiscountStatus.active,
+                                        conditionalRule: conditionalRule,
+                                        conditionalParameters:
+                                            conditionalParams,
+                                        imageUrl: imageUrl,
+                                      );
+
+                                      Navigator.of(context).pop();
+
+                                      // Call API methods to create or update the discount
+                                      try {
+                                        if (isEditing) {
+                                          await _updateDiscount(newDiscount);
+                                        } else {
+                                          await _createDiscount(newDiscount);
+                                        }
+                                      } catch (e) {
+                                        submissionMessage.value =
+                                            'تعذر حفظ الخصم. أعد المحاولة.';
+                                      }
+                                    } catch (e) {
+                                      submissionMessage.value =
+                                          'تعذر تجهيز الخصم. تحقق من البيانات والصورة ثم أعد المحاولة.';
+                                    } finally {
+                                      submitting = false;
+                                      if (context.mounted)
+                                        sheetSetState?.call(
+                                            () => _uploadingImage = false);
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(
+                                      AppDimensions.borderRadiusMD),
+                                  child: Ink(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          WhizzColors.primary,
+                                          WhizzColors.primary,
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(
+                                          AppDimensions.borderRadiusMD),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: WhizzColors.primary
+                                              .withValues(alpha: 0.4),
+                                          blurRadius: 12,
+                                          offset: const Offset(0, 4),
+                                          spreadRadius: 0,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Container(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: AppSpacing.lg,
+                                        vertical: AppSpacing.md,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Container(
+                                            padding:
+                                                EdgeInsets.all(AppSpacing.xxs),
+                                            decoration: BoxDecoration(
+                                              color: WhizzColors.black
+                                                  .withValues(alpha: 0.2),
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                      AppDimensions
+                                                          .borderRadiusSM),
+                                            ),
+                                            child: Icon(
+                                              isEditing
+                                                  ? Icons.save_rounded
+                                                  : Icons.add_rounded,
+                                              color: WhizzColors.black,
+                                              size: AppDimensions.iconSizeSM,
+                                            ),
+                                          ),
+                                          SizedBox(width: AppSpacing.xs),
+                                          Text(
+                                            isEditing
+                                                ? AppLocalizations.of(context)!
+                                                    .saveChanges
+                                                : AppLocalizations.of(context)!
+                                                    .create,
+                                            style: AppTypography.titleMedium
+                                                .copyWith(
+                                              color: WhizzColors.black,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ]),
                         ],
                       ),
                     ),

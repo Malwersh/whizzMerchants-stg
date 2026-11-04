@@ -212,11 +212,28 @@ class ImageUploadService {
     }
   }
 
+  /// Campaign artwork keeps animated GIF bytes and uses the verified branch upload.
+  static Future<Map<String, dynamic>> uploadDiscountImage(File file,
+      {required String businessId}) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 3 * 1024 * 1024)
+      return {
+        'success': false,
+        'message': 'يجب أن يكون حجم الصورة أو GIF أقل من 3 MB.'
+      };
+    return uploadProductImageFromBytes(
+        imageBytes: bytes,
+        fileName: file.path,
+        businessId: businessId,
+        purpose: 'discount');
+  }
+
   /// Upload image from bytes (for web compatibility)
   static Future<Map<String, dynamic>> uploadProductImageFromBytes({
     required Uint8List imageBytes,
     required String fileName,
     String? businessId,
+    String purpose = 'product',
   }) async {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
@@ -234,26 +251,37 @@ class ImageUploadService {
 
       // Determine file extension from file name
       final fileNameLower = fileName.toLowerCase();
-      final fileExtension = fileNameLower.endsWith('.png') ? 'png' : 'jpg';
+      final isGif = purpose == 'discount' &&
+          imageBytes.length >= 6 &&
+          ['GIF87a', 'GIF89a'].contains(
+              ascii.decode(imageBytes.take(6).toList(), allowInvalid: true));
+      final fileExtension = isGif
+          ? 'gif'
+          : fileNameLower.endsWith('.png')
+              ? 'png'
+              : 'jpg';
       final uniqueFileName = '${uuid.v4()}.$fileExtension';
 
       // Create JSON request body
       final requestBody = {
         'image':
-            'data:image/${fileExtension == "png" ? "png" : "jpeg"};base64,$base64Image',
+            'data:image/${isGif ? "gif" : fileExtension == "png" ? "png" : "jpeg"};base64,$base64Image',
         'businessId': scope.businessId,
+        if (purpose == 'discount') 'purpose': 'discount',
         'filename': uniqueFileName,
       };
 
       // Make HTTP POST request with JSON body
-      final response = await http.post(
-        scope.uri('$baseUrl/upload/product-image'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode(requestBody),
-      );
+      final response = await http
+          .post(
+            scope.uri('$baseUrl/upload/product-image'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode(requestBody),
+          )
+          .timeout(const Duration(seconds: 30));
 
       AppLogger.api(
           'Product image upload response status: ${response.statusCode}');

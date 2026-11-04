@@ -6,7 +6,7 @@ const {readBranchProductOptions}=require('./branch-product-options');
 const TABLE='staging-MerchantPlatform';
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 const get=async(db,TableName,Key)=>(await db.send(new GetCommand({TableName,Key,ConsistentRead:true}))).Item;
-const fields=['productId','businessId','name','description','price','categoryId','isAvailable','imageUrl','barcode','globalProductId','optionGroups','createdAt','updatedAt'];
+const fields=['productId','businessId','name','description','price','categoryId','isAvailable','imageUrl','barcode','globalProductId','cuisineIds','optionGroups','createdAt','updatedAt'];
 const view=p=>Object.fromEntries(fields.filter(k=>p[k]!==undefined).map(k=>[k,p[k]]));
 const auditView=p=>{const safe=view(p);delete safe.imageUrl;return safe;};
 const ownedImage=(value,businessId)=>typeof value==='string'&&new RegExp('^https://wizz-merchants-staging-businessphotosbucket-up3j1qega8m5\\.s3\\.amazonaws\\.com/merchants/'+businessId.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/product-images/[A-Za-z0-9_-]+\\.(?:jpg|jpeg|png|webp)$','i').test(value);
@@ -17,9 +17,10 @@ function audit(actor,action,productId,before,after){
 async function mutate(db,actor,event){
  const products=process.env.PRODUCTS_TABLE||'WhizzMerchants_Products',categories=process.env.CATEGORIES_TABLE||'WhizzMerchants_Categories';
  const body=JSON.parse(event.body||'{}');
+ if(actor.deviceGuards&&!actor.canClassifyMenu&&body.cuisineIds!==undefined&&(event.httpMethod==='PUT'||body.cuisineIds?.length))fail('CLASSIFICATION_OWNER_REQUIRED',403);
  if(body.businessId&&body.businessId!==actor.businessId)fail('BRANCH_SCOPE_REQUIRED',403);
  if(event.httpMethod==='POST'){
-  if(Object.keys(body).some(k=>!['businessId','requestId','name','description','price','categoryId','isAvailable','imageUrl','barcode','globalProductId','optionGroups'].includes(k)))fail('INVALID_MENU_CREATE');
+  if(Object.keys(body).some(k=>!['businessId','requestId','name','description','price','categoryId','isAvailable','imageUrl','barcode','globalProductId','cuisineIds','optionGroups'].includes(k)))fail('INVALID_MENU_CREATE');
   if(typeof body.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(body.requestId))fail('REQUEST_ID_REQUIRED');
   if(typeof body.name!=='string'||!body.name.trim()||body.name.length>150||typeof body.categoryId!=='string'||!body.categoryId.trim()||body.categoryId.length>150)fail('INVALID_MENU_CREATE');
   if(!Number.isSafeInteger(body.price)||body.price<=0||body.price>1000000000)fail('INVALID_PRICE');
@@ -27,8 +28,9 @@ async function mutate(db,actor,event){
   if(body.imageUrl!==undefined&&!ownedImage(body.imageUrl,actor.businessId))fail('INVALID_MENU_CREATE');
   if(body.barcode!==undefined&&(typeof body.barcode!=='string'||!/^[0-9A-Za-z._-]{1,100}$/.test(body.barcode)))fail('INVALID_MENU_CREATE');
   if(body.globalProductId!==undefined&&(typeof body.globalProductId!=='string'||!/^[-\w]{1,150}$/.test(body.globalProductId)))fail('INVALID_MENU_CREATE');
+  const taxonomy=body.cuisineIds===undefined?{guards:[]}:await require('./menu-taxonomy').validate(db,actor.businessId,body.cuisineIds);
   let optionGroups;try{if(body.optionGroups!==undefined)optionGroups=readBranchProductOptions(body.optionGroups);}catch(_){fail('INVALID_BRANCH_PRODUCT_OPTIONS');}
-  const content={businessId:actor.businessId,name:body.name.trim(),description:body.description||'',price:body.price,categoryId:body.categoryId,isAvailable:body.isAvailable!==false,...(body.imageUrl!==undefined?{imageUrl:body.imageUrl}:{}),...(body.barcode!==undefined?{barcode:body.barcode}:{}),...(body.globalProductId!==undefined?{globalProductId:body.globalProductId}:{}),...(optionGroups!==undefined?{optionGroups}: {})};
+  const content={...(body.cuisineIds!==undefined?{cuisineIds:taxonomy.ids}:{}),businessId:actor.businessId,name:body.name.trim(),description:body.description||'',price:body.price,categoryId:body.categoryId,isAvailable:body.isAvailable!==false,...(body.imageUrl!==undefined?{imageUrl:body.imageUrl}:{}),...(body.barcode!==undefined?{barcode:body.barcode}:{}),...(body.globalProductId!==undefined?{globalProductId:body.globalProductId}:{}),...(optionGroups!==undefined?{optionGroups}: {})};
   const fingerprint=createHash('sha256').update(JSON.stringify(content)).digest('hex');
   const key={pk:'BRANCH#'+actor.businessId,sk:'MENU_CREATE#'+body.requestId};
   async function replay(){
@@ -42,7 +44,7 @@ async function mutate(db,actor,event){
   const category=await get(db,categories,{categoryId:body.categoryId});
   if(!category||category.isActive===false||category.is_active===false||category.businessId&&category.businessId!==actor.businessId)fail('CATEGORY_UNAVAILABLE');
   const productId=randomUUID(),now=new Date().toISOString(),product={...content,productId,searchableName:content.name.toLowerCase(),createdAt:now,updatedAt:now};
-  try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...(actor.deviceGuards||[]),
+  try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...taxonomy.guards,...(actor.deviceGuards||[]),
    {ConditionCheck:{TableName:categories,Key:{categoryId:body.categoryId},ConditionExpression:'attribute_exists(categoryId) AND (attribute_not_exists(isActive) OR isActive=:yes) AND (attribute_not_exists(is_active) OR is_active=:yes) AND (attribute_not_exists(businessId) OR businessId=:b)',ExpressionAttributeValues:{':yes':true,':b':actor.businessId}}},
    {Put:{TableName:products,Item:product,ConditionExpression:'attribute_not_exists(productId)'}},
    {Put:{TableName:TABLE,Item:{...key,businessId:actor.businessId,ownerId:actor.ownerId,fingerprint,productId,createdAt:now},ConditionExpression:'attribute_not_exists(pk)'}},
@@ -50,11 +52,13 @@ async function mutate(db,actor,event){
   return {statusCode:201,body:JSON.stringify({success:true,product:{...view(product),id:productId}})};
  }
  if(event.httpMethod==='PUT'){
-  if(Object.keys(body).some(k=>!['businessId','requestId','name','description','price','categoryId','isAvailable','imageUrl','barcode','optionGroups'].includes(k)))fail('INVALID_MENU_UPDATE');
+  if(Object.keys(body).some(k=>!['businessId','requestId','name','description','price','categoryId','isAvailable','imageUrl','barcode','cuisineIds','optionGroups'].includes(k)))fail('INVALID_MENU_UPDATE');
   if(typeof body.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(body.requestId))fail('REQUEST_ID_REQUIRED');
   const productId=event.pathParameters?.productId;
   if(typeof productId!=='string'||!/^[-\w]{1,150}$/.test(productId))fail('PRODUCT_UNAVAILABLE',404);
-  const changes=Object.fromEntries(['name','description','price','categoryId','isAvailable','imageUrl','barcode'].filter(k=>body[k]!==undefined).map(k=>[k,body[k]]));
+  const taxonomy=body.cuisineIds===undefined?{guards:[]}:await require('./menu-taxonomy').validate(db,actor.businessId,body.cuisineIds);
+  const changes=Object.fromEntries(['name','description','price','categoryId','isAvailable','imageUrl','barcode','cuisineIds'].filter(k=>body[k]!==undefined).map(k=>[k,body[k]]));
+  if(body.cuisineIds!==undefined)changes.cuisineIds=taxonomy.ids;
   try{if(body.optionGroups!==undefined)changes.optionGroups=readBranchProductOptions(body.optionGroups);}catch(_){fail('INVALID_BRANCH_PRODUCT_OPTIONS');}
   if(!Object.keys(changes).length)fail('INVALID_MENU_UPDATE');
   if(changes.price!==undefined&&(!Number.isSafeInteger(changes.price)||changes.price<=0||changes.price>1000000000))fail('INVALID_PRICE');
@@ -77,7 +81,7 @@ async function mutate(db,actor,event){
   if(!product||product.businessId!==actor.businessId)fail('PRODUCT_UNAVAILABLE',404);
   if(changes.categoryId!==undefined){const category=await get(db,categories,{categoryId:changes.categoryId});if(!category||category.isActive===false||category.is_active===false||category.businessId&&category.businessId!==actor.businessId)fail('CATEGORY_UNAVAILABLE');}
   const names={},values={':b':actor.businessId};let condition='businessId=:b';
-  for(const [i,k] of ['updatedAt','name','description','price','categoryId','isAvailable','imageUrl','barcode','optionGroups'].entries()){
+  for(const [i,k] of ['updatedAt','name','description','price','categoryId','isAvailable','imageUrl','barcode','cuisineIds','optionGroups'].entries()){
    const name='#before'+i;names[name]=k;
    if(product[k]===undefined)condition+=' AND attribute_not_exists('+name+')';
    else{values[':before'+i]=product[k];condition+=' AND '+name+'=:before'+i;}
@@ -88,7 +92,7 @@ async function mutate(db,actor,event){
   const assignments=Object.entries(patch).map(([k,v],i)=>{names['#set'+i]=k;values[':set'+i]=v;return '#set'+i+'=:set'+i;});
   const record=changed?{Update:{TableName:products,Key:{productId},ConditionExpression:condition,ExpressionAttributeNames:names,ExpressionAttributeValues:values,UpdateExpression:'SET '+assignments.join(', ')}}:{ConditionCheck:{TableName:products,Key:{productId},ConditionExpression:condition,ExpressionAttributeNames:Object.fromEntries(Object.entries(names).filter(([k])=>k.startsWith('#before'))),ExpressionAttributeValues:Object.fromEntries(Object.entries(values).filter(([k])=>!k.startsWith(':set')))}};
   const categoryFence=changes.categoryId===undefined?[]:[{ConditionCheck:{TableName:categories,Key:{categoryId:changes.categoryId},ConditionExpression:'attribute_exists(categoryId) AND (attribute_not_exists(isActive) OR isActive=:yes) AND (attribute_not_exists(is_active) OR is_active=:yes) AND (attribute_not_exists(businessId) OR businessId=:b)',ExpressionAttributeValues:{':yes':true,':b':actor.businessId}}}];
-  try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...(actor.deviceGuards||[]),...categoryFence,record,
+  try{await db.send(new TransactWriteCommand({TransactItems:[menuDraftVersion(actor.businessId),...taxonomy.guards,...(actor.deviceGuards||[]),...categoryFence,record,
    {Put:{TableName:TABLE,Item:{...key,businessId:actor.businessId,ownerId:actor.ownerId,productId,fingerprint,createdAt:now},ConditionExpression:'attribute_not_exists(pk)'}},
    ...(changed?[audit(actor,'MENU_PRODUCT_UPDATED',productId,product,after)]:[])]}));}catch(e){if(e.name!=='TransactionCanceledException')throw e;const retry=await replay();if(retry)return retry;fail('VERSION_OR_STATE_CONFLICT',409);}
   return {statusCode:200,body:JSON.stringify({success:true,product:{...view(after),id:productId},unchanged:!changed})};
@@ -107,7 +111,7 @@ async function mutate(db,actor,event){
  if(product.updatedAt!==undefined){condition+=' AND #updated=:updated';names['#updated']='updatedAt';values[':updated']=product.updatedAt;}
  else condition+=' AND attribute_not_exists(updatedAt)';
  // Also fence editable values: two edits can share a millisecond timestamp.
- for(const [index,field] of ['name','description','price','categoryId','isAvailable','imageUrl','barcode','optionGroups'].entries()){
+ for(const [index,field] of ['name','description','price','categoryId','isAvailable','imageUrl','barcode','cuisineIds','optionGroups'].entries()){
   const name='#before'+index;names[name]=field;
   if(product[field]===undefined)condition+=' AND attribute_not_exists('+name+')';
   else{const value=':before'+index;values[value]=product[field];condition+=' AND '+name+'='+value;}

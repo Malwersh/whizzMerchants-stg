@@ -11,3 +11,11 @@ test('registration upload header cannot bypass product image authentication',asy
  const r=await handler({httpMethod:'POST',path:'/upload/product-image',headers:{'X-Registration-Upload':'true'},body:'{}'});
  assert.equal(r.statusCode,401);
 });
+
+test('discount artwork GIF is bounded and preserved, product uploads still reject it',()=>{
+ const gif=Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAQABAAACAkQBACH5BAAKAAAALAAAAAABAAEAAAICTAEAOw==','base64');
+ const original=Buffer.from(gif);assert.throws(()=>validateProductImage(gif));
+ assert.deepEqual(validateProductImage(gif,{allowGif:true}),{width:1,height:1,type:'image/gif'});assert.deepEqual(gif,original);
+ for(const b of [gif.subarray(0,-1),Buffer.concat([gif,Buffer.from('bad')]),Buffer.alloc(4*1024*1024)])assert.throws(()=>validateProductImage(b,{allowGif:true}));
+ const oversized=Buffer.from(gif);oversized.writeUInt16LE(9000,6);assert.throws(()=>validateProductImage(oversized,{allowGif:true}));
+});

@@ -214,6 +214,14 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_resumeKey);
+      await ProductService.recordPublication(
+          widget.businessId, {'status': 'pending'});
+      final publication = await ProductService.publishMenu(widget.businessId);
+      if (publication['success'] != true) {
+        if (mounted)
+          setState(() => error =
+              'اكتمل الاستيراد، لكن لم تصل التغييرات للزبائن. استخدم «إعادة المحاولة» في قائمة المنتجات.');
+      }
       widget.onCompleted?.call();
     } catch (e) {
       if (mounted) {
@@ -430,7 +438,7 @@ class _ProductImportScreenState extends State<ProductImportScreen> {
               leading: Icon(Icons.fact_check_outlined),
               title: Text('٤. افحص ثم اعتمد وانشر'),
               subtitle: Text(
-                  'المعاينة لا تغيّر المنتجات الحية. راجع الأخطاء وحدد الصفوف المطلوبة ثم اعتمدها. بعد الانتهاء انشر القائمة من شاشة المنتجات لإظهارها للزبائن.')),
+                  'المعاينة لا تغيّر المنتجات الحية. راجع الأخطاء وحدد الصفوف المطلوبة ثم اعتمدها. تُنشر القائمة تلقائيًا بعد اكتمال الاستيراد.')),
           ListTile(
               title: Text('ما الحقول المطلوبة؟'),
               subtitle: Text(
