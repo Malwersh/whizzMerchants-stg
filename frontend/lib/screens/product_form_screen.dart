@@ -1,3 +1,6 @@
+import '../widgets/product_classifications_field.dart';
+import '../widgets/product_sizes_sheet.dart';
+import '../services/merchant_branch_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -31,8 +34,28 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late bool available;
   String? category, imageUrl, branch;
   Uint8List? imageBytes;
-  bool busy = false, picking = false;
+  bool busy = false, picking = false, creatingCategory = false;
+  final List<ProductCategory> _createdCategories = [];
+  String? _categoryRequestId, _categoryRequestName;
   String? error;
+  List<String> cuisineIds = [];
+  List<Map<String, dynamic>> taxonomy = [];
+  String? taxonomyError;
+  Future<void> loadTaxonomy() async {
+    try {
+      final result = await ProductService.taxonomy(branch);
+      if (mounted)
+        setState(() {
+          taxonomy = result;
+          taxonomyError = null;
+        });
+    } catch (_) {
+      if (mounted)
+        setState(() => taxonomyError =
+            'تعذر تحميل التصنيفات. يمكنك متابعة تعديل المنتج دون تغيير تصنيفه.');
+    }
+  }
+
   Timer? debounce;
   int searchVersion = 0;
   List<Map<String, dynamic>> suggestions = [];
@@ -53,6 +76,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                 : p.price.toString()));
     barcode = TextEditingController(text: p?.barcode ?? '');
     category = p?.categoryId;
+    cuisineIds = List.of(p?.cuisineIds ?? []);
     available = p?.isAvailable ?? true;
     imageUrl = p == null
         ? null
@@ -65,8 +89,103 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       branch = widget.businessId ??
           p?.businessId ??
           ref.read(productProviderRiverpod.notifier).businessId;
+      loadTaxonomy();
       if (ref.read(productProviderRiverpod).categories.isEmpty) {
         ref.read(productProviderRiverpod.notifier).loadCategories('restaurant');
+      }
+    });
+  }
+
+  Future<void> createCategory() async {
+    if (busy || creatingCategory) return;
+    final key = GlobalKey<FormState>();
+    String value = '';
+    final result = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('قسم جديد في منيو الفرع'),
+                content: Form(
+                    key: key,
+                    child: TextFormField(
+                        autofocus: true,
+                        maxLength: 100,
+                        decoration: const InputDecoration(
+                            labelText: 'اسم القسم', hintText: 'مثل: بيتزا'),
+                        onChanged: (v) => value = v,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty)
+                            return 'اكتب اسم القسم';
+                          final known = [
+                            ...ref.read(productProviderRiverpod).categories,
+                            ..._createdCategories
+                          ];
+                          return known.any((c) => c.name.trim() == v.trim())
+                              ? 'هذا القسم موجود بالفعل'
+                              : null;
+                        })),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('إلغاء')),
+                  FilledButton(
+                      onPressed: () {
+                        if (key.currentState!.validate())
+                          Navigator.pop(dialogContext, value.trim());
+                      },
+                      child: const Text('إنشاء القسم'))
+                ]));
+    if (result == null || !mounted) return;
+    if (_categoryRequestName != result) {
+      _categoryRequestName = result;
+      _categoryRequestId = const Uuid().v4();
+    }
+    setState(() => creatingCategory = true);
+    try {
+      final scope = await MerchantBranchScope.capture(businessId: branch);
+      final response = await ProductService.mutateCategory(
+          businessId: scope.businessId,
+          method: 'POST',
+          name: result,
+          requestId: _categoryRequestId);
+      if (response['success'] != true)
+        throw StateError(
+            ProductService.productMutationError(response['message']));
+      await scope.assertCurrent();
+      if (!mounted) return;
+      final created = ProductCategory.fromJson(
+          Map<String, dynamic>.from(response['category']));
+      setState(() {
+        _createdCategories.add(created);
+        category = created.id;
+        error = null;
+      });
+      unawaited(ref
+          .read(productProviderRiverpod.notifier)
+          .loadCategories('restaurant', force: true));
+    } catch (_) {
+      if (mounted)
+        setState(() => error =
+            'تعذر تأكيد إنشاء القسم. حدّث الأقسام للتحقق قبل إعادة المحاولة؛ بيانات المنتج محفوظة هنا.');
+    } finally {
+      if (mounted) setState(() => creatingCategory = false);
+    }
+  }
+
+  Future<void> editSizes() async {
+    final index = options.indexWhere((g) =>
+        g['title'] == 'الحجم' &&
+        g['required'] == true &&
+        g['maxSelections'] == 1);
+    final result = await showProductSizesSheet(context,
+        basePrice: int.tryParse(price.text) ?? 0,
+        existing: index < 0 ? null : options[index]);
+    if (result == null || !mounted) return;
+    setState(() {
+      price.text = result.basePrice.toString();
+      if (index < 0) {
+        options.add(result.group);
+      } else {
+        options[index] = result.group;
       }
     });
   }
@@ -175,6 +294,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               imageUrls: [if (imageUrl != null) imageUrl!],
               barcode: barcode.text.trim().isEmpty ? null : barcode.text.trim(),
               optionGroups: options,
+              cuisineIds: cuisineIds,
               isAvailable: available,
               createdAt: DateTime.now(),
               updatedAt: DateTime.now())
@@ -186,6 +306,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               barcode: barcode.text.trim().isEmpty ? null : barcode.text.trim(),
               imageUrls: imageUrl == null ? p.imageUrls : [imageUrl!],
               optionGroups: options,
+              cuisineIds: cuisineIds,
               isAvailable: available);
       if (!editing) {
         final payload = jsonEncode([
@@ -196,6 +317,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           updated.imageUrls,
           updated.barcode,
           updated.optionGroups,
+          updated.cuisineIds,
           updated.isAvailable,
           globalId
         ]);
@@ -215,9 +337,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                 'تعذر الحفظ. أعد المحاولة.');
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'حُفظت التغييرات. انشر القائمة لإظهار المحتوى المحدث؛ التوفر يُطبق فور الحفظ.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(ref.read(productProviderRiverpod).error?.message ??
+              'حُفظ المنتج ونُشر للزبائن.')));
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted)
@@ -259,8 +381,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(productProviderRiverpod);
-    final categories =
-        {for (final c in state.categories) c.id: c}.values.toList();
+    final categories = {
+      for (final c in [...state.categories, ..._createdCategories])
+        if (c.isActive || c.id == category) c.id: c
+    }.values.toList();
     return ProductOperationsTheme(
         child: Directionality(
             textDirection: TextDirection.rtl,
@@ -280,7 +404,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       const Padding(
                           padding: EdgeInsets.only(bottom: 16),
                           child: Text(
-                              'بيانات المنتج تخص هذا الفرع. انشر القائمة لإظهار تغييرات الاسم والسعر والصورة والخيارات للزبائن. التوفر يؤثر في الطلبات الجديدة فور الحفظ.',
+                              'بيانات المنتج تخص هذا الفرع. يُنشر المنتج تلقائيًا للزبائن بعد الحفظ، بما يشمل السعر والصورة والخيارات والتصنيفات.',
                               style: TextStyle(
                                   color: Color(0xFF52627A), height: 1.5))),
                       section('صورة المنتج', Icons.photo_outlined, [
@@ -383,6 +507,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             }),
                         const SizedBox(height: 18),
                         DropdownButtonFormField<String>(
+                            key: ValueKey(category),
                             initialValue:
                                 categories.any((c) => c.id == category)
                                     ? category
@@ -391,7 +516,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             decoration: field('القسم *'),
                             items: categories
                                 .map((c) => DropdownMenuItem(
-                                    value: c.id, child: Text(c.name)))
+                                    value: c.id,
+                                    child: Text(c.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis)))
                                 .toList(),
                             onChanged: busy
                                 ? null
@@ -399,6 +527,30 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             validator: (v) => v == null
                                 ? 'اختر قسمًا متاحًا لهذا الفرع'
                                 : null),
+                        Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                                onPressed: busy || creatingCategory
+                                    ? null
+                                    : createCategory,
+                                icon: const Icon(Icons.add),
+                                label: Text(creatingCategory
+                                    ? 'جارٍ إنشاء القسم…'
+                                    : 'إنشاء قسم جديد مثل بيتزا'))),
+                        const SizedBox(height: 12),
+                        ProductClassificationsField(
+                          choices: taxonomy,
+                          selected: cuisineIds,
+                          enabled: !busy,
+                          onChanged: (ids) {
+                            if (mounted) setState(() => cuisineIds = ids);
+                          },
+                        ),
+                        if (taxonomyError != null)
+                          TextButton(
+                              onPressed: busy ? null : loadTaxonomy,
+                              child: const Text(
+                                  'تعذر تحميل التصنيفات — إعادة المحاولة')),
                         if (categories.isEmpty)
                           TextButton.icon(
                               onPressed: busy || state.isLoading
@@ -457,7 +609,14 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                               label: const Text('إدارة كميات المخزون'))
                         ],
                       ]),
-                      section('الخيارات والإضافات', Icons.tune, [
+                      section('الأحجام والخيارات والإضافات', Icons.tune, [
+                        const Text(
+                            'للبيتزا أو المنتجات متعددة الأحجام: حدّد سعر كل حجم أولًا. أضف الجبن والصوص وغيرها كمجموعات إضافية منفصلة.'),
+                        OutlinedButton.icon(
+                            onPressed: busy ? null : editSizes,
+                            icon: const Icon(Icons.straighten),
+                            label: const Text('إعداد الأحجام وأسعارها')),
+                        const SizedBox(height: 12),
                         BranchOptionsEditor(
                             value: options,
                             enabled: !busy,
@@ -481,7 +640,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
                         child: FilledButton.icon(
                             key: const ValueKey('product-save'),
-                            onPressed: busy || picking ? null : save,
+                            onPressed: busy || picking || creatingCategory
+                                ? null
+                                : save,
                             icon: busy
                                 ? const SizedBox(
                                     width: 18,

@@ -27,7 +27,7 @@ class ProductActionsFake extends ProductNotifier {
   @override
   Future<void> loadProducts() async {}
   @override
-  Future<void> loadCategories(String type) async {}
+  Future<void> loadCategories(String type, {bool force = false}) async {}
   @override
   Future<bool> updateProduct(Product p) async {
     state = state.copyWith(isLoading: true);

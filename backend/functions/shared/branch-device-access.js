@@ -58,14 +58,15 @@ async function operations(db,event,kind){
  if(body.businessId&&body.businessId!==b.businessId)fail('BRANCH_SCOPE_REQUIRED');
  if(kind==='menu'&&['POST','DELETE'].includes(method)&&!staff.authorization)fail('PERMISSION_REQUIRED');
  if(kind==='menu'&&(method==='POST'&&path!=='/branch-device/products'||method==='DELETE'&&(!/^\/branch-device\/products\/[\w-]+$/.test(path)||!event.pathParameters?.productId)))fail('PERMISSION_REQUIRED');
- if(staff.authorization){const required=kind==='hours'?[read?'hours.read':'hours.write']:read?['menu.read']:method==='POST'?['menu.create']:method==='DELETE'?['menu.delete']:[...(body.name!==undefined||body.description!==undefined?['menu.edit']:[]),...(body.price!==undefined?['menu.price.write']:[]),...(body.isAvailable!==undefined?['menu.availability.write']:[])];if(!required.length||required.some(p=>!granted.includes(p)))fail('PERMISSION_REQUIRED');}
+ if(staff.authorization){const required=kind==='hours'?[read?'hours.read':'hours.write']:read?['menu.read']:method==='POST'?['menu.create']:method==='DELETE'?['menu.delete']:[...(body.name!==undefined||body.description!==undefined||body.cuisineIds!==undefined?['menu.edit']:[]),...(body.price!==undefined?['menu.price.write']:[]),...(body.isAvailable!==undefined?['menu.availability.write']:[])];if(!required.length||required.some(p=>!granted.includes(p)))fail('PERMISSION_REQUIRED');}
+ if(kind==='menu'&&body.cuisineIds!==undefined&&(!staff.authorization||!granted.includes('menu.edit')))fail('CLASSIFICATION_OWNER_REQUIRED');
  if(kind==='menu'&&method==='PUT'){
-  if(Object.keys(body).some(k=>!['businessId','requestId','name','price','isAvailable','description'].includes(k)))fail('INVALID_MENU_UPDATE',400);
+  if(Object.keys(body).some(k=>!['businessId','requestId','name','price','isAvailable','description','cuisineIds'].includes(k)))fail('INVALID_MENU_UPDATE',400);
   if(body.price!==undefined&&(!Number.isSafeInteger(body.price)||body.price<=0||body.price>1000000000))fail('INVALID_PRICE',400);
   if(body.isAvailable!==undefined&&typeof body.isAvailable!=='boolean')fail('INVALID_MENU_UPDATE',400);
   for(const [k,max] of [['name',150],['description',2000]])if(body[k]!==undefined&&(typeof body[k]!=='string'||body[k].length>max||k==='name'&&!body[k].trim()))fail('INVALID_MENU_UPDATE',400);
  }
  const common=[...devices.guards(b),devices.check(d),...staff.common];await devices.tx(db,common);
- return {sub:s.subjectId,ownerId:b.ownerId,businessId:b.businessId,deviceId:d.deviceId,sessionId:s.sessionId,actorName:m.displayName||'',roleName:m.grant?.roleNameAr||m.role,permissionVersion:m.version,policyVersion:staff.authorization?.policy.version||0,deviceGuards:common};
+ return {canClassifyMenu:!!staff.authorization&&granted.includes('menu.edit'),sub:s.subjectId,ownerId:b.ownerId,businessId:b.businessId,deviceId:d.deviceId,sessionId:s.sessionId,actorName:m.displayName||'',roleName:m.grant?.roleNameAr||m.role,permissionVersion:m.version,policyVersion:staff.authorization?.policy.version||0,deviceGuards:common};
 }
 module.exports={orders,operations,projectOrders};

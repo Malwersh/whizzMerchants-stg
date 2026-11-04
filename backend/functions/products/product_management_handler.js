@@ -60,6 +60,7 @@ async function handleGetProducts(event) {
     }
 
     try {
+        if(event.queryStringParameters?.taxonomy==='1'){const c=await require('../shared/menu-taxonomy').context(docClient,businessId);return createResponse(200,{success:true,classifications:c.choices.map(({id,label})=>({id,label})),activityId:c.activityId});}
         const params = {
             TableName: PRODUCTS_TABLE,
             IndexName: 'BusinessIdIndex',
@@ -426,7 +427,7 @@ async function handleGetCategories(event) {
     try {
         const { Items } = await docClient.send(new ScanCommand({ TableName: CATEGORIES_TABLE }));
         const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
-        const categories=(Items||[]).filter(c=>!c.businessId||c.businessId===actor?.businessId).map(c=>Object.fromEntries(['categoryId','categoryName','name_ar','name','description','sortOrder','isActive','is_active','businessId','version','createdAt','updatedAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]])));
+        const categories=(Items||[]).filter(c=>!c.businessId||c.businessId===actor?.businessId).map(c=>Object.fromEntries(['categoryId','categoryName','cuisineIds','name_ar','name','description','sortOrder','isActive','is_active','businessId','version','createdAt','updatedAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]])));
         return createResponse(200, { success: true, categories });
     } catch (error) {
         console.error('Error getting categories:', error);
@@ -496,10 +497,11 @@ module.exports.handler = async (event) => {
         return createResponse(403,{success:false,code:'IMPORT_PERMISSION_REQUIRED'});
     }
     if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&!path.startsWith('/products/imports/')&&path.startsWith('/products')){
-        await requirePublishedMenu(actor.businessId);
-        const mutationActor={...actor,ownerId:actor.ownerId||actor.sub,deviceGuards:actor.deviceGuards||[]};
+        const mutationActor={...actor,ownerId:actor.ownerId||actor.sub};
         const result=await require('../shared/branch-device-menu').mutate(actor.deviceGuards?lifecycleRawDb:docClient,mutationActor,event);
-        return {...result,headers};
+        const versions=require('./menu_versions').createMenuVersionService(actor.deviceGuards?lifecycleRawDb:docClient,{actor:()=>mutationActor});
+        const published=await require('../shared/menu-auto-publish').complete(result,body=>versions.publish(actor.businessId,body));
+        return {...published,headers};
     }
     // Route products endpoints
         if(path==='/menu/versions'||path==='/menu/versions/publish'||path==='/menu/versions/rollback'){

@@ -13,6 +13,7 @@ Map<String, dynamic> productUpdatePatch(Product before, Product after) {
     'categoryId': before.categoryId,
     'isAvailable': before.isAvailable,
     'imageUrl': image(before),
+    'cuisineIds': before.cuisineIds,
     'optionGroups': before.optionGroups
   };
   final next = <String, dynamic>{
@@ -23,6 +24,7 @@ Map<String, dynamic> productUpdatePatch(Product before, Product after) {
     'categoryId': after.categoryId,
     'isAvailable': after.isAvailable,
     'imageUrl': image(after),
+    'cuisineIds': after.cuisineIds,
     'optionGroups': after.optionGroups
   };
   return Map.fromEntries(

@@ -29,20 +29,23 @@ class _ProductsManagementScreenState
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _menuBusy = false;
+  bool _publicationPending = false;
   Map<String, dynamic>? _activeMenu;
   List<Map<String, dynamic>> _menuVersions = [];
 
   @override
   void initState() {
     super.initState();
+    ProductService.publicationChanges.addListener(_loadPublicationState);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(productProviderRiverpod.notifier).loadProducts();
-      _loadMenuVersions();
+      _loadPublicationState();
     });
   }
 
   @override
   void dispose() {
+    ProductService.publicationChanges.removeListener(_loadPublicationState);
     _searchController.dispose();
     super.dispose();
   }
@@ -54,7 +57,7 @@ class _ProductsManagementScreenState
       body: SafeArea(
         child: Column(
           children: [
-            _buildPublishBar(),
+            if (_publicationPending) _buildPublicationRetry(),
             Align(
                 alignment: AlignmentDirectional.centerEnd,
                 child: TextButton.icon(
@@ -150,43 +153,94 @@ class _ProductsManagementScreenState
     if (result['success'] == true) await _loadMenuVersions();
   }
 
-  Widget _buildPublishBar() {
-    final publishedAt = _activeMenu?['publishedAt']?.toString();
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+  Future<void> _loadPublicationState() async {
+    final pending =
+        await ProductService.hasPendingPublication(widget.business.id);
+    if (mounted) setState(() => _publicationPending = pending);
+  }
+
+  Widget _buildPublicationRetry() => Container(
+        margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+            color: const Color(0xFFF0F4FA),
+            borderRadius: BorderRadius.circular(14)),
         child: Row(children: [
-          const Icon(Icons.cloud_done_outlined),
+          const Icon(Icons.cloud_off_outlined, color: Color(0xFF00296B)),
           const SizedBox(width: 10),
-          Expanded(
-              child: Text(publishedAt == null
-                  ? 'ابدأ بنشر القائمة الحالية مرة واحدة قبل تعديل المنتجات أو استيرادها. بعدها تبقى التعديلات مسودة حتى تنشرها.'
-                  : 'آخر نشر: ${publishedAt.replaceFirst('T', ' ').split('.').first}')),
-          if (_menuVersions.length > 1)
-            PopupMenuButton<String>(
-                tooltip: 'سجل النسخ',
-                icon: const Icon(Icons.history),
-                onSelected: _rollbackMenu,
-                itemBuilder: (_) => _menuVersions
-                    .where((v) => v['status'] != 'ACTIVE')
-                    .map((v) => PopupMenuItem(
-                        value: v['version']?.toString(),
-                        child: Text(
-                            '${v['publishedAt']?.toString().replaceFirst('T', ' ').split('.').first ?? ''} · ${v['productCount'] ?? 0} منتج')))
-                    .toList()),
-          const SizedBox(width: 8),
-          FilledButton.icon(
+          const Expanded(child: Text('حُفظت تغييرات، لكن لم تصل للزبائن بعد.')),
+          TextButton(
               onPressed: _menuBusy ? null : _publishMenu,
-              icon: _menuBusy
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.publish),
-              label: const Text('نشر')),
+              child: Text(_menuBusy ? 'جارٍ المحاولة…' : 'إعادة المحاولة')),
         ]),
-      ),
+      );
+
+  Future<void> _showMenuHistory() async {
+    await _loadMenuVersions();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (sheetContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * .6,
+              child: Column(children: [
+                ListTile(
+                    title: const Text('سجل نسخ القائمة',
+                        style: TextStyle(
+                            color: Color(0xFF00296B),
+                            fontWeight: FontWeight.w600)),
+                    trailing: IconButton(
+                        tooltip: 'إغلاق',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(sheetContext))),
+                const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                        'تُنشر تغييرات المنتجات تلقائيًا عند الحفظ. الاسترجاع يستبدل القائمة الظاهرة للزبائن.')),
+                Expanded(
+                    child: _menuVersions.isEmpty
+                        ? const Center(child: Text('لا توجد نسخ محفوظة.'))
+                        : ListView.builder(
+                            itemCount: _menuVersions.length,
+                            itemBuilder: (_, index) {
+                              final version = _menuVersions[index];
+                              final id = (version['version'] ??
+                                      version['publishedVersion'])
+                                  ?.toString();
+                              final active = version['status'] == 'ACTIVE' ||
+                                  id == _activeMenu?['publishedVersion'];
+                              return ListTile(
+                                  leading: Icon(
+                                      active
+                                          ? Icons.check_circle_outline
+                                          : Icons.history,
+                                      color: const Color(0xFF00296B)),
+                                  title: Text(version['publishedAt']
+                                          ?.toString()
+                                          .replaceFirst('T', ' ')
+                                          .split('.')
+                                          .first ??
+                                      ''),
+                                  subtitle: Text(
+                                      '${version['productCount'] ?? 0} منتج${active ? ' · النسخة الحالية' : ''}'),
+                                  trailing: active || id == null
+                                      ? null
+                                      : TextButton(
+                                          onPressed: _menuBusy
+                                              ? null
+                                              : () {
+                                                  Navigator.pop(sheetContext);
+                                                  _rollbackMenu(id);
+                                                },
+                                          child: const Text('استرجاع')));
+                            })),
+              ]))),
     );
   }
 
@@ -205,6 +259,15 @@ class _ProductsManagementScreenState
             borderRadius: BorderRadius.circular(100),
             enableHapticFeedback: true,
           )),
+          const SizedBox(width: 8),
+          PopupMenuButton<String>(
+              tooltip: 'أدوات الإدارة',
+              icon: const Icon(Icons.more_vert, color: Color(0xFF00296B)),
+              onSelected: (_) => _showMenuHistory(),
+              itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'history', child: Text('سجل النسخ والاسترجاع'))
+                  ]),
           const SizedBox(width: 8),
           IconButton.filledTonal(
             tooltip: 'أقسام القائمة',
