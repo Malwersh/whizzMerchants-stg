@@ -1,3 +1,4 @@
+import 'screens/auth/auth_surface.dart';
 import 'services/commercial_notice_navigation.dart';
 import 'providers/branch_device_provider.dart';
 import 'screens/branch_device_home_screen.dart';
@@ -6,12 +7,14 @@ import 'services/auth_navigation.dart';
 import 'providers/business_provider.dart';
 import 'screens/employee_home_screen.dart';
 import 'screens/merchant_businesses_screen.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'core/design_system/design_system.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/auth_provider_riverpod.dart';
@@ -169,8 +172,9 @@ class AuthGate extends ConsumerWidget {
           !next.isExpired) {
         try {
           await ref.read(sessionProvider.notifier).waitForSessionReady();
-          await PushNotificationsService.instance
-              .registerTokenIfPossible(businessId: next.businessId);
+          await PushNotificationsService.instance.registerTokenIfPossible(
+            businessId: next.businessId,
+          );
         } catch (e) {
           debugPrint('⚠️ Push token registration skipped/failed: $e');
         }
@@ -183,17 +187,59 @@ class AuthGate extends ConsumerWidget {
     }
     if (pairedDevice.hasError) {
       return Scaffold(
-          body: Center(
-              child: TextButton(
-        onPressed: () => ref.read(branchDeviceProvider.notifier).load(),
-        child: const Text('تعذر قراءة إعداد الجهاز. إعادة المحاولة'),
-      )));
+        body: Center(
+          child: TextButton(
+            onPressed: () => ref.read(branchDeviceProvider.notifier).load(),
+            child: const Text('تعذر قراءة إعداد الجهاز. إعادة المحاولة'),
+          ),
+        ),
+      );
     }
     if (pairedDevice.valueOrNull != null) {
       return BranchDeviceHomeScreen(device: pairedDevice.valueOrNull!);
     }
     if (auth.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!auth.isAuthenticated && auth.errorMessage != null) {
+      return AuthSurface(
+        child: Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_outlined,
+                      size: 40,
+                      color: Color(0xFF00296B),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      auth.errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFF182A43),
+                        height: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          ref.read(authProviderRiverpod.notifier).initialize(),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('إعادة المحاولة'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
     }
 
     if (auth.isAuthenticated && !session.isExpired) {

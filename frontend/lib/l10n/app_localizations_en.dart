@@ -3569,7 +3569,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get contactDescription =>
-      'For support, questions, or feedback, please reach out to us at:\nsupport@whizzecosystem.com\n\nWe\'re here to help you succeed!';
+      'For support, questions, or feedback, please reach out to us at:\nsupport@wiz-go.com\n\nWe\'re here to help you succeed!';
 
   @override
   String get developer => 'Development';
@@ -3677,15 +3677,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get supportCategoryTitle => 'How can we help you today?';
 
   @override
-  String get supportCategorySubtitle =>
-      'Choose a category to get started with WhizzMe AI';
+  String get supportCategorySubtitle => 'Choose a topic for our support team';
 
   @override
-  String get supportPoweredBy => 'Powered by WhizzMe AI';
+  String get supportPoweredBy => 'Whizz Support Team';
 
   @override
   String get supportAiDescription =>
-      'Our AI assistant will help you first, then connect you to a human agent if needed.';
+      'Contact our support team directly for help.';
 
   @override
   String get categoryOrderManagement => 'Orders & Fulfillment';

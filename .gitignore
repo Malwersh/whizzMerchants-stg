@@ -59,3 +59,12 @@ frontend/android/build/
 # Python build cache
 **/__pycache__/
 *.pyc
+
+# Local Android upload signing material (never commit).
+**/key.properties
+**/*.jks
+**/*.keystore
+
+# Local signing backups and generated deployment output
+**/*.jks.*
+**/*.keystore.*

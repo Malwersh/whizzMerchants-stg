@@ -7,5 +7,4 @@
     <!-- Exclude sensitive authentication data -->
     <exclude domain="sharedpref" path="auth_tokens.xml"/>
     <exclude domain="sharedpref" path="api_keys.xml"/>
-    <exclude domain="database" path="temp_cache.db"/>
 </full-backup-content>

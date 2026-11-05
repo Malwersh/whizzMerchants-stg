@@ -44,3 +44,6 @@
 -dontwarn retrofit2.**
 -keepattributes Signature
 -keepattributes *Annotation*
+-dontwarn androidx.window.extensions.**
+-dontwarn androidx.window.sidecar.**
+-dontwarn com.google.android.play.core.**

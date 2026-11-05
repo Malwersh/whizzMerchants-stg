@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 
 /// Support Category Selection Widget
-/// Displays category options before starting chat with WhizzMe AI
+/// Displays category options before contacting the support team
 class SupportCategorySelector extends StatefulWidget {
   final Function(String category, String description) onCategorySelected;
   final VoidCallback? onClose;
@@ -153,7 +153,7 @@ class _SupportCategorySelectorState extends State<SupportCategorySelector>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final categories = _getCategories(context);
-    
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: Container(
@@ -232,7 +232,7 @@ class _SupportCategorySelectorState extends State<SupportCategorySelector>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          Icons.smart_toy_outlined,
+                          Icons.support_agent_outlined,
                           size: 16,
                           color: Colors.blue.shade600,
                         ),

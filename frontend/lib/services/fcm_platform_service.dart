@@ -12,7 +12,7 @@ class FCMPlatformService {
   FCMPlatformService._internal();
 
   // Platform channel for FCM communication
-  static const platform = MethodChannel('com.whizz.merchants/fcm');
+  static const platform = MethodChannel('com.wiz.wizmerchantapp/fcm');
 
   String? _fcmToken;
   bool _isInitialized = false;

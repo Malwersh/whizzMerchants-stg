@@ -335,11 +335,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('How can we help you today?'), findsOneWidget);
-      expect(find.text('Choose a category to get started with WhizzMe AI'),
+      expect(find.text('Choose a topic for our support team'),
           findsOneWidget);
     });
 
-    testWidgets('Footer displays WhizzMe AI branding',
+    testWidgets('Footer displays support team branding',
         (WidgetTester tester) async {
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1;
@@ -361,10 +361,10 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Powered by WhizzMe AI'), findsOneWidget);
+      expect(find.text('Whizz Support Team'), findsOneWidget);
       expect(
           find.text(
-              'Our AI assistant will help you first, then connect you to a human agent if needed.'),
+              'Contact our support team directly for help.'),
           findsOneWidget);
     });
 

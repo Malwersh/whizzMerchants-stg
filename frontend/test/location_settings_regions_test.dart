@@ -8,17 +8,30 @@ import 'package:whizz_merchants/services/person_onboarding_service.dart';
 import 'package:whizz_merchants/widgets/location_settings_full_bottom_drawer.dart';
 class LocationApiFixture extends ApiService {
  Map<String,dynamic>? saved;
- @override Future<Map<String,dynamic>> getBusinessLocationSettings(String id) async => {'settings':{'latitude':31.92,'longitude':44.45,'address':'العنوان المحفوظ عند الإنشاء','regionPath':['country','province','district','area'],'locationVersion':'v1'}};
- @override Future<Map<String,dynamic>> updateBusinessLocationSettings(String id,Map<String,dynamic> body)async {saved=body;return {'success':true};}
+ String? readBranch, savedBranch;
+ @override Future<Map<String,dynamic>> getBusinessLocationSettings(String id) async {readBranch=id; return {'settings':{'latitude':31.92,'longitude':44.45,'address':'العنوان المحفوظ عند الإنشاء','regionPath':['country','province','district','area'],'locationVersion':'v1'}};}
+ @override Future<Map<String,dynamic>> updateBusinessLocationSettings(String id,Map<String,dynamic> body)async {savedBranch=id;saved=body;return {'success':true};}
 }
 class RegionFixture extends PersonOnboardingService {
  @override Future<Map<String,dynamic>> call(String path,{Map<String,dynamic>? body,bool authenticated=true})async=>{'items':[for(var i=0;i<4;i++){'id':['country','province','district','area'][i],'level':i,'parentId':i==0?null:['country','province','district','area'][i-1],'labelAr':['العراق','محافظة النجف','قضاء المناذرة','مركز المناذرة'][i]},{'id':'other','level':0,'parentId':null,'labelAr':'بلد آخر'}]};
 }
-Future<void> open(WidgetTester tester,LocationApiFixture api)async {
+Future<void> open(WidgetTester tester,LocationApiFixture api,{String branchId='fixture'})async {
  tester.view.physicalSize=const Size(1200,2400);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
- await tester.pumpWidget(ProviderScope(child:MaterialApp(locale:const Locale('ar'),localizationsDelegates:AppLocalizations.localizationsDelegates,supportedLocales:AppLocalizations.supportedLocales,home:Scaffold(body:LocationSettingsFullBottomDrawer(business:Business.fromJson({'businessId':'fixture','businessName':'فتوش'}),api:api,onboarding:RegionFixture())))));await tester.pumpAndSettle();
+ await tester.pumpWidget(ProviderScope(child:MaterialApp(locale:const Locale('ar'),localizationsDelegates:AppLocalizations.localizationsDelegates,supportedLocales:AppLocalizations.supportedLocales,home:Scaffold(body:LocationSettingsFullBottomDrawer(business:Business.fromJson({'businessId':branchId,'businessName':'فرع $branchId'}),api:api,onboarding:RegionFixture())))));await tester.pumpAndSettle();
 }
 void main(){
+ for(final branch in ['branch-one','branch-two']) {
+  testWidgets('GPS editor reads and saves only selected branch $branch',(tester)async {
+   final api=LocationApiFixture();await open(tester,api,branchId:branch);
+   expect(api.readBranch,branch);expect(find.text('فرع $branch'),findsOneWidget);
+   expect(find.text('موقع الفرع (GPS)'),findsOneWidget);
+   final button=find.byIcon(Icons.save).last;await tester.ensureVisible(button);
+   await tester.tap(button);await tester.pumpAndSettle();
+   expect(api.savedBranch,branch);expect(api.saved!['latitude'],31.92);
+   expect(api.saved!['longitude'],44.45);
+  });
+ }
+
  testWidgets('settings restores creation region identifiers and detailed address and saves the same path',(tester)async {
   final api=LocationApiFixture();await open(tester,api);
   for(final label in ['العراق','محافظة النجف','قضاء المناذرة','مركز المناذرة']){expect(find.text(label),findsOneWidget);}

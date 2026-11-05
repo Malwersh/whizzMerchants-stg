@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 /// Saves only a freshly authorized CSV supplied by the statement endpoint.
 /// No token, device credential, or personal account storage crosses this channel.
 class StatementFileExportService {
-  static const channel = MethodChannel('com.whizz.merchants/statement-export');
+  static const channel = MethodChannel('com.wiz.wizmerchantapp/statement-export');
   Future<bool> save({required String filename, required String csv}) async {
     if (!RegExp(r'^branch-(statement|sales-report)-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv$')
             .hasMatch(filename) ||

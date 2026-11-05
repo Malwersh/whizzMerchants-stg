@@ -1,4 +1,7 @@
+import 'session_identity_loader.dart';
+
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
@@ -19,6 +22,7 @@ import './push_notifications_service.dart';
 
 class AppAuthService {
   static bool _isInitialized = false;
+  static Future<void>? _initialization;
   static ProviderContainer? _container;
   static CognitoAuthService? _cognitoService;
 
@@ -96,12 +100,19 @@ class AppAuthService {
 
   static Future<void> initialize() async {
     if (_isInitialized) return;
+    final pending = _initialization ??= _initialize();
+    try {
+      await pending;
+    } finally {
+      if (identical(_initialization, pending)) _initialization = null;
+    }
+  }
 
+  static Future<void> _initialize() async {
     if (AppConfig.isCognitoConfigured) {
       _cognitoService = CognitoAuthService();
       await _configureAmplify();
     }
-
     _isInitialized = true;
   }
 
@@ -112,7 +123,8 @@ class AppAuthService {
     try {
       await amplify.Amplify.addPlugins([AmplifyAuthCognito(), AmplifyAPI()]);
 
-      final amplifyconfig = '''{
+      final amplifyconfig =
+          '''{
         "UserAgent": "aws-amplify-cli/2.0",
         "Version": "1.0",
         "auth": {
@@ -152,8 +164,9 @@ class AppAuthService {
       await amplify.Amplify.configure(amplifyconfig);
       AppLogger.success('✅ Amplify configured (CUSTOM_AUTH)');
     } catch (e) {
-      // "already configured" is safe to ignore; anything else is logged.
+      if (amplify.Amplify.isConfigured) return;
       AppLogger.error('Amplify configuration failed: $e');
+      rethrow;
     }
   }
 
@@ -262,15 +275,18 @@ class AppAuthService {
         );
       }
       final authData = apiResponse['data'];
-      final accessToken = authData?['AccessToken'] ??
+      final accessToken =
+          authData?['AccessToken'] ??
           authData?['access_token'] ??
           apiResponse['AccessToken'] ??
           apiResponse['access_token'];
-      final idToken = authData?['IdToken'] ??
+      final idToken =
+          authData?['IdToken'] ??
           authData?['id_token'] ??
           apiResponse['IdToken'] ??
           apiResponse['id_token'];
-      final refreshToken = authData?['RefreshToken'] ??
+      final refreshToken =
+          authData?['RefreshToken'] ??
           authData?['refresh_token'] ??
           apiResponse['RefreshToken'] ??
           apiResponse['refresh_token'];
@@ -383,7 +399,10 @@ class AppAuthService {
       }
       if (!await _syncTokensFromAmplify()) {
         return SignInResult(
-            success: false, message: 'TOKEN_SYNC_FAILED', businesses: []);
+          success: false,
+          message: 'TOKEN_SYNC_FAILED',
+          businesses: [],
+        );
       }
 
       final businesses = <Map<String, dynamic>>[];
@@ -409,13 +428,13 @@ class AppAuthService {
   /// Copies Amplify (Cognito) tokens into the app's secure storage used by API calls.
   static Future<bool> _syncTokensFromAmplify({
     bool forceRefresh = false,
+    bool throwOnFailure = false,
   }) async {
     try {
       final session = await amplify.Amplify.Auth.fetchAuthSession(
         options: amplify.FetchAuthSessionOptions(forceRefresh: forceRefresh),
       ) as CognitoAuthSession;
-      final tokens = session.userPoolTokensResult.valueOrNull;
-      if (tokens == null) return false;
+      final tokens = session.userPoolTokensResult.value;
       await _storeAuthTokens({
         'accessToken': tokens.accessToken.raw,
         'idToken': tokens.idToken.raw,
@@ -424,19 +443,28 @@ class AppAuthService {
       return true;
     } catch (e) {
       AppLogger.warning('Token sync from Amplify failed: $e');
+      if (throwOnFailure) rethrow;
       return false;
     }
   }
 
   /// Used by TokenRefreshService: silent refresh with the 365-day refresh token.
   static Future<Map<String, String?>?> refreshViaAmplify() async {
-    final ok = await _syncTokensFromAmplify(forceRefresh: true);
-    if (!ok) return null;
-    return {
-      'accessToken': await SecureTokenStorage.getAccessToken(),
-      'idToken': await SecureTokenStorage.getIdToken(),
-      'refreshToken': await SecureTokenStorage.getRefreshToken(),
-    };
+    await initialize();
+    try {
+      await _syncTokensFromAmplify(forceRefresh: true, throwOnFailure: true);
+      return {
+        'accessToken': await SecureTokenStorage.getAccessToken(),
+        'idToken': await SecureTokenStorage.getIdToken(),
+        'refreshToken': await SecureTokenStorage.getRefreshToken(),
+      };
+    } on amplify.SignedOutException {
+      return null;
+    } on amplify.SessionExpiredException {
+      return null;
+    }
+    // Connectivity and service failures propagate to the retry UI. The saved
+    // refresh token and branch choice must survive a temporary outage.
   }
 
   static Future<void> signOut() async {
@@ -487,52 +515,29 @@ class AppAuthService {
     }
   }
 
-  static Future<Map<String, dynamic>?> getCurrentUser(
-      {bool allowRefresh = true}) async {
+  static Future<Map<String, dynamic>?> getCurrentUser({
+    bool allowRefresh = true,
+  }) async {
     await initialize();
-    final token = await SecureTokenStorage.getAccessToken();
-    if (token == null || token.isEmpty) return null;
-    try {
-      final response = await http
+    return SessionIdentityLoader(
+      readAccessToken: SecureTokenStorage.getAccessToken,
+      refreshAccessToken: () async =>
+          (await refreshViaAmplify())?['accessToken'],
+      signOut: signOut,
+      fetchUser: (token) => http
           .post(
             Uri.https(
-                'cognito-idp.${AppConfig.cognitoRegion}.amazonaws.com', '/'),
+              'cognito-idp.${AppConfig.cognitoRegion}.amazonaws.com',
+              '/',
+            ),
             headers: {
               'Content-Type': 'application/x-amz-json-1.1',
-              'X-Amz-Target': 'AWSCognitoIdentityProviderService.GetUser'
+              'X-Amz-Target': 'AWSCognitoIdentityProviderService.GetUser',
             },
             body: jsonEncode({'AccessToken': token}),
           )
-          .timeout(const Duration(seconds: 15));
-      final data = jsonDecode(response.body) as Map;
-      if (response.statusCode != 200) {
-        final code = '${data['__type']}'.split('#').last;
-        if (code == 'NotAuthorizedException' ||
-            code == 'UserNotFoundException') {
-          if (allowRefresh &&
-              await _syncTokensFromAmplify(forceRefresh: true)) {
-            return getCurrentUser(allowRefresh: false);
-          }
-          await signOut();
-        }
-        return null;
-      }
-      final attributes = <String, dynamic>{
-        for (final a in data['UserAttributes'] as List)
-          a['Name'] as String: a['Value']
-      };
-      final sub = attributes['sub'];
-      if (sub is! String || sub.isEmpty) return null;
-      final user = <String, dynamic>{
-        ...attributes,
-        'userId': sub,
-        'sub': sub,
-        'email': attributes['email'] ?? ''
-      };
-      return user;
-    } catch (_) {
-      return null;
-    }
+          .timeout(const Duration(seconds: 15)),
+    ).load(allowRefresh: allowRefresh);
   }
 
   static Future<RegisterResult> registerWithBusiness({
@@ -636,12 +641,8 @@ class AppAuthService {
   static Future<bool> isSignedIn() async {
     await initialize();
     // Account existence is checked separately by getCurrentUser against Cognito.
-    try {
-      final token = await TokenRefreshService.getValidAccessToken();
-      return token != null && token.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
+    final token = await TokenRefreshService.getValidAccessToken();
+    return token != null && token.isNotEmpty;
   }
 
   // Add debug method that doesn't conflict with undefined method
@@ -758,8 +759,7 @@ class AppAuthService {
             exists: true,
             isConfirmed: false,
             status: 'unconfirmed',
-            message:
-                'Your account exists but is not confirmed. Please verify your email first.',
+            message: 'Your account exists but is not confirmed. Please verify your email first.',
           );
         } else if (userStatus == 'confirmed' || userStatus == 'active') {
           return UserStatusResult(
