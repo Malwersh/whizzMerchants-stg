@@ -7,7 +7,6 @@
     <!-- Location permissions for delivery tracking -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     
     <!-- Notification permissions for order alerts -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -17,10 +16,9 @@
     
     <!-- Camera and storage for item photos -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
                      android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     
     <!-- Audio for notification sounds -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -28,9 +26,6 @@
     <!-- Phone permissions for customer contact -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     
-    <!-- Background processing for real-time updates -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     
     <!-- Device features -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -82,12 +77,6 @@
             </intent-filter>
         </activity>
         
-        <!-- Background service for real-time order updates -->
-        <service
-            android:name=".OrderSyncService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
         
         <!-- Firebase Cloud Messaging Service -->
         <service
@@ -113,18 +102,6 @@
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_color" />
             
-        <!-- Boot receiver for app restart -->
-        <receiver
-            android:name=".BootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter android:priority="1000">
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.intent.action.PACKAGE_REPLACED" />
-                <data android:scheme="package" />
-            </intent-filter>
-        </receiver>
         
         <!-- File provider for sharing images -->
         <provider

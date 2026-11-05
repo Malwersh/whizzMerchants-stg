@@ -17,12 +17,14 @@ class LocationSettingsFullBottomDrawer extends ConsumerStatefulWidget {
   final Business business;
   final ApiService? api;
   final PersonOnboardingService? onboarding;
+  final Future<MerchantLocation?> Function(MerchantLocation?)? pickLocation;
 
   const LocationSettingsFullBottomDrawer({
     super.key,
     required this.business,
     this.api,
     this.onboarding,
+    this.pickLocation,
   });
 
   @override
@@ -52,6 +54,8 @@ class _LocationSettingsFullBottomDrawerState
   final _streetController = TextEditingController();
 
   bool _isLoading = false;
+  String? _feedback;
+  bool _feedbackError = false;
   double? _latitude, _longitude;
   List<Map<String, dynamic>> _regions = [];
   List<String> _regionPath = [];
@@ -61,6 +65,10 @@ class _LocationSettingsFullBottomDrawerState
   double? _originalLatitude, _originalLongitude;
   List<String> _originalPath=[];
   String? _pendingId, _pendingSignature;
+  bool get _hasSavedLocation => _originalLatitude != null &&
+      _originalLongitude != null && _originalLatitude!.isFinite &&
+      _originalLongitude!.isFinite && _originalLatitude!.abs() <= 90 &&
+      _originalLongitude!.abs() <= 180;
   bool get _moved => _latitude!=_originalLatitude || _longitude!=_originalLongitude || jsonEncode(_regionPath)!=jsonEncode(_originalPath);
 
   @override
@@ -109,7 +117,11 @@ class _LocationSettingsFullBottomDrawerState
   }
 
   Future<void> _pickLocation() async {
-    final selected = await Navigator.of(context).push<MerchantLocation>(
+    final initial = _latitude != null && _longitude != null
+        ? MerchantLocation(_latitude!, _longitude!) : null;
+    final selected = widget.pickLocation != null
+        ? await widget.pickLocation!(initial)
+        : await Navigator.of(context).push<MerchantLocation>(
         MaterialPageRoute(
             builder: (_) => MerchantLocationPickerScreen(
                 initial: _latitude != null && _longitude != null
@@ -117,19 +129,20 @@ class _LocationSettingsFullBottomDrawerState
                     : null)));
     if (selected != null && mounted)
       setState(() {
+        _feedback = null;
         _latitude = selected.latitude;
         _longitude = selected.longitude;
       });
   }
 
   Future<void> _saveLocationSettings() async {
-    if (_loadError != null) return;
+    if (_isLoading || _loadError != null) return;
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
     setState(() {
-      _isLoading = true;
+      _feedback = null;
     });
 
     try {
@@ -150,14 +163,11 @@ class _LocationSettingsFullBottomDrawerState
       };
 
       if (_moved) {
-        final reason=TextEditingController();
-        final accepted=await showDialog<bool>(context:context,builder:(dialog)=>AlertDialog(
-          title:const Text('طلب نقل موقع النشاط'),content:Column(mainAxisSize:MainAxisSize.min,children:[
-            const Text('يبقى الموقع المعتمد ساريًا حتى موافقة الشركة.'),
-            TextField(controller:reason,maxLength:1000,decoration:const InputDecoration(labelText:'سبب التعديل (خمسة أحرف على الأقل)'))]),
-          actions:[TextButton(onPressed:()=>Navigator.pop(dialog,false),child:const Text('إلغاء')),TextButton(onPressed:(){if(reason.text.trim().length>=5)Navigator.pop(dialog,true);},child:const Text('إرسال للمراجعة'))]));
-        final text=reason.text.trim();reason.dispose();
-        if(accepted!=true)return;
+        final text = await showDialog<String>(context: context,
+          builder: (_) => _LocationReasonDialog(
+            businessName: widget.business.name, hasSavedLocation: _hasSavedLocation));
+        if (text == null || !mounted) return;
+        setState(() => _isLoading = true);
         final proposed={'latitude':_latitude,'longitude':_longitude,'regionPath':List<String>.from(_regionPath),'address':_streetController.text.trim()};
         final signature=jsonEncode([proposed,text]);
         if(signature!=_pendingSignature){_pendingId=const Uuid().v4();_pendingSignature=signature;}
@@ -165,63 +175,23 @@ class _LocationSettingsFullBottomDrawerState
           'businessId':widget.business.id,'requestId':_pendingId,'baseUpdatedAt':_locationVersion,
           'kind':'LOCATION','proposed':proposed,'reason':text});
       } else {
+        setState(() => _isLoading = true);
         await apiService.updateBusinessLocationSettings(widget.business.id, settings);
       }
 
-      if (mounted) {
-        final loc = AppLocalizations.of(context)!;
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: WhizzColors.onSecondary),
-                SizedBox(width: GoldenRatio.spacing12),
-                Text(
-                  _moved ? 'أُرسل طلب نقل الموقع للمراجعة. الموقع المعتمد لم يتغير.' : loc.locationSettingsSavedSuccessfully,
-                  style: TypographySystem.bodyMedium.copyWith(
-                    color: WhizzColors.onSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: WhizzColors.secondary,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(GoldenRatio.radiusMd),
-            ),
-          ),
-        );
-      }
+      if (mounted) setState(() {
+        _feedbackError = false;
+        _feedback = _moved
+            ? (_hasSavedLocation
+                ? 'تم إرسال طلب تعديل الموقع للمراجعة. الموقع المحفوظ لم يتغير بعد.'
+                : 'تم إرسال الموقع الأول للمراجعة. لم يُعتمد بعد.')
+            : 'تم حفظ عنوان وموقع هذا الفرع بنجاح.';
+      });
     } catch (e) {
-      if (mounted) {
-        final loc = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.white),
-                SizedBox(width: GoldenRatio.spacing12),
-                Expanded(
-                  child: Text(
-                    loc.failedToSaveLocationSettings(e.toString()),
-                    style: TypographySystem.bodyMedium.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: WhizzColors.error,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(GoldenRatio.radiusMd),
-            ),
-          ),
-        );
-      }
+      if (mounted) setState(() {
+        _feedbackError = true;
+        _feedback = 'لم يتم تأكيد الحفظ أو إرسال الطلب. ${e.toString()}';
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -289,7 +259,14 @@ class _LocationSettingsFullBottomDrawerState
                     ),
                     SizedBox(width: GoldenRatio.spacing16),
                     Expanded(
-                      child: SizedBox.shrink(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('موقع الفرع (GPS)',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          Text(widget.business.name),
+                        ],
+                      ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
@@ -319,6 +296,12 @@ class _LocationSettingsFullBottomDrawerState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        const Text('هذه نقطة استلام الطلبات للفرع المحدد فقط. لكل فرع موقع مستقل؛ لا يؤثر التعديل على الفروع الأخرى.'),
+                        const SizedBox(height: 12),
+                        Text(_hasSavedLocation
+                          ? 'يوجد موقع محفوظ لهذا الفرع. تعديل النقطة يُرسل للمراجعة ويبقى الموقع الحالي فعالاً حتى الموافقة.'
+                          : 'هذا أول تحديد لموقع الفرع؛ يُرسل للمراجعة قبل اعتماده.'),
+                        const SizedBox(height: 16),
                         // Business Address Section
                         _buildAddressSection(loc),
                         const SizedBox(height: 16),
@@ -333,7 +316,12 @@ class _LocationSettingsFullBottomDrawerState
                               textDirection: TextDirection.ltr),
                         SizedBox(height: GoldenRatio.spacing24),
 
-                        // Save Button
+                        // Keep the result beside the action rather than hiding it behind a closed sheet.
+                        if (_feedback != null)
+                          Padding(padding: const EdgeInsets.only(bottom: 12),
+                            child: Semantics(liveRegion: true, child: Text(_feedback!,
+                              style: TextStyle(color: _feedbackError ? Colors.red.shade800 : Colors.green.shade800,
+                                fontWeight: FontWeight.w600)))),
                         _buildSaveButton(loc),
                       ],
                     ),
@@ -477,7 +465,7 @@ class _LocationSettingsFullBottomDrawerState
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _isLoading ? null : _saveLocationSettings,
+          onTap: _isLoading || _loadError != null ? null : _saveLocationSettings,
           borderRadius: BorderRadius.circular(GoldenRatio.radiusLg),
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: GoldenRatio.spacing18),
@@ -502,13 +490,14 @@ class _LocationSettingsFullBottomDrawerState
                   ),
                   SizedBox(width: GoldenRatio.spacing12),
                 ],
-                Text(
-                  _isLoading ? loc.saving : (_moved ? 'طلب نقل الموقع' : loc.saveLocationSettings),
+                Flexible(child: Text(
+                  _isLoading ? 'جارٍ الإرسال…' : (_moved ? (_hasSavedLocation ? 'طلب تعديل الموقع' : 'تحديد الموقع لأول مرة') : loc.saveLocationSettings),
+                  textAlign: TextAlign.center,
                   style: TypographySystem.titleMedium.copyWith(
                     color: WhizzColors.secondary,
                     fontWeight: FontWeight.bold,
                   ),
-                ),
+                )),
               ],
             ),
           ),
@@ -621,4 +610,38 @@ class _LocationSettingsFullBottomDrawerState
       ),
     );
   }
+}
+
+class _LocationReasonDialog extends StatefulWidget {
+  final String businessName;
+  final bool hasSavedLocation;
+  const _LocationReasonDialog({required this.businessName, required this.hasSavedLocation});
+  @override
+  State<_LocationReasonDialog> createState() => _LocationReasonDialogState();
+}
+class _LocationReasonDialogState extends State<_LocationReasonDialog> {
+  final form = GlobalKey<FormState>();
+  late final reason = TextEditingController(
+    text: widget.hasSavedLocation ? '' : 'تحديد موقع الفرع لأول مرة');
+  @override
+  void dispose() { reason.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.hasSavedLocation ? 'طلب تعديل موقع فرع ${widget.businessName}' : 'تحديد موقع الفرع لأول مرة'),
+    content: SingleChildScrollView(child: Form(key: form, child: Column(
+      mainAxisSize: MainAxisSize.min, children: [
+        Text(widget.hasSavedLocation
+          ? 'يوجد موقع محفوظ لهذا الفرع. يبقى فعالاً حتى اعتماد النقطة الجديدة.'
+          : 'لا يوجد موقع محفوظ لهذا الفرع. يُرسل التحديد الأول للمراجعة قبل اعتماده.'),
+        TextFormField(controller: reason, maxLength: 1000,
+          validator: (value) => (value?.trim().length ?? 0) < 5
+            ? 'اكتب سبباً من خمسة أحرف على الأقل.' : null,
+          decoration: const InputDecoration(labelText: 'سبب تحديد أو تعديل الموقع')),
+      ]))),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+      TextButton(onPressed: () {
+        if (form.currentState!.validate()) Navigator.pop(context, reason.text.trim());
+      }, child: const Text('إرسال للمراجعة')),
+    ]);
 }

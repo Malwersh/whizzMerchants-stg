@@ -62,8 +62,9 @@ exports.handler = async (event) => {
     // Retry inside the same session: reuse the code, do not send another SMS.
     code = previous.challengeMetadata.slice(5);
   } else {
-    code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
-    await sendOtp(phone, code);
+    const review = phone === process.env.REVIEW_TEST_PHONE && /^\d{6}$/.test(process.env.REVIEW_TEST_CODE || '');
+    code = review ? process.env.REVIEW_TEST_CODE : crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+    if (!review) await sendOtp(phone, code);
   }
 
   event.response.publicChallengeParameters = { phone: phone.replace(/\d(?=\d{4})/g, '*') };

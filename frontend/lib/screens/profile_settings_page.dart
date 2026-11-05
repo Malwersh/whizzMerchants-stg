@@ -1,3 +1,5 @@
+import '../release/release_privacy_screen.dart';
+import '../widgets/location_settings_full_bottom_drawer.dart';
 import 'branch_staff_screen.dart';
 import 'person_profile_screen.dart';
 import 'package:flutter/material.dart';
@@ -264,6 +266,15 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                         builder: (_) => BranchStaffScreen(
                             businessId: widget.business.id)))),
             const SizedBox(height: 12),
+            _buildModernSettingsCard(
+              icon: Icons.pin_drop_outlined,
+              title: 'موقع الفرع على الخريطة (GPS)',
+              subtitle: '${widget.business.name} — نقطة استلام الطلبات لهذا الفرع فقط',
+              color: theme.colorScheme.secondary,
+              onTap: () => LocationSettingsFullBottomDrawer.show(
+                context: context, business: widget.business),
+            ),
+            const SizedBox(height: 12),
             // Settings Cards with Modern Design
             _buildModernSettingsCard(
               icon: Icons.account_circle_rounded,
@@ -336,6 +347,17 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                   ),
                 );
               },
+            ),
+            const SizedBox(height: 20),
+
+            _buildModernSettingsCard(
+              icon: Icons.privacy_tip_outlined,
+              title: loc.privacyPolicy,
+              subtitle: 'support@wiz-go.com',
+              color: theme.colorScheme.secondary,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const ReleasePrivacyScreen(),
+              )),
             ),
             const SizedBox(height: 20),
 

@@ -1,3 +1,4 @@
+import 'auth/auth_surface.dart';
 import '../widgets/wallet_transfer_gate.dart';
 import '../widgets/transfer_verification_sheet.dart';
 import 'merchant_finance_members_screen.dart';
@@ -10,14 +11,22 @@ import 'package:uuid/uuid.dart';
 import '../core/theme/whizz_colors.dart';
 import '../services/wallet_transfer_service.dart';
 
-class WalletTransferScreen extends StatefulWidget {
+class WalletTransferScreen extends StatelessWidget {
   final String businessId;
   const WalletTransferScreen({super.key, required this.businessId});
   @override
-  State<WalletTransferScreen> createState() => _WalletTransferScreenState();
+  Widget build(BuildContext context) =>
+      AuthSurface(child: _WalletTransferContent(businessId: businessId));
 }
 
-class _WalletTransferScreenState extends State<WalletTransferScreen> {
+class _WalletTransferContent extends StatefulWidget {
+  final String businessId;
+  const _WalletTransferContent({required this.businessId});
+  @override
+  State<_WalletTransferContent> createState() => _WalletTransferScreenState();
+}
+
+class _WalletTransferScreenState extends State<_WalletTransferContent> {
   late final api = WalletTransferService(businessId: widget.businessId);
   final phone = TextEditingController(),
       amount = TextEditingController(),

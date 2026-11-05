@@ -6698,7 +6698,7 @@ abstract class AppLocalizations {
   /// No description provided for @contactDescription.
   ///
   /// In en, this message translates to:
-  /// **'For support, questions, or feedback, please reach out to us at:\nsupport@whizzecosystem.com\n\nWe\'re here to help you succeed!'**
+  /// **'For support, questions, or feedback, please reach out to us at:\nsupport@wiz-go.com\n\nWe\'re here to help you succeed!'**
   String get contactDescription;
 
   /// No description provided for @developer.
@@ -6896,19 +6896,19 @@ abstract class AppLocalizations {
   /// No description provided for @supportCategorySubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Choose a category to get started with WhizzMe AI'**
+  /// **'Choose a topic for our support team'**
   String get supportCategorySubtitle;
 
   /// No description provided for @supportPoweredBy.
   ///
   /// In en, this message translates to:
-  /// **'Powered by WhizzMe AI'**
+  /// **'Whizz Support Team'**
   String get supportPoweredBy;
 
   /// No description provided for @supportAiDescription.
   ///
   /// In en, this message translates to:
-  /// **'Our AI assistant will help you first, then connect you to a human agent if needed.'**
+  /// **'Contact our support team directly for help.'**
   String get supportAiDescription;
 
   /// No description provided for @categoryOrderManagement.

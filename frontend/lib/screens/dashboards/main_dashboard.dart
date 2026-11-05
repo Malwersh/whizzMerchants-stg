@@ -1,3 +1,4 @@
+import '../../release/release_privacy_screen.dart';
 import '../delete_account_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1777,11 +1778,9 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
               value: 'View',
               isLink: true,
               onTap: () {
-                showAdaptiveSnackBar(
-                  context: context,
-                  message: 'Privacy Policy feature coming soon',
-                  type: AdaptiveSnackBarType.info,
-                );
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const ReleasePrivacyScreen(),
+                ));
               },
             ),
 

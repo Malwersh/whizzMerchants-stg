@@ -75,6 +75,11 @@ class AppConfig {
     );
   }
 
+  static String get supportAttachmentsApiUrl => const String.fromEnvironment(
+      'SUPPORT_ATTACHMENTS_API_URL',
+      defaultValue:
+          'https://5ytyphpnkc.execute-api.us-east-1.amazonaws.com/staging/support/attachments');
+
   // WhizzMe (AI) API URL
   static String get whizzMeApiUrl {
     return const String.fromEnvironment('WHIZZME_API_URL', defaultValue: '');

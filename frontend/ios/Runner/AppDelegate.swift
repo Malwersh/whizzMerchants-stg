@@ -47,10 +47,10 @@ import FirebaseMessaging
 
       self.configureStatementExport(controller)
       self.fcmMethodChannel = FlutterMethodChannel(
-        name: "com.whizz.merchants/fcm",
+        name: "com.wiz.wizmerchantapp/fcm",
         binaryMessenger: controller.binaryMessenger
       )
-      print("✅ FlutterMethodChannel set up: com.whizz.merchants/fcm")
+      print("✅ FlutterMethodChannel set up: com.wiz.wizmerchantapp/fcm")
 
       // Force token fetch after channel setup
       print("🔥 Requesting FCM token immediately after channel setup...")
@@ -135,7 +135,7 @@ import FirebaseMessaging
     // Remove remnants from a previous process before opening any new export.
     try? FileManager.default.removeItem(at: statementExportsRoot)
     statementExportChannel = FlutterMethodChannel(
-      name: "com.whizz.merchants/statement-export", binaryMessenger: controller.binaryMessenger)
+      name: "com.wiz.wizmerchantapp/statement-export", binaryMessenger: controller.binaryMessenger)
     statementExportChannel?.setMethodCallHandler { [weak self] call, result in
       guard call.method == "saveCsv" else { result(FlutterMethodNotImplemented); return }
       guard let self = self else { result(FlutterError(code: "EXPORT_UNAVAILABLE", message: nil, details: nil)); return }
