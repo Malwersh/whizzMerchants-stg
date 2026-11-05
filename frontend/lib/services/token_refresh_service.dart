@@ -60,6 +60,9 @@ class TokenRefreshService {
 
   /// Refresh the durable Cognito session once for all concurrent callers.
   static Future<Map<String, String?>?> refreshTokens() async {
+    // Preserve signed-out behavior without initializing native authentication.
+    final refreshToken = await SecureTokenStorage.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) return null;
     final active = _refreshFuture;
     if (active != null) return active;
     final pending = AppAuthService.refreshViaAmplify();
