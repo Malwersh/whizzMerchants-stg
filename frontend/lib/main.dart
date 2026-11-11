@@ -101,8 +101,8 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp>
       title: 'WIZZ Business Manager',
       debugShowCheckedModeBanner: false,
       theme: DesignSystem.lightTheme,
-      darkTheme: DesignSystem.darkTheme,
-      themeMode: ThemeMode.system,
+
+      themeMode: ThemeMode.light,
       locale: currentLocale,
       localizationsDelegates: const [
         AppLocalizations.delegate,

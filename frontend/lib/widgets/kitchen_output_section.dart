@@ -8,7 +8,10 @@ const _muted = Color(0xFF6B6B6B);
 /// Kitchen output settings: LAN thermal printers + optional kitchen display.
 /// Accepted orders are sent here automatically.
 class KitchenOutputSection extends StatefulWidget {
-  const KitchenOutputSection({super.key});
+  final String businessId;
+  final String businessName;
+  const KitchenOutputSection(
+      {super.key, required this.businessId, this.businessName = ''});
 
   @override
   State<KitchenOutputSection> createState() => _KitchenOutputSectionState();
@@ -23,7 +26,7 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
   @override
   void initState() {
     super.initState();
-    KitchenDispatchService.load().then((s) {
+    KitchenDispatchService.load(businessId: widget.businessId).then((s) {
       if (!mounted) return;
       setState(() {
         _s = s;
@@ -43,7 +46,8 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
 
   Future<void> _save(KitchenSettings s) async {
     setState(() => _s = s);
-    await KitchenDispatchService.save(s);
+    await KitchenDispatchService.save(s,
+        businessId: widget.businessId, businessName: widget.businessName);
   }
 
   void _snack(String msg, {bool error = false}) {
@@ -61,6 +65,7 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
         TextEditingController(text: (existing?.port ?? 9100).toString());
     var width = existing?.paperWidthMm ?? 80;
     var copies = existing?.copies ?? 1;
+    var ticketType = existing?.ticketType ?? 'kitchen';
 
     final result = await showModalBottomSheet<KitchenPrinter>(
       context: context,
@@ -109,6 +114,18 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
                   icon: const Icon(Icons.add_circle_outline),
                 ),
               ]),
+              DropdownButtonFormField<String>(
+                initialValue: ticketType,
+                decoration: const InputDecoration(labelText: 'نوع الوصل'),
+                items: const [
+                  DropdownMenuItem(
+                      value: 'kitchen', child: Text('تذكرة المطبخ')),
+                  DropdownMenuItem(
+                      value: 'customer', child: Text('وصل الزبون')),
+                  DropdownMenuItem(value: 'both', child: Text('النسختان')),
+                ],
+                onChanged: (v) => setSheet(() => ticketType = v!),
+              ),
               const SizedBox(height: 8),
               FilledButton(
                 onPressed: () {
@@ -123,6 +140,7 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
                       paperWidthMm: width,
                       copies: copies,
                       enabled: existing?.enabled ?? true,
+                      ticketType: ticketType,
                     ),
                   );
                 },
@@ -210,17 +228,17 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
             const Row(children: [
               Icon(Icons.soup_kitchen_rounded, color: Color(0xFFE65100)),
               SizedBox(width: 8),
-              Text('المطبخ: الطابعات والشاشات',
+              Text('الطابعات ووصولات الطلبات',
                   style: TextStyle(
                       color: _ink, fontSize: 17, fontWeight: FontWeight.w700)),
             ]),
             const SizedBox(height: 4),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('إرسال تلقائي عند قبول الطلب',
+              title: const Text('طباعة تلقائية على هذا الجهاز',
                   style: TextStyle(color: _ink)),
               subtitle: const Text(
-                  'كل طلب تقبله يُطبع في المطبخ ويظهر على شاشة المطبخ',
+                  'للطلبات المقبولة بعد التفعيل. الطلبات السابقة تُطبع يدويًا. خصّص جهازًا واحدًا للطباعة لكل فرع.',
                   style: TextStyle(color: _muted)),
               value: _s.autoDispatchOnAccept,
               onChanged: (v) => _save(KitchenSettings(

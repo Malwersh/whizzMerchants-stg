@@ -28,6 +28,8 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
   StreamSubscription<Order>? _socket;
   StreamSubscription<Map<String, dynamic>>? _updates;
   Timer? _timer;
+  StreamSubscription<bool>? _connection;
+  bool _refreshQueued = false;
   final _shown = <String>{};
   final _resolved = <String>{};
   bool _busy = false, _foreground = true, _hasSnapshot = false;
@@ -38,8 +40,25 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _push = MerchantOrderAlerts.events.listen((d) {
-      if (d['businessId'] == widget.businessId)
+      if (d['businessId'] != widget.businessId) return;
+      if (MerchantOrderAlerts.isCancellation(d)) {
+        _refresh();
+        if (_foreground) {
+          final context =
+              CommercialNoticeNavigation.navigatorKey.currentContext;
+          if (context != null)
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+              content: Text(d['cancellationState'] == 'REQUESTED'
+                  ? 'طلب الزبون إلغاء الطلب • بانتظار المراجعة'
+                  : 'تم تحديث قرار إلغاء الطلب'),
+              action: SnackBarAction(
+                  label: 'عرض الطلب',
+                  onPressed: () => widget.open(d['orderId'].toString())),
+            ));
+        }
+      } else {
         _receive(d['orderId'].toString());
+      }
     });
     _socket = RealtimeOrderService().newOrderStream.listen((o) {
       if (o.businessId == widget.businessId &&
@@ -47,7 +66,8 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
           !o.shouldAutoReject()) _receive(o.id);
     });
     _updates = RealtimeOrderService().orderUpdateStream.listen((update) {
-      final id = update['orderId']?.toString(), status = update['status']?.toString();
+      final id = update['orderId']?.toString(),
+          status = update['status']?.toString();
       if (id == null || status == null || status == 'pending') return;
       _resolved.add(id);
       _pending.removeWhere((o) => o.id == id);
@@ -55,8 +75,19 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
       if (_pending.isEmpty) _lastReminder = null;
     });
     _refresh();
-    _timer = Timer.periodic(
-        const Duration(seconds: 15), (_) => _refresh(remind: true));
+    _connection = RealtimeOrderService().connectionStream.listen((connected) {
+      if (connected) _refresh();
+    });
+    // This timer only reminds about the local snapshot; it never fetches orders.
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!_foreground || _pending.isEmpty) return;
+      if (_lastReminder == null ||
+          DateTime.now().difference(_lastReminder!).inSeconds >=
+              NotificationSoundPolicy.reminderSeconds) {
+        _lastReminder = DateTime.now();
+        unawaited(AudioNotificationService().playPendingOrderReminder());
+      }
+    });
   }
 
   @override
@@ -66,18 +97,28 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
   }
 
   Future<void> _refresh({bool remind = false}) async {
-    if (_busy || !_foreground) return;
+    if (!_foreground) return;
+    if (_busy) {
+      _refreshQueued = true;
+      return;
+    }
     _busy = true;
     try {
       final orders = await widget.load();
       if (!mounted || !_foreground) return;
-      _resolved.addAll(orders.where((o) => o.status != OrderStatus.pending).map((o) => o.id));
+      _resolved.addAll(orders
+          .where((o) => o.status != OrderStatus.pending)
+          .map((o) => o.id));
       _pending = orders
-          .where(
-              (o) => o.status == OrderStatus.pending && !_resolved.contains(o.id) && !o.shouldAutoReject())
+          .where((o) =>
+              o.status == OrderStatus.pending &&
+              !_resolved.contains(o.id) &&
+              !o.shouldAutoReject())
           .toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      _shown.addAll(orders.where((o) => o.status != OrderStatus.pending).map((o) => o.id));
+      _shown.addAll(orders
+          .where((o) => o.status != OrderStatus.pending)
+          .map((o) => o.id));
       MerchantOrderAlerts.publishSnapshot(widget.businessId, orders);
       if (!_hasSnapshot) {
         _hasSnapshot = true;
@@ -103,6 +144,10 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
       _pending = [];
     } finally {
       _busy = false;
+      if (_refreshQueued && mounted) {
+        _refreshQueued = false;
+        unawaited(_refresh());
+      }
     }
   }
 
@@ -136,6 +181,7 @@ class _MerchantOrderAttentionState extends State<MerchantOrderAttention>
     _push?.cancel();
     _socket?.cancel();
     _updates?.cancel();
+    _connection?.cancel();
     _timer?.cancel();
     _pending = [];
     super.dispose();

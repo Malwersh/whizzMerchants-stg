@@ -341,7 +341,8 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                     const batchGetParams = {
                         RequestItems: {
                             [ORDERS_TABLE]: {
-                                Keys: keys
+                                Keys: keys,
+                                ConsistentRead: true
                             }
                         }
                     };
@@ -360,6 +361,8 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                         // GSI storeStatus doesn't update when driver changes status!
                         limitedOrders[i] = {
                             ...limitedOrders[i],
+                            exceptionCancellation: fullOrder.exceptionCancellation ?? null,
+                            updatedAt: fullOrder.updatedAt,
                             status: fullOrder.status || limitedOrders[i].status,  // 🔥 الحالة الحقيقية
                             driverId: fullOrder.driverId || limitedOrders[i].driverId,
                             driverName: fullOrder.driverName || limitedOrders[i].driverName,

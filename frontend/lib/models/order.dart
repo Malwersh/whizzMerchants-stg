@@ -59,7 +59,11 @@ class OrderItem {
           : _parsePrice(json['unitPrice']) / 1000,
       quantity: json['quantity'] ?? 1,
       notes: json['notes'] ?? json['specialInstructions'],
-      modifiers: (json['modifiers'] as List? ?? []).whereType<Map>().map((m)=>m['name']?.toString() ?? '').where((s)=>s.isNotEmpty).toList(),
+      modifiers: (json['modifiers'] as List? ?? [])
+          .whereType<Map>()
+          .map((m) => m['name']?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList(),
     );
   }
 
@@ -87,7 +91,7 @@ class OrderItem {
       'price': price,
       'quantity': quantity,
       'notes': notes,
-      'modifiers': modifiers.map((name)=>{'name':name}).toList(),
+      'modifiers': modifiers.map((name) => {'name': name}).toList(),
     };
   }
 
@@ -95,11 +99,12 @@ class OrderItem {
 }
 
 class Order {
+  final Map<String, num> receiptAmounts;
   final bool driverReplacementSearch;
   final bool driverSearchUnavailable;
-  final Map<String,dynamic>? financialAssignment;
-  final Map<String,dynamic>? merchantHandover;
-  final Map<String,dynamic>? exceptionCancellation;
+  final Map<String, dynamic>? financialAssignment;
+  final Map<String, dynamic>? merchantHandover;
+  final Map<String, dynamic>? exceptionCancellation;
   final String? exceptionPolicyVersion;
   DateTime? merchantAcceptanceDeadlineAt;
   int? estimatedPreparationTime;
@@ -131,6 +136,7 @@ class Order {
   DateTime? pickedUpAt; // وقت استلام السائق للطلب
 
   Order({
+    this.receiptAmounts = const {},
     this.driverReplacementSearch = false,
     this.driverSearchUnavailable = false,
     this.financialAssignment,
@@ -194,16 +200,29 @@ class Order {
 
     return Order(
       id: orderId,
-      driverReplacementSearch: (json['driverReplacementSearch'] == true || json['financialRelease'] is Map) && (json['driverId'] ?? json['assignedDriverId']) == null && ['ready_for_pickup','ready','reassigning'].contains(json['status']),
+      receiptAmounts: _receiptAmounts(json),
+      driverReplacementSearch: (json['driverReplacementSearch'] == true ||
+              json['financialRelease'] is Map) &&
+          (json['driverId'] ?? json['assignedDriverId']) == null &&
+          ['ready_for_pickup', 'ready', 'reassigning'].contains(json['status']),
       driverSearchUnavailable: json['driverSearchUnavailable'] == true &&
-          json['driverId'] == null && json['assignedDriverId'] == null &&
+          json['driverId'] == null &&
+          json['assignedDriverId'] == null &&
           ['ready', 'ready_for_pickup', 'reassigning'].contains(json['status']),
       exceptionPolicyVersion: json['exceptionPolicyVersion']?.toString(),
-      merchantHandover: json['merchantHandover'] is Map ? Map<String,dynamic>.unmodifiable(json['merchantHandover']) : null,
-      exceptionCancellation: json['exceptionCancellation'] is Map ? Map<String,dynamic>.unmodifiable(json['exceptionCancellation']) : null,
-      financialAssignment: json['financialAssignment'] is Map ? Map<String,dynamic>.unmodifiable(json['financialAssignment']) : null,
-      merchantAcceptanceDeadlineAt: _parseDateTime(json['merchantAcceptanceDeadlineAt']),
-      estimatedPreparationTime: (json['estimatedPreparationTime'] as num?)?.toInt(),
+      merchantHandover: json['merchantHandover'] is Map
+          ? Map<String, dynamic>.unmodifiable(json['merchantHandover'])
+          : null,
+      exceptionCancellation: json['exceptionCancellation'] is Map
+          ? Map<String, dynamic>.unmodifiable(json['exceptionCancellation'])
+          : null,
+      financialAssignment: json['financialAssignment'] is Map
+          ? Map<String, dynamic>.unmodifiable(json['financialAssignment'])
+          : null,
+      merchantAcceptanceDeadlineAt:
+          _parseDateTime(json['merchantAcceptanceDeadlineAt']),
+      estimatedPreparationTime:
+          (json['estimatedPreparationTime'] as num?)?.toInt(),
       businessId: json['businessId'] ?? json['storeId'] ?? '',
       customerId: json['customerId'] ??
           json['userId'] ??
@@ -248,6 +267,37 @@ class Order {
   static double? _minorToIqd(dynamic value) {
     final amount = value is num ? value.toDouble() : double.tryParse('$value');
     return amount != null && amount.isFinite ? amount / 1000 : null;
+  }
+
+  static Map<String, num> _receiptAmounts(Map<String, dynamic> json) {
+    final saved = json['receiptAmounts'];
+    if (saved is Map)
+      return Map<String, num>.unmodifiable({
+        for (final e in saved.entries)
+          if (e.value is num && (e.value as num).isFinite)
+            '${e.key}': e.value as num,
+      });
+    // Pricing fields in the canonical order are minor units; legacy fields are IQD.
+    const fields = {
+      'subtotal': 'goodsSubtotal',
+      'serviceFee_legacy': 'serviceFee',
+      'discount_legacy': 'discount',
+      'tip_legacy': 'tip',
+      'packagingFee_legacy': 'packagingFee',
+      'tax_legacy': 'tax'
+    };
+    final pricing = json['pricing'];
+    final amounts = <String, num>{};
+    for (final e in fields.entries) {
+      final canonical = pricing is Map ? pricing[e.value] : null;
+      final legacy = json[e.key];
+      if (canonical is num && canonical.isFinite) {
+        amounts[e.key] = canonical / 1000;
+      } else if (legacy is num && legacy.isFinite) {
+        amounts[e.key] = legacy;
+      }
+    }
+    return Map<String, num>.unmodifiable(amounts);
   }
 
   static double _parseDeliveryFee(Map<String, dynamic> json) {
@@ -400,13 +450,18 @@ class Order {
 
     return {
       'id': id,
+      'receiptAmounts': receiptAmounts,
       'driverReplacementSearch': driverReplacementSearch,
       'driverSearchUnavailable': driverSearchUnavailable,
-      if(financialAssignment!=null) 'financialAssignment': financialAssignment,
-      if(merchantHandover!=null) 'merchantHandover': merchantHandover,
-      if(exceptionCancellation!=null) 'exceptionCancellation': exceptionCancellation,
-      if(exceptionPolicyVersion!=null) 'exceptionPolicyVersion': exceptionPolicyVersion,
-      'merchantAcceptanceDeadlineAt': merchantAcceptanceDeadlineAt?.toIso8601String(),
+      if (financialAssignment != null)
+        'financialAssignment': financialAssignment,
+      if (merchantHandover != null) 'merchantHandover': merchantHandover,
+      if (exceptionCancellation != null)
+        'exceptionCancellation': exceptionCancellation,
+      if (exceptionPolicyVersion != null)
+        'exceptionPolicyVersion': exceptionPolicyVersion,
+      'merchantAcceptanceDeadlineAt':
+          merchantAcceptanceDeadlineAt?.toIso8601String(),
       'estimatedPreparationTime': estimatedPreparationTime,
       'paymentMethod': paymentMethod,
       'deliveryInstructions': deliveryInstructions,
@@ -450,10 +505,21 @@ class Order {
   }) {
     return Order(
       id: id ?? this.id,
-      driverReplacementSearch: driverReplacementSearch && (driverId ?? this.driverId) == null && [OrderStatus.ready,OrderStatus.readyForPickup,OrderStatus.reassigning].contains(status ?? this.status),
+      receiptAmounts: receiptAmounts,
+      driverReplacementSearch: driverReplacementSearch &&
+          (driverId ?? this.driverId) == null &&
+          [
+            OrderStatus.ready,
+            OrderStatus.readyForPickup,
+            OrderStatus.reassigning
+          ].contains(status ?? this.status),
       driverSearchUnavailable: driverSearchUnavailable &&
           (driverId ?? this.driverId) == null &&
-          [OrderStatus.ready, OrderStatus.readyForPickup, OrderStatus.reassigning].contains(status ?? this.status),
+          [
+            OrderStatus.ready,
+            OrderStatus.readyForPickup,
+            OrderStatus.reassigning
+          ].contains(status ?? this.status),
       financialAssignment: financialAssignment,
       exceptionCancellation: exceptionCancellation,
       merchantHandover: merchantHandover,
@@ -489,7 +555,8 @@ class Order {
 
   bool shouldAutoReject() {
     // Display helper only. Expiration is decided by the server.
-    return !DateTime.now().isBefore(merchantAcceptanceDeadlineAt ?? createdAt.add(const Duration(minutes: 5)));
+    return !DateTime.now().isBefore(merchantAcceptanceDeadlineAt ??
+        createdAt.add(const Duration(minutes: 5)));
   }
 
   @override

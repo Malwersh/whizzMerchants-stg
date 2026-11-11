@@ -71,9 +71,19 @@ class AppConfig {
   static String get supportChatWebSocketUrl {
     return const String.fromEnvironment(
       'SUPPORT_CHAT_WEBSOCKET_URL',
-      defaultValue: '',
+      defaultValue: environment == 'staging'
+          ? 'wss://vzvnqu5jhl.execute-api.us-east-1.amazonaws.com/staging'
+          : '',
     );
   }
+
+  // Dedicated private support attachment route; never the order API.
+  static String get supportAttachmentsApiUrl => const String.fromEnvironment(
+        'SUPPORT_ATTACHMENTS_API_URL',
+        defaultValue: environment == 'staging'
+            ? 'https://5ytyphpnkc.execute-api.us-east-1.amazonaws.com/staging/support/attachments'
+            : '',
+      );
 
   // WhizzMe (AI) API URL
   static String get whizzMeApiUrl {

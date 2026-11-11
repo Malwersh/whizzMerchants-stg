@@ -97,5 +97,7 @@
 		<string>_dartobservatory._tcp</string>
 		<string>com.whizz.merchants._dartVmService._tcp</string>
 	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
 </dict>
 </plist>
