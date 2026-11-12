@@ -18,7 +18,6 @@ class SupportChatScreen extends ConsumerStatefulWidget {
 
 class _SupportChatScreenState extends ConsumerState<SupportChatScreen>
     with WidgetsBindingObserver {
-  static const navy = Color(0xFF00296B);
   final _text = TextEditingController();
   final _scroll = ScrollController();
   final _chat = SupportChatService();
@@ -103,18 +102,19 @@ class _SupportChatScreenState extends ConsumerState<SupportChatScreen>
       final image = await ImagePicker().pickImage(
           source: source, maxWidth: 1920, maxHeight: 1920, imageQuality: 85);
       if (image == null || !mounted) return;
-      final controller = TextEditingController();
+      var captionText = '';
       final caption = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('إضافة وصف للصورة'),
-          content: TextField(controller: controller, maxLength: 4000),
+          content: TextField(
+              maxLength: 4000, onChanged: (value) => captionText = value),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
                 child: const Text('إلغاء')),
             TextButton(
-                onPressed: () => Navigator.pop(dialogContext, controller.text),
+                onPressed: () => Navigator.pop(dialogContext, captionText),
                 child: const Text('إرسال')),
           ],
         ),
