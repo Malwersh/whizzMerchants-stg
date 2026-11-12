@@ -2936,6 +2936,12 @@ abstract class AppLocalizations {
   /// **'Email address is already in use'**
   String get emailAlreadyInUse;
 
+  /// No description provided for @phoneNumberAlreadyExists.
+  ///
+  /// In en, this message translates to:
+  /// **'An account with this phone number already exists. Please sign in instead.'**
+  String get phoneNumberAlreadyExists;
+
   /// No description provided for @passwordResetLinkSent.
   ///
   /// In en, this message translates to:

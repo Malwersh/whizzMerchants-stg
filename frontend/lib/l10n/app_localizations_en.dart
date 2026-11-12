@@ -1486,6 +1486,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get emailAlreadyInUse => 'Email address is already in use';
 
   @override
+  String get phoneNumberAlreadyExists =>
+      'An account with this phone number already exists. Please sign in instead.';
+
+  @override
   String get passwordResetLinkSent => 'Password reset link sent to your email';
 
   @override

@@ -782,6 +782,7 @@
   "registrationFailedWithReason": "فشل التسجيل: {reason}",
   "invalidEmailFormat": "يرجى إدخال بريد إلكتروني صالح",
   "emailAlreadyInUse": "البريد الإلكتروني مستخدم بالفعل",
+  "phoneNumberAlreadyExists": "هذا الرقم مسجل مسبقاً. يرجى تسجيل الدخول بدلاً من ذلك.",
   "confirmPasswordRequired": "يرجى تأكيد كلمة المرور",
   "selectImageSource": "اختر مصدر الصورة",
   "invalidIraqiPhoneNumber": "يرجى إدخال رقم عراقي صالح (77X/78X/79X للهاتف المحمول)",
