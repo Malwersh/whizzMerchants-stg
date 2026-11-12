@@ -1,3 +1,4 @@
+import '../services/support_chat_service.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -168,6 +169,8 @@ class SessionNotifier extends StateNotifier<Session> {
     final generation = ++_generation;
     final data = Map<String, dynamic>.from(businessData);
     // Publish the selection synchronously. Old readers are invalid immediately.
+    if (state.businessId != businessId)
+      SupportChatService().invalidateIdentity();
     MerchantBranchScope.selectionChanged(businessId);
     AppState().selectBranch(businessId);
     RealtimeOrderService().selectBranch(businessId);
@@ -212,6 +215,7 @@ class SessionNotifier extends StateNotifier<Session> {
   Future<void> clearBusinessSelection({Session? expected}) async {
     if (!mounted || (expected != null && !identical(state, expected))) return;
     ++_generation;
+    SupportChatService().invalidateIdentity();
     MerchantBranchScope.selectionChanged(null);
     AppState().selectBranch(null);
     RealtimeOrderService().selectBranch(null);
@@ -224,6 +228,7 @@ class SessionNotifier extends StateNotifier<Session> {
     if (!mounted) return;
     ++_generation;
     _isPerformingLogout = true;
+    SupportChatService().invalidateIdentity();
     MerchantBranchScope.selectionChanged(null);
     AppState().selectBranch(null);
     RealtimeOrderService().selectBranch(null);

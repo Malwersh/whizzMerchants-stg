@@ -1,3 +1,4 @@
+import '../widgets/kitchen_board.dart';
 import 'merchant_cancellation_screen.dart';
 import 'customer_cancellation_screen.dart';
 import '../services/merchant_order_tabs.dart';
@@ -13,7 +14,7 @@ import '../l10n/app_localizations.dart';
 import '../models/order.dart';
 import '../services/order_service.dart';
 import '../services/audio_notification_service.dart';
-import '../services/kitchen_dispatch_service.dart';
+import '../services/order_print_service.dart';
 import '../services/realtime_order_service.dart';
 import '../services/order_cache_service.dart';
 import '../services/push_notifications_service.dart';
@@ -60,7 +61,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   String? _queuedRefreshBusinessId;
   StreamSubscription? _newOrderSubscription;
   StreamSubscription? _orderUpdateSubscription;
-  Timer? _smartPollingTimer; // 🎯 Smart polling للطلبات النشطة فقط
+  bool _kitchenMode = false;
   bool _disposed = false; // track disposal to stop timers
   int _sessionWaitAttempts = 0; // attempts waiting for session readiness
   static const int _maxSessionWaitAttempts = 40; // ~40 * 150ms = 6s cap
@@ -73,6 +74,10 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           widget.businessId ??
           ref.read(sessionProvider).businessId;
       if (event['businessId'] != branch || !mounted || _disposed) return;
+      if (widget.employeeAccess != null) {
+        unawaited(_loadEmployeeOrders());
+        return;
+      }
       if (_isLoading && widget.employeeAccess == null) {
         _queuedRefreshBusinessId = branch;
         return;
@@ -91,14 +96,14 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       _observedOrderIds.addAll(snapshot.orders.map((o) => o.id));
       setState(() {
         _orders = List<Order>.of(snapshot.orders);
+        _observePrinting(_orders, branch!);
         _syncFocusedTab();
       });
     });
     if (widget.employeeAccess != null) {
       _selectedFilter = 'pending';
       _loadEmployeeOrders();
-      _smartPollingTimer = Timer.periodic(
-          const Duration(seconds: 15), (_) => _loadEmployeeOrders());
+
       return;
     }
     _waitForSessionReadyAndInitialize(); // defer initialization until session.isReady
@@ -140,7 +145,6 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     _disposed = true;
     _arrivalSubscription?.cancel();
     _snapshotSubscription?.cancel();
-    _smartPollingTimer?.cancel(); // 🎯 Cancel smart polling
     if (widget.employeeAccess != null) {
       super.dispose();
       return;
@@ -236,68 +240,6 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
     if (!_isInitializing && _realtimeService.isConnected) {
       _realtimeService.disconnect();
     }
-  }
-
-  /// 🎯 Start smart polling - only polls active orders with drivers
-  /// This reduces unnecessary API calls and updates only when needed
-  void _startSmartPolling() {
-    _smartPollingTimer?.cancel();
-    _smartPollingTimer =
-        Timer.periodic(const Duration(seconds: 3), (timer) async {
-      if (_disposed || !mounted) {
-        timer.cancel();
-        return;
-      }
-
-      // Only poll when viewing "ready" or "delivered" tabs (where driver status matters)
-      if (!['ready', 'delivered'].contains(_selectedFilter)) {
-        return;
-      }
-
-      // Get active orders (orders with drivers OR orders that should have drivers)
-      final activeOrders = _orders.where((order) {
-        // Include orders that already have drivers and aren't completed
-        final hasDriver = order.driverId != null &&
-            order.status != OrderStatus.delivered &&
-            order.status != OrderStatus.completed &&
-            order.status != OrderStatus.cancelled;
-
-        // 🎯 ALSO include ready orders without drivers (waiting for assignment)
-        final isReadyWaitingForDriver = [
-              OrderStatus.ready,
-              OrderStatus.readyForPickup
-            ].contains(order.status) &&
-            order.driverId == null;
-
-        // 🎯 CRITICAL: Include ALL assigned orders (they MUST have drivers in backend)
-        // Even if UI hasn't updated yet (driverId may still be null locally)
-        final isAssigned = order.status == OrderStatus.assigned;
-
-        final shouldPoll = hasDriver || isReadyWaitingForDriver || isAssigned;
-
-        // 🔍 Debug logging for each order
-        if (shouldPoll) {
-          AppLogger.debug(
-              '🎯 POLLING: Order ${order.orderNumber} - status=${order.status}, driverId=${order.driverId}, hasDriver=$hasDriver, isReady=$isReadyWaitingForDriver, isAssigned=$isAssigned');
-        }
-
-        return shouldPoll;
-      }).toList();
-
-      if (activeOrders.isEmpty) {
-        // No active orders to poll
-        return;
-      }
-
-      AppLogger.debug(
-          '🎯 Smart polling: Checking ${activeOrders.length} active orders');
-
-      // Refresh each active order with cache checking
-      for (final order in activeOrders) {
-        await _refreshSingleOrder(order.id);
-      }
-    });
-    AppLogger.info('✅ Smart polling started (cache-based, every 3 seconds)');
   }
 
   void _handleRealtimeOrderUpdate(Map<String, dynamic> update) {
@@ -492,7 +434,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       await _loadOrders(finalBusinessId, preserveNewOrders: false);
       await _realtimeService.initialize(finalBusinessId);
       _initializeRealtimeService();
-      _startSmartPolling(); // 🎯 Start smart polling for active orders only
+
       if (mounted) {
         setState(() {
           _isInitializing = false;
@@ -542,6 +484,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       if (!mounted) return;
       setState(() {
         _orders = orders;
+        _observePrinting(orders, widget.employeeAccess!.businessId);
         _syncFocusedTab();
         _employeeError = null;
       });
@@ -638,6 +581,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           // Filtering is done client-side using _shouldShowInFilter in build()
           // No need to filter here since we load all orders
 
+          _observePrinting(List<Order>.of(processedOrders), businessId);
           if (preserveNewOrders) {
             // Merge server orders with locally updated orders to prevent disappearance
             // This handles backend sync delays or temporary inconsistencies
@@ -656,6 +600,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           }
 
           _orders = processedOrders;
+
           _syncFocusedTab();
           _isLoading = false; // Clear loading state
           AppLogger.success(
@@ -731,18 +676,18 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   }
 
   void _dispatchToKitchen(Order order) {
-    KitchenDispatchService.dispatchAcceptedOrder(order).then((result) {
-      if (result == null || !mounted) return;
-      if (!result.allOk) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'تعذّر الإرسال للمطبخ: ${result.failures.join('، ')} — تحقق من إعدادات POS'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    });
+    unawaited(OrderPrintService.printOrder(
+            order.copyWith(status: OrderStatus.confirmed),
+            automatic: true)
+        .catchError((Object e) {
+      AppLogger.error('Print queue failed: $e');
+    }));
+  }
+
+  void _observePrinting(List<Order> orders, String branch) {
+    unawaited(OrderPrintService.observe(orders, branch).catchError((Object e) {
+      AppLogger.error('Print observation failed: $e');
+    }));
   }
 
   Future<void> _handleOrderUpdate(String orderId, OrderStatus newStatus) async {
@@ -1720,6 +1665,24 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       );
     }
 
+    if (_kitchenMode) {
+      return KitchenBoard(
+        orders: _orders,
+        loading: _isLoading,
+        close: () => setState(() => _kitchenMode = false),
+        canUpdate: (status) => widget.employeeAccess?.canUpdate(status) ?? true,
+        update: _handleOrderUpdate,
+        refresh: () async {
+          if (widget.employeeAccess != null) {
+            await _loadEmployeeOrders();
+          } else {
+            final branch =
+                widget.businessId ?? ref.read(sessionProvider).businessId;
+            if (branch != null) await _loadOrders(branch);
+          }
+        },
+      );
+    }
     final loc = AppLocalizations.of(context)!;
 
     // Apply filtering logic using _shouldShowInFilter
@@ -1739,6 +1702,13 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
       body: SafeArea(
         child: Column(
           children: [
+            Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _kitchenMode = true),
+                  icon: const Icon(Icons.soup_kitchen_outlined),
+                  label: const Text('شاشة التجهيز'),
+                )),
             // Filter chips with Material 3 design - Fixed height container
             Container(
               height: 67, // Increased height by 20% (56 * 1.2 = 67.2 ≈ 67)
@@ -1999,7 +1969,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
   }
 
   VoidCallback? _returnAction(Order order) {
-    if (order.merchantHandover?['state'] == 'HANDED_TO_DRIVER' && order.financialAssignment?['returnId'] == null) return null;
+    if (order.merchantHandover?['state'] == 'HANDED_TO_DRIVER' &&
+        order.financialAssignment?['returnId'] == null) return null;
     if (widget.employeeAccess == null &&
         order.exceptionCancellation?['state'] == 'REQUESTED') {
       return () => Navigator.of(context).push(MaterialPageRoute(
@@ -2042,7 +2013,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
           padding: EdgeInsets.only(bottom: AppSpacing.md),
           child: OrderCard(
             order: order,
-            onHandoverRecorded: () => _loadOrders(order.businessId, preserveNewOrders: true),
+            onHandoverRecorded: () =>
+                _loadOrders(order.businessId, preserveNewOrders: true),
             onTap: _returnAction(order),
             actionLabel: _returnAction(order) == null
                 ? null
@@ -2075,7 +2047,8 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
         final order = orders[index];
         return OrderCard(
           order: order,
-          onHandoverRecorded: () => _loadOrders(order.businessId, preserveNewOrders: true),
+          onHandoverRecorded: () =>
+              _loadOrders(order.businessId, preserveNewOrders: true),
           onTap: _returnAction(order),
           actionLabel: _returnAction(order) == null
               ? null

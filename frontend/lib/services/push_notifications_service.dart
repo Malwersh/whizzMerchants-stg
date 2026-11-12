@@ -43,9 +43,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 class PushNotificationsService {
   PushNotificationsService._() {
-    NotificationSoundFiles.changed.addListener(() {if(_initialized)unawaited(registerTokenIfPossible(businessId:_lastKnownBusinessId));});
+    NotificationSoundFiles.changed.addListener(() {
+      if (_initialized)
+        unawaited(registerTokenIfPossible(businessId: _lastKnownBusinessId));
+    });
     SoundNotificationSettings().addListener(() {
-      if (_initialized) unawaited(registerTokenIfPossible(businessId: _lastKnownBusinessId));
+      if (_initialized)
+        unawaited(registerTokenIfPossible(businessId: _lastKnownBusinessId));
     });
   }
   static final PushNotificationsService instance = PushNotificationsService._();
@@ -117,6 +121,10 @@ class PushNotificationsService {
             initial?.data['orderId']?.toString());
       // Handle foreground push notifications
       FirebaseMessaging.onMessage.listen((message) async {
+        // Deliver order invalidation before inbox persistence or identity loading.
+        if (MerchantOrderAlerts.isCancellation(message.data)) {
+          MerchantOrderAlerts.receive(message.data);
+        }
         CommercialNoticeNavigation.receive(message.data);
         await MerchantNotificationInbox.recordPush(message.data,
                 title: message.notification?.title,
@@ -130,6 +138,9 @@ class PushNotificationsService {
 
         // Handle new_order action
         final action = message.data['action']?.toString() ?? '';
+        if (MerchantOrderAlerts.isCancellation(message.data)) {
+          MerchantOrderAlerts.receive(message.data);
+        }
         if (action == 'new_order') {
           MerchantOrderAlerts.receive(message.data);
           AppLogger.debug('🚨 NEW ORDER PUSH RECEIVED (foreground)');
@@ -170,6 +181,9 @@ class PushNotificationsService {
 
         // Handle tap actions
         final action = message.data['action']?.toString() ?? '';
+        if (MerchantOrderAlerts.isCancellation(message.data)) {
+          MerchantOrderAlerts.receive(message.data);
+        }
         if (action == 'new_order') {
           AppLogger.debug(
               '🚨 NEW ORDER PUSH TAPPED - Navigate to pending orders');
@@ -186,6 +200,8 @@ class PushNotificationsService {
       // This is critical for debugging the "tap from closed" path.
       final initialMessage = initial;
       if (initialMessage != null) {
+        if (MerchantOrderAlerts.isCancellation(initialMessage.data))
+          MerchantOrderAlerts.receive(initialMessage.data);
         CommercialNoticeNavigation.receive(initialMessage.data, tapped: true);
         await MerchantNotificationInbox.recordPush(initialMessage.data,
                 title: initialMessage.notification?.title,
@@ -247,13 +263,23 @@ class PushNotificationsService {
     _lastKnownBusinessId = null;
     try {
       if (token != null && auth != null) {
-        await http.post(Uri.parse('${AppConfig.pushNotificationsUrl}/push/tokens/unregister'),
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $auth'},
-          body: jsonEncode({'token': token, 'app': 'merchant'}))
-          .timeout(const Duration(seconds: 10));
+        await http
+            .post(
+                Uri.parse(
+                    '${AppConfig.pushNotificationsUrl}/push/tokens/unregister'),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $auth'
+                },
+                body: jsonEncode({'token': token, 'app': 'merchant'}))
+            .timeout(const Duration(seconds: 10));
       }
-    } catch (_) { AppLogger.debug('Device unregistration unavailable'); }
-    try { await FirebaseMessaging.instance.deleteToken(); } catch (_) {}
+    } catch (_) {
+      AppLogger.debug('Device unregistration unavailable');
+    }
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
   }
 
   Future<void> registerTokenIfPossible(
@@ -305,16 +331,28 @@ class PushNotificationsService {
           .read(key: 'merchant_paired_branch_device_v1');
       if (paired != null) {
         final device = Map<String, dynamic>.from(jsonDecode(paired));
-        final pushResult=await BranchDeviceService().call(device['deviceToken'], {
+        final pushResult =
+            await BranchDeviceService().call(device['deviceToken'], {
           'action': 'register_push',
           'pushToken': token,
-          'soundEnabled': SoundNotificationSettings().shouldPlaySound('new_order'),
+          'soundEnabled':
+              SoundNotificationSettings().shouldPlaySound('new_order'),
           'soundReady': NotificationSoundPolicy.ready,
           'platform': Platform.isIOS ? 'ios' : 'android'
         });
-        final beforeReady=NotificationSoundPolicy.ready.join(',');
-        await NotificationSoundPolicy.adopt(pushResult['notificationPolicy']??pushResult['data']?['notificationPolicy']);
-        if(beforeReady!=NotificationSoundPolicy.ready.join(',')){await BranchDeviceService().call(device['deviceToken'],{'action':'register_push','pushToken':token,'platform':Platform.isIOS?'ios':'android','soundReady':NotificationSoundPolicy.ready,'soundEnabled':SoundNotificationSettings().shouldPlaySound('new_order')});}
+        final beforeReady = NotificationSoundPolicy.ready.join(',');
+        await NotificationSoundPolicy.adopt(pushResult['notificationPolicy'] ??
+            pushResult['data']?['notificationPolicy']);
+        if (beforeReady != NotificationSoundPolicy.ready.join(',')) {
+          await BranchDeviceService().call(device['deviceToken'], {
+            'action': 'register_push',
+            'pushToken': token,
+            'platform': Platform.isIOS ? 'ios' : 'android',
+            'soundReady': NotificationSoundPolicy.ready,
+            'soundEnabled':
+                SoundNotificationSettings().shouldPlaySound('new_order')
+          });
+        }
         registrationStatus.value = 'تم تسجيل هذا الجهاز للإشعارات.';
         return;
       }
@@ -334,8 +372,11 @@ class PushNotificationsService {
       final subjectId = claims['sub']?.toString();
       final registrationBusiness = _lastKnownBusinessId;
       await NotificationSoundPolicy.refresh();
-      final soundEnabled=SoundNotificationSettings().shouldPlaySound('new_order');
-      if (_lastReadySounds == NotificationSoundPolicy.ready.join(',') && _lastRegisteredSoundEnabled == soundEnabled && _lastRegisteredToken == token &&
+      final soundEnabled =
+          SoundNotificationSettings().shouldPlaySound('new_order');
+      if (_lastReadySounds == NotificationSoundPolicy.ready.join(',') &&
+          _lastRegisteredSoundEnabled == soundEnabled &&
+          _lastRegisteredToken == token &&
           _lastRegisteredBusinessId == registrationBusiness &&
           _lastRegisteredSubjectId == subjectId) {
         registrationStatus.value = 'تم تسجيل هذا الجهاز للإشعارات.';
@@ -364,7 +405,7 @@ class PushNotificationsService {
         'soundEnabled': soundEnabled,
         'app': 'merchant',
         'platform': platform,
-          'soundReady': NotificationSoundPolicy.ready,
+        'soundReady': NotificationSoundPolicy.ready,
         'deviceId': deviceId,
         'appVersion': pkg.version,
         'buildNumber': pkg.buildNumber,
@@ -384,7 +425,7 @@ class PushNotificationsService {
       );
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        _lastReadySounds=NotificationSoundPolicy.ready.join(',');
+        _lastReadySounds = NotificationSoundPolicy.ready.join(',');
         _lastRegisteredSoundEnabled = soundEnabled;
         _lastRegisteredToken = token;
         _lastRegisteredBusinessId = registrationBusiness;

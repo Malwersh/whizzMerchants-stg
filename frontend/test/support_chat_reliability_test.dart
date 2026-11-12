@@ -4,6 +4,63 @@ import 'package:whizz_merchants/services/support_chat_service.dart';
 import 'helpers/support_chat_fixture.dart';
 
 void main() {
+  testWidgets('explicit retry retains receipt and attachment identity',
+      (tester) async {
+    final f = Fixture();
+    await f.start();
+    f.confirm();
+    await f.service.sendMessage('مرة واحدة');
+    final sent = f.channels.single.sent.last;
+    await tester.pump(const Duration(seconds: 16));
+    expect(f.service.retryMessage(sent['clientMessageId']), true);
+    expect(f.channels.single.sent.last['clientMessageId'],
+        sent['clientMessageId']);
+    expect(f.service.messages.where((m) => m.senderType == 'merchant'),
+        hasLength(1));
+    f.service.dispose();
+  });
+  testWidgets(
+      'old history page and error cannot replace current requested page',
+      (tester) async {
+    final f = Fixture();
+    await f.start();
+    f.confirm();
+    final first = f.channels.single.sent.last;
+    await tester.pump(const Duration(seconds: 16));
+    f.service.loadHistory();
+    f.channels.single.receive({
+      'type': 'session_messages',
+      'sessionId': f.service.sessionId,
+      'requestId': first['requestId'],
+      'messages': [],
+      'nextCursor': 'stale'
+    });
+    expect(f.service.historyLoading, true);
+    expect(f.service.nextCursor, isNull);
+    f.channels.single.receive({
+      'type': 'history_error',
+      'sessionId': f.service.sessionId,
+      'requestId': first['requestId']
+    });
+    expect(f.service.historyError, isNull);
+    f.service.dispose();
+  });
+  testWidgets(
+      'sign-out invalidation clears old branch transcript and blocks late ACK',
+      (tester) async {
+    final f = Fixture();
+    await f.start();
+    f.confirm();
+    await f.service.sendMessage('خاصة');
+    f.service.invalidateIdentity();
+    expect(f.service.messages, isEmpty);
+    expect(f.service.sessionId, isNull);
+    expect(f.service.isConnected, false);
+    expect(f.channels.single.input.isClosed, true);
+    expect(f.service.messages, isEmpty);
+    f.service.dispose();
+  });
+
   testWidgets('ordinary support topics connect directly without an AI greeting',
       (tester) async {
     final f = Fixture();
@@ -128,6 +185,8 @@ void main() {
     expect(f.channels.single.sent.length, sentCount);
     f.channels.single.receive({
       'type': 'session_messages',
+      'requestId': f.channels.single.sent.firstWhere(
+          (m) => m['action'] == 'get_session_messages')['requestId'],
       'sessionId': f.service.sessionId,
       'messages': [
         {

@@ -1,3 +1,4 @@
+import 'order_print_entry.dart';
 import 'merchant_handover_button.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -115,6 +116,28 @@ class OrderCard extends ConsumerWidget {
               ),
               SizedBox(height: GoldenRatio.lg),
 
+              if (const ['REQUESTED', 'CANCELLED']
+                  .contains(order.exceptionCancellation?['state']))
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                      color: const Color(0xFFEEF2F8),
+                      borderRadius: BorderRadius.circular(10)),
+                  child: Row(children: [
+                    Icon(Icons.info_outline,
+                        color: Color(0xFF00296B), size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                        child: Text(
+                            order.exceptionCancellation?['state'] == 'CANCELLED'
+                                ? 'ألغاه الزبون'
+                                : 'طلب إلغاء من الزبون قيد المراجعة',
+                            style: TextStyle(
+                                color: Color(0xFF00296B), fontSize: 13)))
+                  ]),
+                ),
               if (actionLabel != null && onTap != null)
                 OutlinedButton(onPressed: onTap, child: Text(actionLabel!)),
               if (order.driverSearchUnavailable)
@@ -129,6 +152,7 @@ class OrderCard extends ConsumerWidget {
                     padding: EdgeInsets.only(bottom: 12),
                     child: Text(
                         'الطلب جاهز لدى المطعم. نبحث عن سائق بديل بعد اعتذار السائق السابق.')),
+              OrderPrintEntry(order: order),
               // Customer Info
               Row(
                 children: [

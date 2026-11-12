@@ -19,6 +19,7 @@ class KitchenPrinter {
   final int paperWidthMm; // 80 or 58
   final int copies;
   final bool enabled;
+  final String ticketType; // kitchen, customer, both
 
   const KitchenPrinter({
     required this.name,
@@ -27,6 +28,7 @@ class KitchenPrinter {
     this.paperWidthMm = 80,
     this.copies = 1,
     this.enabled = true,
+    this.ticketType = 'kitchen',
   });
 
   int get dotsWidth => paperWidthMm == 58 ? 384 : 576;
@@ -38,6 +40,7 @@ class KitchenPrinter {
         'paperWidthMm': paperWidthMm,
         'copies': copies,
         'enabled': enabled,
+        'ticketType': ticketType,
       };
 
   factory KitchenPrinter.fromJson(Map<String, dynamic> j) => KitchenPrinter(
@@ -47,6 +50,7 @@ class KitchenPrinter {
         paperWidthMm: j['paperWidthMm'] ?? 80,
         copies: j['copies'] ?? 1,
         enabled: j['enabled'] ?? true,
+        ticketType: j['ticketType'] ?? 'kitchen',
       );
 
   KitchenPrinter copyWith({
@@ -64,16 +68,21 @@ class KitchenPrinter {
         paperWidthMm: paperWidthMm ?? this.paperWidthMm,
         copies: copies ?? this.copies,
         enabled: enabled ?? this.enabled,
+        ticketType: ticketType,
       );
 }
 
 class KitchenSettings {
+  final String businessName;
+  final DateTime? automaticFrom;
   final bool autoDispatchOnAccept;
   final List<KitchenPrinter> printers;
   final String kdsUrl; // optional kitchen display endpoint (HTTP POST JSON)
   final String kdsApiKey;
 
   const KitchenSettings({
+    this.businessName = '',
+    this.automaticFrom,
     this.autoDispatchOnAccept = true,
     this.printers = const [],
     this.kdsUrl = '',
@@ -84,6 +93,8 @@ class KitchenSettings {
       printers.any((p) => p.enabled) || kdsUrl.trim().isNotEmpty;
 
   Map<String, dynamic> toJson() => {
+        'businessName': businessName,
+        'automaticFrom': automaticFrom?.toIso8601String(),
         'autoDispatchOnAccept': autoDispatchOnAccept,
         'printers': printers.map((p) => p.toJson()).toList(),
         'kdsUrl': kdsUrl,
@@ -91,6 +102,8 @@ class KitchenSettings {
       };
 
   factory KitchenSettings.fromJson(Map<String, dynamic> j) => KitchenSettings(
+        businessName: j['businessName']?.toString() ?? '',
+        automaticFrom: DateTime.tryParse('${j['automaticFrom'] ?? ''}'),
         autoDispatchOnAccept: j['autoDispatchOnAccept'] ?? true,
         printers: ((j['printers'] as List?) ?? [])
             .map((e) => KitchenPrinter.fromJson(Map<String, dynamic>.from(e)))
@@ -112,9 +125,10 @@ class DispatchResult {
 class KitchenDispatchService {
   static const _prefsKey = 'kitchen_settings_v1';
 
-  static Future<KitchenSettings> load() async {
+  static Future<KitchenSettings> load({String? businessId}) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefsKey);
+    final raw = prefs
+        .getString(businessId == null ? _prefsKey : '${_prefsKey}_$businessId');
     if (raw == null) return const KitchenSettings();
     try {
       return KitchenSettings.fromJson(jsonDecode(raw));
@@ -123,9 +137,23 @@ class KitchenDispatchService {
     }
   }
 
-  static Future<void> save(KitchenSettings s) async {
+  static Future<void> save(KitchenSettings s,
+      {String? businessId, String? businessName}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, jsonEncode(s.toJson()));
+    final previous = await load(businessId: businessId);
+    final data = s.toJson();
+    data['businessName'] = businessName ??
+        (s.businessName.isNotEmpty ? s.businessName : previous.businessName);
+    if (businessId != null && s.autoDispatchOnAccept && s.hasTargets) {
+      data['automaticFrom'] =
+          (previous.autoDispatchOnAccept && previous.hasTargets
+                  ? previous.automaticFrom ?? DateTime.now()
+                  : DateTime.now())
+              .toIso8601String();
+    }
+    await prefs.setString(
+        businessId == null ? _prefsKey : '${_prefsKey}_$businessId',
+        jsonEncode(data));
   }
 
   /// Called after the merchant accepts an order. Never throws.
@@ -146,7 +174,7 @@ class KitchenDispatchService {
         final bytes =
             await _buildTicket(order, p.dotsWidth, businessName: businessName);
         for (var i = 0; i < p.copies.clamp(1, 5); i++) {
-          await _sendRaw(p.ip, p.port, bytes);
+          await sendRaw(p.ip, p.port, bytes);
         }
         ok++;
       } catch (e) {
@@ -157,7 +185,7 @@ class KitchenDispatchService {
 
     if (settings.kdsUrl.trim().isNotEmpty) {
       try {
-        await _sendToKds(order, settings);
+        await sendToKds(order, settings);
         ok++;
       } catch (e) {
         AppLogger.error('KDS dispatch failed: $e');
@@ -185,7 +213,7 @@ class KitchenDispatchService {
       orderNumber: 'TEST',
     );
     final bytes = await _buildTicket(order, p.dotsWidth);
-    await _sendRaw(p.ip, p.port, bytes);
+    await sendRaw(p.ip, p.port, bytes);
   }
 
   static Future<void> testKds(KitchenSettings s) async {
@@ -200,12 +228,27 @@ class KitchenDispatchService {
       createdAt: DateTime.now(),
       orderNumber: 'TEST',
     );
-    await _sendToKds(order, s);
+    await sendToKds(order, s);
+  }
+
+  static Future<Uint8List> ticketBytes(
+          Order order, int width, List<String> lines) =>
+      _buildTicket(order, width, lines: lines);
+
+  static Future<Uint8List> previewBytes(
+      Order order, int width, List<String> lines) async {
+    final image = await _renderTicketImage(order, width, '', lines: lines);
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      return data!.buffer.asUint8List();
+    } finally {
+      image.dispose();
+    }
   }
 
   // ---------------------------------------------------------------- transport
 
-  static Future<void> _sendRaw(String ip, int port, Uint8List bytes) async {
+  static Future<void> sendRaw(String ip, int port, Uint8List bytes) async {
     final socket =
         await Socket.connect(ip, port, timeout: const Duration(seconds: 5));
     try {
@@ -217,7 +260,7 @@ class KitchenDispatchService {
     }
   }
 
-  static Future<void> _sendToKds(Order order, KitchenSettings s) async {
+  static Future<void> sendToKds(Order order, KitchenSettings s) async {
     final body = jsonEncode({
       'event': 'order.accepted',
       'orderId': order.id,
@@ -252,9 +295,15 @@ class KitchenDispatchService {
   /// Renders the kitchen ticket as an image (supports Arabic shaping/RTL)
   /// and converts it to an ESC/POS raster command.
   static Future<Uint8List> _buildTicket(Order order, int widthDots,
-      {String businessName = ''}) async {
-    final image = await _renderTicketImage(order, widthDots, businessName);
-    final raster = await _toEscPosRaster(image);
+      {String businessName = '', List<String>? lines}) async {
+    final image =
+        await _renderTicketImage(order, widthDots, businessName, lines: lines);
+    late Uint8List raster;
+    try {
+      raster = await _toEscPosRaster(image);
+    } finally {
+      image.dispose();
+    }
 
     final out = BytesBuilder();
     out.add([0x1B, 0x40]); // ESC @ init
@@ -265,7 +314,8 @@ class KitchenDispatchService {
   }
 
   static Future<ui.Image> _renderTicketImage(
-      Order order, int width, String businessName) async {
+      Order order, int width, String businessName,
+      {List<String>? lines}) async {
     const pad = 12.0;
     final w = width.toDouble();
     final contentW = w - pad * 2;
@@ -295,32 +345,39 @@ class KitchenDispatchService {
     final t = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
 
-    add(tp('مطبخ / KITCHEN', 34 * scale, bold: true, align: TextAlign.center));
-    if (businessName.isNotEmpty) {
-      add(tp(businessName, 24 * scale, align: TextAlign.center));
-    }
-    add(tp('طلب #${order.orderNumber ?? order.id}', 40 * scale,
-        bold: true, align: TextAlign.center));
-    add(
-        tp('${two(t.hour)}:${two(t.minute)}  ${t.year}-${two(t.month)}-${two(t.day)}',
-            22 * scale,
-            align: TextAlign.center),
-        10);
-    add(tp('─' * 40, 18 * scale, align: TextAlign.center), 4);
-
-    for (final item in order.items) {
-      add(tp('${item.quantity} ×  ${item.name}', 32 * scale, bold: true), 2);
-      if (item.notes != null && item.notes!.trim().isNotEmpty) {
-        add(tp('   ↳ ${item.notes}', 24 * scale), 4);
+    if (lines != null) {
+      for (var i = 0; i < lines.length; i++) {
+        add(tp(lines[i], (i == 0 ? 30 : 24) * scale, bold: i == 0));
       }
-      add(tp('', 6 * scale), 2);
-    }
+    } else {
+      add(tp('مطبخ / KITCHEN', 34 * scale,
+          bold: true, align: TextAlign.center));
+      if (businessName.isNotEmpty) {
+        add(tp(businessName, 24 * scale, align: TextAlign.center));
+      }
+      add(tp('طلب #${order.orderNumber ?? order.id}', 40 * scale,
+          bold: true, align: TextAlign.center));
+      add(
+          tp('${two(t.hour)}:${two(t.minute)}  ${t.year}-${two(t.month)}-${two(t.day)}',
+              22 * scale,
+              align: TextAlign.center),
+          10);
+      add(tp('─' * 40, 18 * scale, align: TextAlign.center), 4);
 
-    add(tp('─' * 40, 18 * scale, align: TextAlign.center), 4);
-    if (order.notes != null && order.notes!.trim().isNotEmpty) {
-      add(tp('ملاحظات: ${order.notes}', 26 * scale, bold: true));
+      for (final item in order.items) {
+        add(tp('${item.quantity} ×  ${item.name}', 32 * scale, bold: true), 2);
+        if (item.notes != null && item.notes!.trim().isNotEmpty) {
+          add(tp('   ↳ ${item.notes}', 24 * scale), 4);
+        }
+        add(tp('', 6 * scale), 2);
+      }
+
+      add(tp('─' * 40, 18 * scale, align: TextAlign.center), 4);
+      if (order.notes != null && order.notes!.trim().isNotEmpty) {
+        add(tp('ملاحظات: ${order.notes}', 26 * scale, bold: true));
+      }
+      add(tp('الزبون: ${order.customerName}', 22 * scale));
     }
-    add(tp('الزبون: ${order.customerName}', 22 * scale));
 
     final height = painters
         .fold<double>(pad * 2, (sum, e) => sum + e.$1.height + e.$2)

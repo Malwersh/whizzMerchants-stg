@@ -16,7 +16,12 @@ class MerchantNotificationInbox extends ChangeNotifier {
       Future<List<Order>> Function(String)? orderLoader,
       Future<List<dynamic>> Function(String)? sharingLoader})
       : _subjectLoader = subjectLoader ?? _currentSubject,
-        _sharingLoader = sharingLoader ?? ((id) async => List<dynamic>.from((await PersonOnboardingService().call('commercial-agreements?businessId=${Uri.encodeComponent(id)}&view=pending-sharing'))['items'] ?? [])),
+        _sharingLoader = sharingLoader ??
+            ((id) async => List<
+                dynamic>.from((await PersonOnboardingService().call(
+                        'commercial-agreements?businessId=${Uri.encodeComponent(id)}&view=pending-sharing'))[
+                    'items'] ??
+                [])),
         _orderLoader =
             orderLoader ?? ((id) => OrderService().getMerchantOrders(id));
   final Future<String?> Function() _subjectLoader;
@@ -73,7 +78,8 @@ class MerchantNotificationInbox extends ChangeNotifier {
     final business = data['businessId']?.toString();
     if (subject == null || business == null || business.isEmpty) return;
     final recipient = data['subjectId']?.toString();
-    if (recipient != null && recipient != subject) return;
+    if (recipient != null && recipient.isNotEmpty && recipient != subject)
+      return;
     final order = data['orderId']?.toString();
     final action =
         data['action']?.toString() ?? data['type']?.toString() ?? 'general';
@@ -131,15 +137,35 @@ class MerchantNotificationInbox extends ChangeNotifier {
         for (final item in pending) {
           final draft = Map<String, dynamic>.from(item['draft'] as Map);
           final delivery = draft['kind'] == 'DELIVERY';
-          final id = '${delivery ? 'delivery' : 'sharing'}:${draft['id']}:${draft['version']}';ids.add(id);
+          final id =
+              '${delivery ? 'delivery' : 'sharing'}:${draft['id']}:${draft['version']}';
+          ids.add(id);
           if (rows.any((x) => x.id == id)) continue;
-          rows.add(NotificationModel(id: id, title: delivery ? 'عرض توصيل بانتظار موافقتك' : 'طلب مشاركة في خصم', body: '${delivery ? 'عرض توصيل' : item['campaignLabel'] ?? 'خصم'} — بانتظار مراجعتك وموافقتك', type: 'commercial_sharing_requested', data: {'subjectId': subject, 'businessId': business, 'sharingId': draft['id'], 'requestKind': draft['kind'], 'eventId': id}, businessId: business, createdAt: DateTime.tryParse(draft['createdAt']?.toString() ?? '') ?? DateTime.now()));
+          rows.add(NotificationModel(
+              id: id,
+              title:
+                  delivery ? 'عرض توصيل بانتظار موافقتك' : 'طلب مشاركة في خصم',
+              body:
+                  '${delivery ? 'عرض توصيل' : item['campaignLabel'] ?? 'خصم'} — بانتظار مراجعتك وموافقتك',
+              type: 'commercial_sharing_requested',
+              data: {
+                'subjectId': subject,
+                'businessId': business,
+                'sharingId': draft['id'],
+                'requestKind': draft['kind'],
+                'eventId': id
+              },
+              businessId: business,
+              createdAt:
+                  DateTime.tryParse(draft['createdAt']?.toString() ?? '') ??
+                      DateTime.now()));
         }
-        rows.removeWhere((x) => x.type == 'commercial_sharing_requested' && !ids.contains(x.id));
+        rows.removeWhere((x) =>
+            x.type == 'commercial_sharing_requested' && !ids.contains(x.id));
         await _save(prefs, key, rows);
       });
       await _reload(key);
-    } catch (_) { /* Preserve existing entries on a failed owner-only read. */ }
+    } catch (_) {/* Preserve existing entries on a failed owner-only read. */}
     try {
       final orders = await _orderLoader(business);
       if (_scope != key || await _subjectLoader() != subject) return;

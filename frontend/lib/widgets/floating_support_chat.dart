@@ -106,7 +106,6 @@ class _FloatingSupportChatState extends ConsumerState<FloatingSupportChat>
         .length;
 
     final hasUnreadMessages = unreadCount > 0;
-    final isConnected = _chatService.isConnected;
 
     return Positioned(
       left: _position.dx,
@@ -169,24 +168,6 @@ class _FloatingSupportChatState extends ConsumerState<FloatingSupportChat>
                         Icons.support_agent,
                         color: theme.colorScheme.onPrimary,
                         size: 28,
-                      ),
-                    ),
-
-                    // Connection status indicator
-                    Positioned(
-                      bottom: 4,
-                      right: 4,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: isConnected ? Colors.green : Colors.red,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: theme.colorScheme.onPrimary,
-                            width: 2,
-                          ),
-                        ),
                       ),
                     ),
 

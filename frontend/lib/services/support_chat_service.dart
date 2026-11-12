@@ -5,6 +5,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'token_refresh_service.dart';
+import 'support_conversation_checkpoint.dart';
 import 'package:uuid/uuid.dart';
 import '../config/app_config.dart';
 
@@ -103,7 +104,9 @@ class SupportChatService extends ChangeNotifier {
     String? websocketUrl,
     String? attachmentsApiUrl,
     http.Client? attachmentHttpClient,
-  })  : _tokenProvider =
+    bool persist = true,
+  })  : _persist = persist,
+        _tokenProvider =
             tokenProvider ?? TokenRefreshService.getValidUserAccessToken,
         _channelFactory = channelFactory ?? WebSocketChannel.connect,
         _websocketUrl = websocketUrl,
@@ -119,11 +122,35 @@ class SupportChatService extends ChangeNotifier {
     http.Client? attachmentHttpClient,
   }) =>
       SupportChatService._internal(
+          persist: false,
           tokenProvider: tokenProvider,
           channelFactory: channelFactory,
           websocketUrl: websocketUrl,
           attachmentsApiUrl: attachmentsApiUrl,
           attachmentHttpClient: attachmentHttpClient);
+
+  final bool _persist;
+  String? _owner, _checkpointKey;
+  String draft = '';
+  Timer? _draftTimer;
+  void setDraft(String value) {
+    draft = value;
+    _draftTimer?.cancel();
+    final key = _checkpointKey;
+    if (!_persist || key == null) return;
+    _draftTimer = Timer(const Duration(milliseconds: 350), () {
+      unawaited(SupportConversationCheckpoint.write('$key:draft', value)
+          .catchError((Object _) {}));
+    });
+  }
+
+  void flushDraft() {
+    _draftTimer?.cancel();
+    final key = _checkpointKey, value = draft;
+    if (_persist && key != null)
+      unawaited(SupportConversationCheckpoint.write('$key:draft', value)
+          .catchError((Object _) {}));
+  }
 
   final Future<String?> Function() _tokenProvider;
   final WebSocketChannel Function(Uri) _channelFactory;
@@ -177,6 +204,74 @@ class SupportChatService extends ChangeNotifier {
   String? get error => _error;
   String get connectionStatus => _connectionStatus;
   bool get hasRequestedHuman => true;
+  bool get isWhizzMeActive => false;
+  bool historyLoading = false;
+  String? historyError, nextCursor, _historyRequest;
+  Timer? _historyTimer;
+
+  /// Called synchronously on sign-out or branch changes, before new UI readers.
+  void invalidateIdentity() {
+    flushDraft();
+    _checkpointKey = null;
+    draft = '';
+    _owner = null;
+    _stopTransport();
+    _sessionId = null;
+    _confirmedSessionId = null;
+    _merchantId = null;
+    _messages.clear();
+    _selectedCategory = null;
+    _categoryDescription = null;
+    _sessionEnded = false;
+    nextCursor = null;
+    historyError = null;
+    _connectionStatus = 'disconnected';
+    if (!_disposed) notifyListeners();
+  }
+
+  void loadHistory({bool older = false}) {
+    if (!_isConnected || historyLoading || (older && nextCursor == null))
+      return;
+    historyLoading = true;
+    historyError = null;
+    _historyRequest = _uuid.v4();
+    _sendMessage({
+      'action': 'get_session_messages',
+      'type': 'get_session_messages',
+      'sessionId': _sessionId,
+      'requestId': _historyRequest,
+      'limit': 40,
+      if (older) 'cursor': nextCursor,
+    });
+    _historyTimer?.cancel();
+    _historyTimer = Timer(const Duration(seconds: 15), () {
+      historyLoading = false;
+      historyError = 'تعذر تحميل الرسائل السابقة';
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  /// An uncertain result is retried explicitly, with the same receipt key.
+  bool retryMessage(String clientId) {
+    final index = _messages.indexWhere((m) => m.clientMessageId == clientId);
+    if (index < 0 || !_isConnected || _closing) return false;
+    final message = _messages[index];
+    if (message.deliveryStatus != 'unknown') return false;
+    _messages[index] = message.copyWith(deliveryStatus: 'pending');
+    _ackTimers[clientId] = Timer(
+        const Duration(seconds: 15), () => _settleReply(clientId, 'unknown'));
+    if (!_sendMessage({
+      'action': 'chat_message',
+      'sessionId': _sessionId,
+      'senderType': 'merchant',
+      'messageText': message.text,
+      'clientMessageId': clientId,
+      if (message.attachmentId != null) 'attachmentId': message.attachmentId,
+    })) return false;
+    notifyListeners();
+    return true;
+  }
 
   /// Check if there's an active session for this merchant
   bool hasActiveSession(String merchantId) {
@@ -409,6 +504,11 @@ class SupportChatService extends ChangeNotifier {
           sessionId != _sessionId ||
           _disposed ||
           _closing) return false;
+      final imageIndex =
+          _messages.indexWhere((m) => m.clientMessageId == clientId);
+      if (imageIndex >= 0)
+        _messages[imageIndex] = _messages[imageIndex]
+            .copyWith(attachmentId: clientId, isUploading: false);
       if (!_sendMessage({
         'type': 'chat_message',
         'action': 'chat_message',
@@ -435,8 +535,10 @@ class SupportChatService extends ChangeNotifier {
         final index =
             _messages.indexWhere((m) => m.clientMessageId == clientId);
         if (index >= 0)
-          _messages[index] = _messages[index]
-              .copyWith(isUploading: false, deliveryStatus: 'failed');
+          _messages[index] = _messages[index].copyWith(
+              isUploading: false,
+              deliveryStatus:
+                  _messages[index].attachmentId == null ? 'failed' : 'unknown');
         notifyListeners();
       }
       return false;
@@ -486,8 +588,6 @@ class SupportChatService extends ChangeNotifier {
       final json = jsonDecode(data as String) as Map<String, dynamic>;
       final type = json['type'] as String?;
 
-      debugPrint('📥 Received message type: $type');
-
       switch (type) {
         case 'chat_session_created':
           _handleSessionCreated(json);
@@ -506,6 +606,15 @@ class SupportChatService extends ChangeNotifier {
               json['clientMessageId'] is String) {
             _settleReply(json['clientMessageId'] as String, 'accepted',
                 serverId: json['messageId'] as String?);
+          }
+          break;
+        case 'history_error':
+          if (json['sessionId'] == _sessionId &&
+              json['requestId'] == _historyRequest) {
+            _historyTimer?.cancel();
+            historyLoading = false;
+            historyError = 'تعذر تحميل الرسائل السابقة';
+            notifyListeners();
           }
           break;
         case 'session_messages':
@@ -563,18 +672,17 @@ class SupportChatService extends ChangeNotifier {
           timestamp: DateTime.now()));
     }
     _confirmedSessionId = _sessionId;
-    _sendMessage({
-      'action': 'get_session_messages',
-      'type': 'get_session_messages',
-      'sessionId': _sessionId,
-      'limit': 40
-    });
+    final key = _checkpointKey;
+    if (_persist && key != null)
+      unawaited(SupportConversationCheckpoint.write('$key:session', _sessionId!)
+          .catchError((Object _) {}));
+    loadHistory();
     notifyListeners();
   }
 
   void _mergeServerMessage(Map<String, dynamic> data) {
     final message = ChatMessage.fromJson(data);
-    if (message.clientMessageId != null) {
+    if (message.clientMessageId != null && message.senderType == 'merchant') {
       final index = _messages
           .indexWhere((m) => m.clientMessageId == message.clientMessageId);
       if (index >= 0) {
@@ -590,7 +698,13 @@ class SupportChatService extends ChangeNotifier {
   }
 
   void _handleHistory(Map<String, dynamic> data) {
-    if (data['sessionId'] != _sessionId || data['messages'] is! List) return;
+    if (data['sessionId'] != _sessionId ||
+        data['messages'] is! List ||
+        data['requestId'] != _historyRequest) return;
+    _historyTimer?.cancel();
+    historyLoading = false;
+    historyError = null;
+    nextCursor = data['nextCursor'] as String?;
     for (final row in (data['messages'] as List).reversed) {
       if (row is Map<String, dynamic>) _mergeServerMessage(row);
     }
@@ -645,6 +759,10 @@ class SupportChatService extends ChangeNotifier {
   void _handleSessionClosed(Map<String, dynamic> json) {
     if (json['sessionId'] != _sessionId || _sessionEnded) return;
     _sessionEnded = true;
+    final key = _checkpointKey;
+    if (_persist && key != null)
+      unawaited(SupportConversationCheckpoint.write('$key:session', '')
+          .catchError((Object _) {}));
     _stopTransport();
     _connectionStatus = 'session_ended';
     _messages.add(ChatMessage(
@@ -677,6 +795,9 @@ class SupportChatService extends ChangeNotifier {
 
   void _connectionLost() {
     _handshakeTimer?.cancel();
+    _historyTimer?.cancel();
+    historyLoading = false;
+    _historyRequest = null;
     _isConnected = false;
     _isConnecting = false;
     _humanConnecting = false;
@@ -744,6 +865,9 @@ class SupportChatService extends ChangeNotifier {
 
   void _stopTransport() {
     _connectionGeneration++;
+    _historyTimer?.cancel();
+    historyLoading = false;
+    _historyRequest = null;
     _allowReconnect = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -794,6 +918,31 @@ class SupportChatService extends ChangeNotifier {
       if (generation != _connectionGeneration || _disposed) return;
       if (token == null || token.isEmpty) {
         throw StateError('Missing support identity');
+      }
+      final claims = _persist
+          ? jsonDecode(utf8.decode(
+                  base64Url.decode(base64Url.normalize(token.split('.')[1]))))
+              as Map<String, dynamic>
+          : {'sub': 'fixture-owner'};
+      final owner = claims['sub'] as String?;
+      if (owner == null || owner.isEmpty) throw StateError('Missing identity');
+      if (_owner != null && _owner != owner) {
+        _messages.clear();
+        _sessionId = 'merchant_${_uuid.v4()}';
+        _confirmedSessionId = null;
+        flushDraft();
+        draft = '';
+      }
+      _owner = owner;
+      final key = jsonEncode([owner, base.toString(), _merchantId]);
+      if (_persist && _checkpointKey != key) {
+        _checkpointKey = key;
+        final saved = await SupportConversationCheckpoint.read('$key:session');
+        final savedDraft =
+            await SupportConversationCheckpoint.read('$key:draft');
+        if (generation != _connectionGeneration || _disposed) return;
+        if (saved != null && saved.isNotEmpty) _sessionId = saved;
+        draft = savedDraft ?? '';
       }
       _detachTransport();
       final uri = base.replace(queryParameters: {
@@ -859,6 +1008,7 @@ class SupportChatService extends ChangeNotifier {
 
   @override
   void dispose() {
+    flushDraft();
     _disposed = true;
     _stopTransport();
     _attachmentHttpClient.close();

@@ -16,10 +16,22 @@ class MerchantOrderAlerts {
       _snapshots.add(MerchantOrdersSnapshot(businessId, orders));
   static final _events = StreamController<Map<String, dynamic>>.broadcast();
   static Stream<Map<String, dynamic>> get events => _events.stream;
+  static final _changes = <String>{};
+  static bool isCancellation(Map<String, dynamic> d) => const {
+        'customer_cancellation_requested',
+        'order_cancellation_confirmed',
+        'order_cancellation_updated'
+      }.contains(d['action']);
   static void receive(Map<String, dynamic> data) {
     final id = data['orderId']?.toString(),
         branch = data['businessId']?.toString() ?? data['storeId']?.toString();
-    if (id != null && id.isNotEmpty && branch != null && branch.isNotEmpty)
-      _events.add({'orderId': id, 'businessId': branch});
+    if (id == null || id.isEmpty || branch == null || branch.isEmpty) return;
+    if (isCancellation(data)) {
+      final event = data['eventId']?.toString();
+      if (event == null || event.isEmpty || !_changes.add('$branch:$event'))
+        return;
+      if (_changes.length > 500) _changes.remove(_changes.first);
+    }
+    _events.add({...data, 'orderId': id, 'businessId': branch});
   }
 }

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 /// The loader authenticates each fetch; no public or bearer URL enters the widget.
 class SupportAttachmentImage extends StatefulWidget {
-  const SupportAttachmentImage({super.key, required this.load});
+  const SupportAttachmentImage(
+      {super.key, required this.load, this.foregroundColor});
   final Future<Uint8List> Function() load;
+  final Color? foregroundColor;
   @override
   State<SupportAttachmentImage> createState() => _SupportAttachmentImageState();
 }
@@ -25,8 +27,9 @@ class _SupportAttachmentImageState extends State<SupportAttachmentImage> {
     if (_image == null) {
       return TextButton.icon(
           onPressed: _load,
-          icon: const Icon(Icons.image_outlined),
-          label: const Text('عرض الصورة'));
+          icon: Icon(Icons.image_outlined, color: widget.foregroundColor),
+          label: Text('عرض الصورة',
+              style: TextStyle(color: widget.foregroundColor)));
     }
     return FutureBuilder<Uint8List>(
         future: _image,
@@ -34,12 +37,14 @@ class _SupportAttachmentImageState extends State<SupportAttachmentImage> {
           if (snapshot.hasError) {
             return TextButton(
                 onPressed: _load,
-                child: const Text('تعذر تحميل الصورة؛ إعادة المحاولة'));
+                child: Text('تعذر تحميل الصورة؛ إعادة المحاولة',
+                    style: TextStyle(color: widget.foregroundColor)));
           }
           if (!snapshot.hasData) {
-            return const Padding(
-                padding: EdgeInsets.all(12),
-                child: CircularProgressIndicator());
+            return Padding(
+                padding: const EdgeInsets.all(12),
+                child:
+                    CircularProgressIndicator(color: widget.foregroundColor));
           }
           final bytes = snapshot.data!;
           return InkWell(
