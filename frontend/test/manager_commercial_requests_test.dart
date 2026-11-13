@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whizz_merchants/screens/branch_staff_screen.dart';
@@ -15,7 +16,7 @@ class ManagerApi extends PersonOnboardingService {
 }
 void main(){
  testWidgets('manager sees branch discount approvals and opens existing consent screen',(t)async{
-  final api=ManagerApi('MANAGER');await t.pumpWidget(MaterialApp(home:BranchStaffScreen(employeeHome:true,service:api)));
+  final api=ManagerApi('MANAGER');await t.pumpWidget(ProviderScope(child:MaterialApp(home:BranchStaffScreen(employeeHome:true,service:api))));
   await t.pumpAndSettle();expect(find.text('موافقات الخصومات'),findsOneWidget);
   await t.ensureVisible(find.text('موافقات الخصومات'));await t.tap(find.text('موافقات الخصومات'));await t.pumpAndSettle();
   expect(find.byType(CommercialAgreementsScreen),findsOneWidget);

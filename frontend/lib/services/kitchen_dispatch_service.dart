@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -319,15 +320,38 @@ class KitchenDispatchService {
     const pad = 12.0;
     final w = width.toDouble();
     final contentW = w - pad * 2;
+    final pairedRows = <TextPainter, (TextPainter, TextPainter)>{};
+    final deliveryBars = <TextPainter>{};
+    final separators = <TextPainter>{};
+    final customerReceipt =
+        lines != null && lines.isNotEmpty && lines.first == 'وصل الزبون';
+    ui.Image? logo;
+    if (customerReceipt) {
+      final bytes =
+          await rootBundle.load('assets/images/wizz-wordmark-blue.png');
+      final codec = await ui.instantiateImageCodec(
+          bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes));
+      try {
+        logo = (await codec.getNextFrame()).image;
+      } finally {
+        codec.dispose();
+      }
+    }
+    final logoWidth = contentW * .58;
+    final logoHeight =
+        logo == null ? 0.0 : logoWidth * logo.height / logo.width;
+    final headerHeight = logo == null ? 0.0 : logoHeight + 22 * width / 576;
     final painters = <(TextPainter, double)>[]; // painter, spacing after
 
     TextPainter tp(String text, double size,
-        {bool bold = false, TextAlign align = TextAlign.right}) {
+        {bool bold = false,
+        TextAlign align = TextAlign.right,
+        Color color = Colors.black}) {
       final p = TextPainter(
         text: TextSpan(
           text: text,
           style: TextStyle(
-            color: Colors.black,
+            color: color,
             fontSize: size,
             fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
             height: 1.25,
@@ -347,7 +371,56 @@ class KitchenDispatchService {
 
     if (lines != null) {
       for (var i = 0; i < lines.length; i++) {
-        add(tp(lines[i], (i == 0 ? 30 : 24) * scale, bold: i == 0));
+        final line = lines[i];
+        if (line == '────────────────────────') {
+          final separator = tp('', 8 * scale);
+          separators.add(separator);
+          add(separator, 14 * scale);
+          continue;
+        }
+        if (customerReceipt && i == 0) continue;
+        if (customerReceipt && i == 2) {
+          final bar = tp('توصيل', 42 * scale,
+              bold: true, align: TextAlign.center, color: Colors.white);
+          deliveryBars.add(bar);
+          add(bar, 20 * scale);
+          continue;
+        }
+        if (customerReceipt && (i == 1 || i == 3)) {
+          add(
+              tp(line, (i == 3 ? 38 : 25) * scale,
+                  bold: i == 3,
+                  align: i == 3 ? TextAlign.right : TextAlign.center),
+              14 * scale);
+          continue;
+        }
+        final parts = line.split('\t');
+        if (parts.length == 2) {
+          final total = parts.first == 'الإجمالي';
+          final size = (total ? 32.0 : 24.0) * scale;
+          TextPainter column(String text, double available, TextAlign align) =>
+              TextPainter(
+                text: TextSpan(
+                    text: text,
+                    style: TextStyle(
+                        color: Colors.black,
+                        fontSize: size,
+                        height: 1.25,
+                        fontWeight: total ? FontWeight.w800 : FontWeight.w500)),
+                textAlign: align,
+                textDirection: TextDirection.rtl,
+              )..layout(minWidth: available, maxWidth: available);
+          final label = column(parts.first, contentW * .59, TextAlign.right);
+          final price = column(parts.last, contentW * .38, TextAlign.left);
+          final row = label.height >= price.height ? label : price;
+          pairedRows[row] = (label, price);
+          add(row, total ? 14 : 8);
+        } else {
+          final heading = i == 0;
+          add(tp(line, (heading ? 32 : 24) * scale,
+              bold: heading,
+              align: heading ? TextAlign.center : TextAlign.right));
+        }
       }
     } else {
       add(tp('مطبخ / KITCHEN', 34 * scale,
@@ -380,7 +453,8 @@ class KitchenDispatchService {
     }
 
     final height = painters
-        .fold<double>(pad * 2, (sum, e) => sum + e.$1.height + e.$2)
+        .fold<double>(pad * 2 + headerHeight + deliveryBars.length * 16 * scale,
+            (sum, e) => sum + e.$1.height + e.$2)
         .ceil();
 
     final recorder = ui.PictureRecorder();
@@ -388,11 +462,49 @@ class KitchenDispatchService {
     canvas.drawRect(Rect.fromLTWH(0, 0, w, height.toDouble()),
         Paint()..color = Colors.white);
     var y = pad;
+    if (logo != null) {
+      canvas.drawImageRect(
+          logo,
+          Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
+          Rect.fromLTWH((w - logoWidth) / 2, y, logoWidth, logoHeight),
+          Paint());
+      y += headerHeight;
+    }
     for (final (p, gap) in painters) {
-      p.paint(canvas, Offset(pad, y));
+      final pair = pairedRows[p];
+      if (separators.contains(p)) {
+        final pen = Paint()
+          ..color = const Color(0xFF777777)
+          ..strokeWidth = 1.3 * scale;
+        for (double x = pad; x < w - pad; x += 9 * scale) {
+          canvas.drawLine(Offset(x, y + 4 * scale),
+              Offset((x + 3 * scale).clamp(pad, w - pad), y + 4 * scale), pen);
+        }
+        y += p.height + gap;
+        continue;
+      }
+      if (deliveryBars.contains(p)) {
+        canvas.drawRect(Rect.fromLTWH(0, y, w, p.height + 16 * scale),
+            Paint()..color = const Color(0xFF333333));
+        p.paint(canvas, Offset(pad, y + 8 * scale));
+        y += p.height + 16 * scale + gap;
+        continue;
+      }
+      if (pair == null) {
+        p.paint(canvas, Offset(pad, y));
+      } else {
+        pair.$1.paint(canvas, Offset(w - pad - pair.$1.width, y));
+        pair.$2.paint(canvas, Offset(pad, y));
+      }
       y += p.height + gap;
     }
-    return recorder.endRecording().toImage(width, height);
+    final picture = recorder.endRecording();
+    try {
+      return await picture.toImage(width, height);
+    } finally {
+      picture.dispose();
+      logo?.dispose();
+    }
   }
 
   static Future<Uint8List> _toEscPosRaster(ui.Image image) async {

@@ -37,44 +37,97 @@ class OrderPrintService {
 
   static List<String> lines(Order order, String type,
       {bool reprint = false, String businessName = ''}) {
+    String arabicDigits(String value) => value.replaceAllMapped(
+        RegExp(r'[0-9]'), (m) => '٠١٢٣٤٥٦٧٨٩'[int.parse(m[0]!)]);
     String money(num value) =>
-        '${NumberFormat('#,##0.###', 'en').format(value)} د.ع';
-    return [
-      if (reprint) 'إعادة طباعة',
-      type == 'customer'
-          ? 'وصل الزبون'
-          : type == 'cancel'
-              ? 'إلغاء الطلب — أوقف التجهيز'
-              : 'تذكرة المطبخ',
-      if (businessName.isNotEmpty) businessName,
-      'طلب #${order.orderNumber ?? order.id}',
-      'وقت الطلب بتوقيت بغداد: ${DateFormat('yyyy-MM-dd HH:mm').format(order.createdAt.toUtc().add(const Duration(hours: 3)))}',
-      '────────────────────────',
-      for (final item in order.items) ...[
-        '${item.quantity} × ${item.name}',
-        ...item.modifiers.map((m) => '  + $m'),
-        if (item.notes?.trim().isNotEmpty == true) 'تحضير: ${item.notes}',
-        if (type == 'customer') 'سعر الوحدة: ${money(item.price)}',
-      ],
-      if (order.notes?.trim().isNotEmpty == true)
-        'ملاحظات التحضير: ${order.notes}',
-      if (type == 'customer') ...[
+        '${arabicDigits(NumberFormat('#,##0.###', 'en').format(value).replaceAll(',', '٬').replaceAll('.', '٫'))} د.ع';
+    final address = order.deliveryAddress;
+    final addressText = address == null
+        ? order.customerAddress?.trim() ?? ''
+        : <String>[
+            address.city,
+            address.district,
+            address.street,
+            if (address.building?.trim().isNotEmpty == true)
+              'البناية ${address.building}',
+            if (address.floor?.trim().isNotEmpty == true)
+              'الطابق ${address.floor}',
+            if (address.apartment?.trim().isNotEmpty == true)
+              'الشقة ${address.apartment}',
+            if (address.landmark?.trim().isNotEmpty == true)
+              'قرب ${address.landmark}',
+          ].where((v) => v.trim().isNotEmpty).toSet().join('، ');
+    if (type == 'customer') {
+      final amounts = order.receiptAmounts;
+      final subtotal = amounts['subtotal'] ??
+          order.items.fold<num>(0, (sum, item) => sum + item.totalPrice);
+      final discount = (amounts['discount_legacy'] ?? 0).abs();
+      final computed = subtotal +
+          order.deliveryFee +
+          (amounts['serviceFee_legacy'] ?? 0) +
+          (amounts['tip_legacy'] ?? 0) +
+          (amounts['packagingFee_legacy'] ?? 0) +
+          (amounts['tax_legacy'] ?? 0) -
+          discount;
+      if ((computed - order.totalAmount).abs() > .001) {
+        throw StateError(
+            'تفاصيل مبالغ الطلب غير مكتملة أو لا تطابق الإجمالي. حدّث الطلب قبل طباعة وصل الزبون.');
+      }
+      return [
+        'وصل الزبون', // Rendering marker; the printed header starts with the logo.
+        'شركة الانطلاق الخاطف',
+        'توصيل',
+        order.customerName,
+        if (reprint) 'إعادة طباعة',
+        'تاريخ الطلب: ${arabicDigits(DateFormat('yyyy-MM-dd HH:mm').format(order.createdAt.toUtc().add(const Duration(hours: 3))))} · بغداد',
+        if (addressText.isNotEmpty) addressText,
+        'طلب #${order.orderNumber ?? order.id}',
+        if (businessName.trim().isNotEmpty) businessName.trim(),
         '────────────────────────',
-        for (final e in order.receiptAmounts.entries)
-          '${{
-                'subtotal': 'الأصناف',
-                'serviceFee_legacy': 'رسوم الخدمة',
-                'discount_legacy': 'الخصم',
-                'tip_legacy': 'الإكرامية',
-                'packagingFee_legacy': 'التغليف',
-                'tax_legacy': 'الضريبة'
-              }[e.key] ?? e.key}: ${money(e.value)}',
-        'التوصيل: ${money(order.deliveryFee)}',
-        'الإجمالي المعتمد شامل الرسوم والخصومات: ${money(order.totalAmount)}',
+        for (final item in order.items) ...[
+          '${arabicDigits(item.quantity.toString())} × ${item.name.replaceAll('\t', ' ')}\t${money(item.totalPrice)}',
+          ...item.modifiers.map((m) => '  + $m'),
+          if (item.notes?.trim().isNotEmpty == true)
+            'ملاحظة الصنف: ${item.notes}',
+          if (item.quantity > 1) 'سعر الوحدة: ${money(item.price)}',
+          '────────────────────────',
+        ],
+        if (order.notes?.trim().isNotEmpty == true)
+          'ملاحظات للمطعم: ${order.notes}',
+        if (order.deliveryInstructions?.trim().isNotEmpty == true)
+          'ملاحظات للسائق: ${order.deliveryInstructions}',
+        'المجموع الفرعي\t${money(subtotal)}',
+        if (discount > 0) 'الخصم\t−${money(discount)}',
+        if ((amounts['serviceFee_legacy'] ?? 0) != 0)
+          'رسوم الخدمة\t${money(amounts['serviceFee_legacy']!)}',
+        if ((amounts['tip_legacy'] ?? 0) != 0)
+          'إكرامية السائق\t${money(amounts['tip_legacy']!)}',
+        if ((amounts['packagingFee_legacy'] ?? 0) != 0)
+          'رسوم التغليف\t${money(amounts['packagingFee_legacy']!)}',
+        if ((amounts['tax_legacy'] ?? 0) != 0)
+          'الضريبة\t${money(amounts['tax_legacy']!)}',
+        'رسوم التوصيل\t${money(order.deliveryFee)}',
         order.paymentMethod == 'cash'
             ? 'الدفع نقدًا عند الاستلام — غير محصّل'
             : 'طريقة الدفع: ${order.paymentMethod}',
+        '────────────────────────',
+        'الإجمالي\t${money(order.totalAmount)}',
+      ];
+    }
+    return [
+      if (reprint) 'إعادة طباعة',
+      type == 'cancel' ? 'إلغاء الطلب — أوقف التجهيز' : 'تذكرة المطبخ',
+      if (businessName.isNotEmpty) businessName,
+      'طلب #${order.orderNumber ?? order.id}',
+      'وقت الطلب بتوقيت بغداد: ${arabicDigits(DateFormat('yyyy-MM-dd HH:mm').format(order.createdAt.toUtc().add(const Duration(hours: 3))))}',
+      '────────────────────────',
+      for (final item in order.items) ...[
+        '${arabicDigits(item.quantity.toString())} × ${item.name}',
+        ...item.modifiers.map((m) => '  + $m'),
+        if (item.notes?.trim().isNotEmpty == true) 'تحضير: ${item.notes}',
       ],
+      if (order.notes?.trim().isNotEmpty == true)
+        'ملاحظات التحضير: ${order.notes}',
     ];
   }
 

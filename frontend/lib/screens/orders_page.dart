@@ -1633,7 +1633,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 16),
-              Text('Preparing your session...',
+              Text('جارٍ تجهيز حسابك…',
                   style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
@@ -1814,7 +1814,18 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
                                 ),
                                 SizedBox(height: AppSpacing.lg),
                                 Text(
-                                  loc.noOrdersFoundFor(_selectedFilter),
+                                  switch (_selectedFilter) {
+                                    'pending' =>
+                                      'لا توجد طلبات بانتظار التأكيد',
+                                    'confirmed' => 'لا توجد طلبات مؤكدة',
+                                    'preparing' => 'لا توجد طلبات قيد التحضير',
+                                    'ready' => 'لا توجد طلبات جاهزة للاستلام',
+                                    'delivered' => 'لا توجد طلبات تم تسليمها',
+                                    'cancelled' => 'لا توجد طلبات ملغاة',
+                                    'returned' => 'لا توجد طلبات مرتجعة',
+                                    'expired' => 'لا توجد طلبات منتهية المهلة',
+                                    _ => 'لا توجد طلبات في هذا القسم',
+                                  },
                                   style: AppTypography.titleLarge.copyWith(
                                     color: WhizzColors.textPrimary,
                                   ),
@@ -1822,7 +1833,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage> {
                                 ),
                                 SizedBox(height: AppSpacing.sm),
                                 Text(
-                                  'When orders come in, they\'ll appear here',
+                                  'ستظهر الطلبات هنا عند وصولها إلى هذه المرحلة.',
                                   style: AppTypography.bodyMedium.copyWith(
                                     color: WhizzColors.textPrimary
                                         .withValues(alpha: 0.7),

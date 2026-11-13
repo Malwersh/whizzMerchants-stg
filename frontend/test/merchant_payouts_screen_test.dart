@@ -73,6 +73,7 @@ class PayoutApi extends PersonOnboardingService {
         'lines': [
           {
             'orderId': 'frozen-order-reference',
+            'orderNumber': 'ORD12345',
             'deliveredAt': '2026-10-19T20:40:00Z',
             'amounts': {'merchantNet': amount}
           }
@@ -221,8 +222,11 @@ void main() {
     await t.tap(button);
     await t.pumpAndSettle();
     expect(find.text('تفاصيل كشف المستحقات'), findsOneWidget);
-    expect(find.text('الطلب: frozen-order-reference'), findsOneWidget);
-    expect(find.text('التسليم بتوقيت العراق: 2026-10-19 23:40'), findsOneWidget);
+    expect(find.text('الطلب: ORD12345'), findsOneWidget);
+    expect(find.textContaining('MSB:test'), findsNothing);
+    expect(find.textContaining('frozen-order-reference'), findsNothing);
+    expect(
+        find.text('التسليم بتوقيت العراق: 2026-10-19 23:40'), findsOneWidget);
     expect(find.text('لم يُصرف — اعتماد الكشف وحده لا يعني الدفع'),
         findsOneWidget);
     expect(api.calls, isEmpty);

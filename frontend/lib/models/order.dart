@@ -271,12 +271,6 @@ class Order {
 
   static Map<String, num> _receiptAmounts(Map<String, dynamic> json) {
     final saved = json['receiptAmounts'];
-    if (saved is Map)
-      return Map<String, num>.unmodifiable({
-        for (final e in saved.entries)
-          if (e.value is num && (e.value as num).isFinite)
-            '${e.key}': e.value as num,
-      });
     // Pricing fields in the canonical order are minor units; legacy fields are IQD.
     const fields = {
       'subtotal': 'goodsSubtotal',
@@ -290,7 +284,7 @@ class Order {
     final amounts = <String, num>{};
     for (final e in fields.entries) {
       final canonical = pricing is Map ? pricing[e.value] : null;
-      final legacy = json[e.key];
+      final legacy = json[e.key] ?? (saved is Map ? saved[e.key] : null);
       if (canonical is num && canonical.isFinite) {
         amounts[e.key] = canonical / 1000;
       } else if (legacy is num && legacy.isFinite) {
@@ -471,6 +465,7 @@ class Order {
       'customerAddress': customerAddress,
       'items': items.map((item) => item.toJson()).toList(),
       'totalAmount': totalAmount,
+      'deliveryFee': deliveryFee,
       'status': statusString, // ✅ استخدام statusString المحول
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),

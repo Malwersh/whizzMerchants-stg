@@ -45,6 +45,22 @@ Future<void> expand(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('correction expansion state cannot read the account scroll offset', (t) async {
+    final bucket = PageStorageBucket();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: PageStorage(
+      bucket: bucket,
+      child: ListView(key: const PageStorageKey('merchant-account'), children: [
+        Builder(builder: (context) {
+          bucket.writeState(context, 240.0);
+          return MerchantSettlementCorrections(businessId: 'branch', service: Api());
+        }),
+      ]),
+    ))));
+    await t.pumpAndSettle();
+    expect(t.takeException(), isNull);
+    expect(find.text('تصحيحات التسويات'), findsOneWidget);
+  });
+
   testWidgets(
       'owner view loads explicit branch and distinguishes debt from paid money',
       (t) async {
@@ -111,6 +127,7 @@ void main() {
     await t.pump();
     await t.pumpWidget(app(api, 'b'));
     await t.pump();
+    await expand(t);
     await t.tap(find.text('عرض / تحديث التصحيحات'));
     await t.pumpAndSettle();
     api.pending['a']!.complete({

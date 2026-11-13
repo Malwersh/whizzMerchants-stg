@@ -1,3 +1,4 @@
+import 'merchant_financial_session_state.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
@@ -36,6 +37,18 @@ class PersonOnboardingService {
         throw Exception('أعد تسجيل الدخول لعرض البيانات المالية والاتفاقيات.');
       }
       headers['Access-Token'] = accessToken;
+      if (['settlement-schedules','commercial-agreements'].contains(path.split('?').first) &&
+          !const ['FINANCIAL_START', 'FINANCIAL_UNLOCK', 'FINANCIAL_LOCK'].contains(body?['action'])) {
+        final branch =
+            (body?['branchId'] ?? body?['businessId'] ?? Uri.parse(path).queryParameters['branchId'] ?? Uri.parse(path).queryParameters['businessId'])
+                ?.toString();
+        final session = branch == null
+            ? null
+            : MerchantFinancialSessionState.instance.access(branch);
+        if (session != null) {
+          headers['X-Financial-Session'] = jsonEncode(session);
+        }
+      }
     }
     final response = await (body == null
             ? client.get(uri, headers: headers)
@@ -43,6 +56,10 @@ class PersonOnboardingService {
         .timeout(const Duration(seconds: 20));
     final data = Map<String, dynamic>.from(jsonDecode(response.body));
     if (response.statusCode != 200) {
+      if (data['code'] == 'PAYOUT_FINANCIAL_UNLOCK_REQUIRED' ||
+          data['code'] == 'PAYOUT_FINANCIAL_IDENTITY_CHANGED') {
+        MerchantFinancialSessionState.instance.clear();
+      }
       if ([
         'LEGAL_VERSION_CHANGED',
         'LEGAL_ACCEPTANCE_REQUIRED',
@@ -51,6 +68,15 @@ class PersonOnboardingService {
         throw LegalRegistrationException(data['code']);
       }
       throw Exception(<String, String>{
+            'PAYOUT_FINANCIAL_UNLOCK_REQUIRED':
+                'افتح القسم المالي برمز التحقق أولًا.',
+            'PAYOUT_FINANCIAL_INVALID_CODE': 'رمز التحقق غير صحيح.',
+            'PAYOUT_FINANCIAL_CHALLENGE_EXPIRED':
+                'انتهت صلاحية الرمز أو محاولاته. أرسل رمزًا جديدًا.',
+            'PAYOUT_FINANCIAL_RATE_LIMIT':
+                'انتظر قبل إعادة الإرسال. يُسمح بخمس رسائل في الساعة.',
+            'PAYOUT_FINANCIAL_OWNER_REQUIRED':
+                'التحقق المالي متاح لمالك هذا الفرع فقط.',
             'PAYOUT_NO_CORRECTION_CREDIT':
                 'لا يوجد مستحق تصحيح معتمد وغير مصروف لطلبه.',
             'PAYOUT_CORRECTION_SOURCE_INVALID':

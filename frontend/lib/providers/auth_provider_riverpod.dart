@@ -1,3 +1,4 @@
+import '../services/merchant_financial_session_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/app_auth_service.dart';
 import '../services/cognito_auth_service.dart';
@@ -45,6 +46,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final CognitoAuthService _cognitoService = CognitoAuthService();
 
   Future<void> initialize() async {
+    MerchantFinancialSessionState.instance.clear();
     state = state.copyWith(isLoading: true);
     try {
       final signedIn = await AppAuthService.isSignedIn();
@@ -87,6 +89,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
   
   Future<void> signOut() async {
+    MerchantFinancialSessionState.instance.clear();
     // Leave protected UI before clearing the branch/session it reads.
     state = const AuthState(
       status: AuthStatus.unauthenticated,
@@ -100,6 +103,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Sign in user with email and password
   Future<Map<String, dynamic>> signIn(String email, String password) async {
+    MerchantFinancialSessionState.instance.clear();
     state = state.copyWith(isLoading: true, errorMessage: null);
     
     try {

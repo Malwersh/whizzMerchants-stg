@@ -1158,7 +1158,7 @@ Resources:
                         responseParameters:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
-                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,Access-Token,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,Access-Token,X-Financial-Session,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
               /auth/branch-staff:
                 get:
                   security:

@@ -1,3 +1,4 @@
+import 'merchant_financial_session_state.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'secure_token_storage.dart';
@@ -32,6 +33,11 @@ class WalletTransferService {
       'Authorization': 'Bearer $token',
       'Content-Type': 'application/json'
     };
+    final financialAccess =
+        MerchantFinancialSessionState.instance.access(businessId);
+    if (financialAccess != null) {
+      headers['X-Financial-Session'] = jsonEncode(financialAccess);
+    }
     final response = await (body == null
             ? http.get(uri, headers: headers)
             : http.post(uri,
@@ -41,6 +47,10 @@ class WalletTransferService {
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       final error = json['error'];
+      final code = error is Map ? error['code'] : json['code'];
+      if (code == 'PAYOUT_FINANCIAL_UNLOCK_REQUIRED') {
+        MerchantFinancialSessionState.instance.clear();
+      }
       throw WalletTransferException(
           (error is Map ? error['message'] : json['message'])?.toString() ??
               'تعذر إكمال العملية',

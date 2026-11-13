@@ -260,8 +260,20 @@ class _MerchantBusinessesScreenState
                               title: Text(
                                   (b['businessName'] ?? b['name'] ?? 'نشاط')
                                       .toString()),
-                              subtitle: Text(
-                                  (b['status'] ?? 'قيد المراجعة').toString()),
+                              subtitle: Text(switch (
+                                  b['status']?.toString().toLowerCase()) {
+                                'approved' => 'معتمد',
+                                'active' => 'نشط',
+                                'pending' ||
+                                'pending_review' ||
+                                'under_review' =>
+                                  'قيد المراجعة',
+                                'rejected' => 'لم تتم الموافقة',
+                                'suspended' => 'معلّق',
+                                'inactive' || 'disabled' => 'غير مفعّل',
+                                'draft' => 'مسودة',
+                                _ => 'قيد المراجعة',
+                              }),
                               trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [

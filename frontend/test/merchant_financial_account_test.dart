@@ -81,7 +81,48 @@ class ManyAccountApi extends AccountApi {
   }
 }
 
+class ReviewAccountApi extends AccountApi {
+  @override
+  Future<Map<String, dynamic>> call(String path,
+          {Map<String, dynamic>? body, bool authenticated = true}) async =>
+      {
+        ...await super.call(path, body: body, authenticated: authenticated),
+        'nextCursor': null,
+        'items': [
+          {
+            'entryId': 'review',
+            'operationId': 'FCS:internal-private',
+            'kind': 'REVIEW_REQUIRED',
+            'state': 'REVIEW_REQUIRED',
+            'evidenceVerified': false,
+            'occurredAt': '2026-11-06T00:48:35.632Z'
+          }
+        ]
+      };
+}
+
 void main() {
+  testWidgets(
+      'unverified period is not presented as zero and technical references stay hidden',
+      (t) async {
+    await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: MerchantFinancialAccount(
+                    businessId: 'branch',
+                    service: ReviewAccountApi(),
+                    autoRefresh: false)))));
+    await t.pumpAndSettle();
+    expect(find.textContaining('لا يعني ذلك أن مستحقاتك صفر'), findsOneWidget);
+    expect(find.text('0 د.ع'), findsNothing);
+    final row = find.text('مستحقات بانتظار التدقيق');
+    await t.ensureVisible(row);
+    await t.tap(row);
+    await t.pumpAndSettle();
+    expect(find.textContaining('FCS:'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets(
       'one hundred loaded movements display twenty at a time and preserve all totals',
       (t) async {
@@ -94,7 +135,7 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('طلب ORD-19'), findsOneWidget);
     expect(find.text('طلب ORD-20'), findsNothing);
-    expect(find.text('525000 د.ع'), findsWidgets);
+    expect(find.text('525,000 د.ع'), findsWidgets);
     await t.ensureVisible(find.text('عرض ٢٠ حركة إضافية'));
     await t.tap(find.text('عرض ٢٠ حركة إضافية'));
     await t.pumpAndSettle();
@@ -139,7 +180,7 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('إجمالي المستحقات غير المصروفة · كل الفترات'),
         findsOneWidget);
-    expect(find.textContaining('43575'), findsOneWidget);
+    expect(find.textContaining('43,575'), findsOneWidget);
     expect(find.textContaining('المجاميع للقيود المحمّلة فقط'), findsOneWidget);
     final more = find.text('تحميل بقية الحركات');
     await t.scrollUntilVisible(more, 350,
@@ -147,7 +188,7 @@ void main() {
     await t.tap(more);
     await t.pumpAndSettle();
     expect(api.queries.last['cursor'], 'next');
-    expect(find.text('اكتمل تحميل القيود المسجلة للفترة.'), findsOneWidget);
+    expect(find.text('اكتمل تحميل القيود المسجلة للفترة.'), findsNothing);
     final paid = find.text('صرف مستحقات');
     await t.ensureVisible(paid);
     await t.tap(paid);
@@ -165,7 +206,7 @@ void main() {
     await t.tap(find.byTooltip('تحديث الحساب'));
     await t.pumpAndSettle();
     expect(find.textContaining('صلاحية القراءة مسحوبة'), findsOneWidget);
-    expect(find.textContaining('43575'), findsNothing);
+    expect(find.textContaining('43,575'), findsNothing);
     expect(find.text('طلب ORD-212'), findsNothing);
   });
 }

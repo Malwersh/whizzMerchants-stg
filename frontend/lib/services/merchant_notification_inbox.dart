@@ -1,3 +1,4 @@
+import 'merchant_financial_notice_privacy.dart';
 import 'person_onboarding_service.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -46,7 +47,7 @@ class MerchantNotificationInbox extends ChangeNotifier {
   static List<NotificationModel> _read(SharedPreferences prefs, String key) {
     try {
       return (jsonDecode(prefs.getString(key) ?? '[]') as List)
-          .map((x) => NotificationModel.fromJson(Map<String, dynamic>.from(x)))
+          .map((x) => privateFinancialNotice(NotificationModel.fromJson(Map<String, dynamic>.from(x))))
           .toList();
     } catch (_) {
       return [];
@@ -69,17 +70,18 @@ class MerchantNotificationInbox extends ChangeNotifier {
     final sorted = rows.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     await prefs.setString(
-        key, jsonEncode(sorted.take(200).map((x) => x.toJson()).toList()));
+        key, jsonEncode(sorted.take(200).map((x) => privateFinancialNotice(x).toJson()).toList()));
   }
 
   static Future<void> recordPush(Map<String, dynamic> data,
       {String? title, String? body, String? messageId}) async {
     final subject = await _currentSubject();
-    final business = data['businessId']?.toString();
+    final business = (data['businessId'] ?? data['branchId'])?.toString();
     if (subject == null || business == null || business.isEmpty) return;
-    final recipient = data['subjectId']?.toString();
-    if (recipient != null && recipient.isNotEmpty && recipient != subject)
+    final recipient = (data['subjectId'] ?? data['driverId'])?.toString();
+    if (recipient != null && recipient.isNotEmpty && recipient != subject) {
       return;
+    }
     final order = data['orderId']?.toString();
     final action =
         data['action']?.toString() ?? data['type']?.toString() ?? 'general';
@@ -110,6 +112,9 @@ class MerchantNotificationInbox extends ChangeNotifier {
 
   Future<void> _reload(String key) async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (_scope != key) return;
+    await _write(key, (fresh) async { await _save(fresh,key,_read(fresh,key)); });
     await prefs.reload();
     if (_scope != key) return;
     items = _read(prefs, key);

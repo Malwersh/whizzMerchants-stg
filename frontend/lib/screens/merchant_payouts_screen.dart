@@ -1,3 +1,6 @@
+import 'package:intl/intl.dart' show NumberFormat;
+import '../widgets/merchant_financial_notification_device.dart';
+import '../widgets/merchant_financial_gate.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
@@ -6,20 +9,18 @@ import '../services/branch_settlement_service.dart';
 import '../widgets/merchant_financial_account.dart';
 import '../widgets/merchant_settlement_corrections.dart';
 
-class MerchantPayoutsScreen extends StatefulWidget {
+class _UnlockedMerchantPayoutsScreen extends StatefulWidget {
   final String businessId;
   final PersonOnboardingService? service;
   final bool autoRefreshAccount;
-  const MerchantPayoutsScreen(
-      {super.key,
-      required this.businessId,
-      this.service,
-      this.autoRefreshAccount = true});
+  const _UnlockedMerchantPayoutsScreen(
+      {required this.businessId, this.service, this.autoRefreshAccount = true});
   @override
-  State<MerchantPayoutsScreen> createState() => _MerchantPayoutsState();
+  State<_UnlockedMerchantPayoutsScreen> createState() =>
+      _MerchantPayoutsState();
 }
 
-class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
+class _MerchantPayoutsState extends State<_UnlockedMerchantPayoutsScreen> {
   late final _api = widget.service ?? PersonOnboardingService();
   Map<String, dynamic>? _staffContext;
   bool get _employee => _api is BranchSettlementService;
@@ -63,7 +64,7 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
     'FAILED_NOT_PAID': 'ثبت عدم الصرف — يمكنك طلب المستحق مجددًا',
   };
   String _money(dynamic v) =>
-      '${((v as Map)['minorAmount'] as num) ~/ 1000} د.ع';
+      '${NumberFormat('#,##0', 'en').format(((v as Map)['minorAmount'] as num) ~/ 1000)} د.ع';
   List<Map<String, dynamic>> _items(Map<String, dynamic> data) =>
       (data['items'] as List? ?? [])
           .map((r) => Map<String, dynamic>.from(r))
@@ -77,7 +78,7 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
   }
 
   @override
-  void didUpdateWidget(covariant MerchantPayoutsScreen oldWidget) {
+  void didUpdateWidget(covariant _UnlockedMerchantPayoutsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.businessId != widget.businessId) {
       _attempts.clear();
@@ -205,7 +206,8 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                           for (final line in lines) ...[
                             const Divider(),
                             SelectionArea(
-                                child: Text('الطلب: ${line['orderId']}')),
+                                child: Text(
+                                    'الطلب: ${line['orderNumber'] ?? 'تفاصيل طلب مُدرج بالكشف'}')),
                             Text(
                                 'التسليم بتوقيت العراق: ${DateTime.parse(line['deliveredAt']).toUtc().add(const Duration(hours: 3)).toIso8601String().substring(0, 16).replaceAll('T', ' ')}'),
                             amounts(line['amounts']),
@@ -213,8 +215,6 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                           const Divider(),
                           const Text(
                               'يشمل هذا الكشف طلباته المثبتة فقط، ولا يمثل إجمالي حساب المطعم.'),
-                          SelectionArea(
-                              child: Text('مرجع الكشف: ${data['batchId']}')),
                         ]))),
                 actions: [
                   TextButton(
@@ -491,6 +491,11 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
   }
 
   Widget _statementCard(Map<String, dynamic> b) => Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 14),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Color(0xffe2e8f2))),
       child: Padding(
           padding: const EdgeInsets.all(16),
           child:
@@ -505,8 +510,10 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                 key: PageStorageKey('statement-period-${b['batchId']}'),
                 title: const Text('الفترة وسبب التسوية'),
                 children: [
-                  Text(_periodLabel(b['period'])),
-                  SelectionArea(child: Text('مرجع الكشف: ${b['batchId']}'))
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(_periodLabel(b['period']),
+                          style: const TextStyle(height: 1.6)))
                 ]),
             Text((b['summary']['amounts']['merchantNet']['minorAmount']
                         as num) ==
@@ -521,6 +528,7 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                             : 'بانتظار اعتماد الإدارة'),
             OutlinedButton(
                 onPressed: _busy ? null : () => _showStatement(b),
+                style: OutlinedButton.styleFrom(shape: const StadiumBorder()),
                 child: const Text('تفاصيل الكشف والطلبات')),
             if (_canRequest &&
                 (b['summary']['amounts']['merchantNet']['minorAmount'] as num) >
@@ -532,30 +540,41 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                   child: const Text('طلب صرف المستحقات'))
           ])));
   Widget _payoutCard(Map<String, dynamic> p) => Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 14),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Color(0xffe2e8f2))),
       child: Padding(
           padding: const EdgeInsets.all(16),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
                 '${_money(p['amount'])} · ${p['method'] == 'CASH' ? 'نقدًا' : 'زين كاش'}',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 22,
+                    color: Color(0xff00306b))),
+            const SizedBox(height: 8),
             Text(p['settlementMode'] == 'OFFSET_ONLY'
                 ? 'تمت التسوية بالمقاصة — دون تسليم نقدي'
                 : (_labels[p['status']] ?? p['status'])),
             if (p['correctionSettlement'] is Map)
               Text(
                   '${p['sourceKind'] == 'CORRECTIONS_ONLY' ? 'صرف تصحيح مستقل' : 'مستحق الكشف: ${_money(p['baseAmount'])}'}\nمستحق تصحيح إضافي: ${p['correctionSettlement']['creditIqd']} د.ع\nخصم مديونية: ${p['correctionSettlement']['debtIqd']} د.ع\nالنقد للتسليم: ${_money(p['amount'])}'),
+            const SizedBox(height: 12),
             Text('المستفيد: ${p['recipientName'] ?? p['destination']}'),
             if (p['recipientRoleLabel'] != null)
               Text(
                   '${p['recipientRoleLabel']}${p['recipientBusinessName'] == null ? '' : ' — ${p['recipientBusinessName']}'}'),
-            ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                key: PageStorageKey('payout-reference-${p['payoutId']}'),
-                title: const Text('مرجع طلب الصرف'),
-                children: [SelectionArea(child: Text(p['payoutId']))]),
             if (p['externalReference'] != null)
-              Text('مرجع التنفيذ: ${p['externalReference']}'),
+              Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Text('سند الصرف: ${p['externalReference']}',
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xff69788f)),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis)),
             if (_canReceive && p['status'] == 'RECONCILIATION_REQUIRED')
               TextButton(
                   onPressed:
@@ -617,7 +636,7 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                       ? (statements
                           ? 'لا توجد كشوف محفوظة حتى الآن.'
                           : 'لا توجد طلبات صرف حتى الآن.')
-                      : 'نهاية النتائج المحمّلة',
+                      : '',
                   textAlign: TextAlign.center));
         });
   }
@@ -626,12 +645,18 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
   Widget build(BuildContext context) => Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('مستحقاتي والتسويات'), actions: [
-          IconButton(
-              tooltip: 'تحديث',
-              onPressed: _busy ? null : () => _load(),
-              icon: const Icon(Icons.refresh))
-        ]),
+        backgroundColor: const Color(0xfff5f7fb),
+        appBar: AppBar(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.white,
+            centerTitle: true,
+            title: const Text('مستحقاتي والتسويات'),
+            actions: [
+              IconButton(
+                  tooltip: 'تحديث',
+                  onPressed: _busy ? null : () => _load(),
+                  icon: const Icon(Icons.refresh))
+            ]),
         body: SafeArea(
             child: Column(children: [
           Padding(
@@ -646,6 +671,17 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                       child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 3),
                           child: ChoiceChip(
+                              selectedColor: const Color(0xff00306b),
+                              backgroundColor: Colors.white,
+                              side: BorderSide.none,
+                              labelStyle: TextStyle(
+                                  color: _section == item.$1
+                                      ? Colors.white
+                                      : const Color(0xff00306b),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
                               showCheckmark: false,
                               label: SizedBox(
                                   width: double.infinity,
@@ -675,6 +711,9 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
                     key: const PageStorageKey('merchant-account'),
                     padding: const EdgeInsets.all(16),
                     children: [
+                      if (merchantFinancialLockEnabled && !_employee)
+                        MerchantFinancialNotificationDevice(
+                            businessId: widget.businessId, service: _api),
                       MerchantFinancialAccount(
                           businessId: widget.businessId,
                           service: _api,
@@ -696,4 +735,28 @@ class _MerchantPayoutsState extends State<MerchantPayoutsScreen> {
           ]))
         ])),
       ));
+}
+
+class MerchantPayoutsScreen extends StatelessWidget {
+  final String businessId;
+  final PersonOnboardingService? service;
+  final bool autoRefreshAccount;
+  const MerchantPayoutsScreen({
+    super.key,
+    required this.businessId,
+    this.service,
+    this.autoRefreshAccount = true,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final child = _UnlockedMerchantPayoutsScreen(
+      businessId: businessId,
+      service: service,
+      autoRefreshAccount: autoRefreshAccount,
+    );
+    if (!merchantFinancialLockEnabled || service is BranchSettlementService) {
+      return child;
+    }
+    return MerchantFinancialGate(branchId: businessId, child: child);
+  }
 }

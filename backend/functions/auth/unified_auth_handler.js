@@ -11,7 +11,7 @@ const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Staff-Session',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,Access-Token,X-Staff-Session,X-Financial-Session',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 

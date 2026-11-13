@@ -1,3 +1,6 @@
+import '../screens/merchant_payout_notice_screen.dart';
+import '../widgets/merchant_financial_gate.dart';
+import '../screens/merchant_wallet_accounts_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
@@ -12,6 +15,13 @@ class CommercialNoticeNavigation {
   static bool _opening = false;
   static bool ownerReady = false;
   static void receive(Map<String, dynamic> data, {bool tapped = false}) {
+    if (merchantFinancialLockEnabled && data['action'] == 'open_wallet' && ['wallet_transfer_completed', 'merchant_payout_updated', 'merchant_exception_financial_updated'].contains(data['type'])) {
+      if (tapped && data['driverId'] is String) {
+        _pending = {'subjectId': data['driverId'], 'financialWallet': true, if(data['type']=='merchant_payout_updated') 'payoutId':data['payoutId'], if(data['type']=='merchant_payout_updated') 'branchId':data['branchId']};
+        tryOpen();
+      }
+      return;
+    }
     if (data['action'] != 'commercial_sharing_requested') return;
     changes.value++;
     if (tapped) {
@@ -34,10 +44,28 @@ class CommercialNoticeNavigation {
         _pending = null;
         return;
       }
+      if (data['financialWallet'] == true) {
+        _pending = null;
+        // Select the account from the authenticated server; never trust a branch
+        // supplied by push. WalletTransferScreen enforces the financial gate.
+        if(data.containsKey('payoutId')) {
+          final payout=data['payoutId'], branch=data['branchId'];
+          if(payout is! String || !RegExp(r'^MPO:[a-f0-9]{48}$').hasMatch(payout) || branch is! String || branch.isEmpty || branch.length>150)return;
+          await nav.push(MaterialPageRoute(builder:(_)=>MerchantPayoutNoticeScreen(businessId:branch,payoutId:payout)));
+        } else {
+        await nav.push(MaterialPageRoute(builder: (_) => const MerchantWalletAccountsScreen()));
+        }
+        return;
+      }
       final business = data['businessId'], id = data['sharingId'];
       final kind = data['requestKind'] ?? 'FUNDING';
       if (!['FUNDING', 'DELIVERY'].contains(kind)) { _pending = null; return; }
       if (business is! String || id is! String) { _pending = null; return; }
+      if(merchantFinancialLockEnabled){
+        _pending=null;
+        await nav.push(MaterialPageRoute(builder:(_)=>CommercialAgreementsScreen(businessId:business,focusSharingId:id,focusRequestKind:kind,service:service)));
+        return;
+      }
       // Push data is a navigation hint. Only the authenticated server decides visibility and terms.
       final result = await (service ?? PersonOnboardingService()).call('commercial-agreements?businessId=${Uri.encodeComponent(business)}&view=pending-sharing');
       final currentToken = await SecureTokenStorage.getAccessToken();

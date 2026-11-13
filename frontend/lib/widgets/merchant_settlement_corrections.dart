@@ -144,6 +144,7 @@ class _CorrectionsState extends State<MerchantSettlementCorrections> {
   Widget build(BuildContext context) => Card(
         margin: const EdgeInsets.only(top: 16),
         child: ExpansionTile(
+          key: PageStorageKey('settlement-corrections-${widget.businessId}'),
           title: const Text('تصحيحات التسويات',
               style: TextStyle(color: Color(0xFF00296B))),
           leading: const Icon(Icons.manage_history, color: Color(0xFF00296B)),

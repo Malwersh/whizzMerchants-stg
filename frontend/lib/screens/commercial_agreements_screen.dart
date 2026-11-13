@@ -1,3 +1,4 @@
+import '../widgets/merchant_financial_gate.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,15 +6,15 @@ import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import '../services/person_onboarding_service.dart';
 
-class CommercialAgreementsScreen extends StatefulWidget {
+class _UnlockedCommercialAgreementsScreen extends StatefulWidget {
   final String businessId;
   final String? focusSharingId;
   final String? focusRequestKind;
   final String? businessName;
   final Map<String, String> branchNames;
   final PersonOnboardingService? service;
-  const CommercialAgreementsScreen(
-      {super.key,
+  const _UnlockedCommercialAgreementsScreen(
+      {
       required this.businessId,
       this.focusSharingId,
       this.focusRequestKind,
@@ -21,10 +22,10 @@ class CommercialAgreementsScreen extends StatefulWidget {
       this.branchNames = const {},
       this.service});
   @override
-  State<CommercialAgreementsScreen> createState() => _AgreementsState();
+  State<_UnlockedCommercialAgreementsScreen> createState() => _AgreementsState();
 }
 
-class _AgreementsState extends State<CommercialAgreementsScreen> {
+class _AgreementsState extends State<_UnlockedCommercialAgreementsScreen> {
   late final _api = widget.service ?? PersonOnboardingService();
   List<dynamic> _items = [];
   final Set<String> _confirmed = {};
@@ -40,7 +41,7 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
   }
 
   @override
-  void didUpdateWidget(covariant CommercialAgreementsScreen oldWidget) {
+  void didUpdateWidget(covariant _UnlockedCommercialAgreementsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.businessId != widget.businessId) {
       _confirmed.clear();
@@ -473,4 +474,17 @@ class _AgreementsState extends State<CommercialAgreementsScreen> {
               ])
             ]));
   }
+}
+
+class CommercialAgreementsScreen extends StatelessWidget {
+ final String businessId;
+ final String? focusSharingId,focusRequestKind,businessName;
+ final Map<String,String> branchNames;
+ final PersonOnboardingService? service;
+ const CommercialAgreementsScreen({super.key,required this.businessId,this.focusSharingId,this.focusRequestKind,this.businessName,this.branchNames=const {},this.service});
+ @override
+ Widget build(BuildContext context){
+  final child=_UnlockedCommercialAgreementsScreen(businessId:businessId,focusSharingId:focusSharingId,focusRequestKind:focusRequestKind,businessName:businessName,branchNames:branchNames,service:service);
+  return merchantFinancialLockEnabled?MerchantFinancialGate(branchId:businessId,child:child):child;
+ }
 }

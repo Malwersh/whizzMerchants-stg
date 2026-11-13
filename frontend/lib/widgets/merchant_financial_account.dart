@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import '../services/person_onboarding_service.dart';
 
@@ -47,7 +48,7 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
         (v['minorAmount'] as int) % 1000 != 0) {
       throw const FormatException('وحدة مالية غير معروفة');
     }
-    return '${(v['minorAmount'] as num) ~/ 1000} د.ع';
+    return '${NumberFormat('#,##0', 'en').format((v['minorAmount'] as num) ~/ 1000)} د.ع';
   }
 
   String _at(dynamic v) {
@@ -70,7 +71,7 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
     'IN_STATEMENT': 'ضمن كشف محفوظ',
     'IN_PAYOUT': 'قيد الصرف',
     'PAID': 'تم الصرف',
-    'REVIEW_REQUIRED': 'تحتاج مراجعة'
+    'REVIEW_REQUIRED': 'بانتظار تدقيق الإدارة'
   };
   @override
   void initState() {
@@ -198,21 +199,27 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
           BigInt.from(
               ((r['amounts'] as Map?)?[key]?['minorAmount'] as num?)?.toInt() ??
                   0));
-  Widget _metric(String title, BigInt amount) => Container(
-      width: 165,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-          color: const Color(0xfff5f7fb),
-          borderRadius: BorderRadius.circular(12)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title),
-        const SizedBox(height: 4),
-        Text('${amount ~/ BigInt.from(1000)} د.ع',
-            style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-                color: Color(0xff00306b)))
-      ]));
+  Widget _metric(String title, BigInt amount, {bool complete = true}) =>
+      Container(
+          width: (MediaQuery.sizeOf(context).width - 48) / 2,
+          constraints: const BoxConstraints(minHeight: 108),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+              color: const Color(0xfff5f7fb),
+              borderRadius: BorderRadius.circular(12)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontSize: 13, height: 1.5)),
+            const SizedBox(height: 4),
+            Text(
+                complete
+                    ? '${NumberFormat('#,##0', 'en').format((amount ~/ BigInt.from(1000)).toInt())} د.ع'
+                    : '—',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: Color(0xff00306b)))
+          ]));
   Future<void> _choose() async {
     final range = await showDateRangePicker(
         context: context,
@@ -240,25 +247,56 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
         orders = verified.where((r) =>
             ['ORDER_ACCRUAL', 'EXCEPTION_COMPENSATION'].contains(r['kind'])),
         paidFlows = verified.where((r) => r['kind'] == 'PAYOUT');
+    final complete = _cursor == null &&
+        !_rows.values.any((r) => r['evidenceVerified'] != true);
     final visible =
         _rows.values.where((r) => _state == 'ALL' || r['state'] == _state);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('حساب المطعم ومستحقاته',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-      const Text('تُسجّل المستحقات عند التسليم. ظهور مبلغ مستحق لا يعني صرفه.'),
+      const Text('مستحقاتك من الطلبات والتعويضات، ومتابعة ما تم صرفه.'),
+      const SizedBox(height: 16),
       if (_wallet != null)
-        Card(
-            child: ListTile(
-                title: const Text('إجمالي المستحقات غير المصروفة · كل الفترات'),
-                subtitle:
-                    const Text('يشمل ما هو قيد الصرف حتى اكتمال المطابقة'),
-                trailing: Text('${_wallet!['pendingIqd']} د.ع',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 18)))),
-      Wrap(spacing: 8, children: [
-        TextButton(
-            onPressed: _busy ? null : _choose,
-            child: Text('${_date(_from)} إلى ${_date(_through)}')),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+              color: const Color(0xff00306b),
+              borderRadius: BorderRadius.circular(22)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('إجمالي المستحقات غير المصروفة · كل الفترات',
+                style: TextStyle(color: Colors.white, fontSize: 14)),
+            const SizedBox(height: 12),
+            Text(
+                '${NumberFormat('#,##0', 'en').format(_wallet!['pendingIqd'])} د.ع',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+                'يشمل المبالغ قيد الصرف. راجع طلبات الصرف لمتابعة الاستلام.',
+                style: TextStyle(
+                    color: Color(0xffdbe5f5), fontSize: 12, height: 1.5)),
+          ]),
+        ),
+      const SizedBox(height: 18),
+      const Text('ملخص المستحقات',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 6),
+      Wrap(spacing: 4, children: [
+        SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: Color(0xffe2e8f2)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14))),
+                icon: const Icon(Icons.date_range_outlined, size: 19),
+                onPressed: _busy ? null : _choose,
+                label: Text('${_date(_from)} إلى ${_date(_through)}'))),
         TextButton(
             onPressed: _busy
                 ? null
@@ -297,58 +335,67 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
             tooltip: 'تحديث الحساب',
             icon: const Icon(Icons.refresh))
       ]),
-      const Text(
-          'التواريخ بتوقيت بغداد؛ الطلبات حسب التسليم، والتعويضات حسب تاريخ قيدها، والصرف حسب الدفع الفعلي.'),
+      const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: Text('التواريخ بتوقيت بغداد',
+              style: TextStyle(fontSize: 12, color: Color(0xff69788f)))),
       if (_busy) const LinearProgressIndicator(),
       if (_error != null)
         Text(_error!, style: const TextStyle(color: Colors.red)),
       if (_loaded) ...[
-        const Text('ملخص الفترة · جميع الحالات'),
         if (_rows.values.any((r) => r['evidenceVerified'] != true))
-          const Text('توجد قيود تحتاج مراجعة ولم تدخل في المجاميع.'),
-        Text(_cursor == null
-            ? 'اكتمل تحميل القيود المسجلة للفترة.'
-            : 'المجاميع للقيود المحمّلة فقط؛ حمّل الباقي لاكتمال الفترة.'),
+          const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                  'لم يكتمل تدقيق مستحقات هذه الفترة. تظهر الإجماليات بعد اكتمال المراجعة، ولا يعني ذلك أن مستحقاتك صفر.')),
+        if (_cursor != null)
+          const Text(
+              'المجاميع للقيود المحمّلة فقط؛ حمّل الباقي لاكتمال الفترة.'),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          _metric('صافي مستحقات الطلبات', _total('merchantNet', orders)),
+          _metric('صافي مستحقات الطلبات', _total('merchantNet', orders),
+              complete: complete),
           _metric('غير مصروف من هذه الطلبات',
-              _total('merchantNet', orders.where((r) => r['state'] != 'PAID'))),
+              _total('merchantNet', orders.where((r) => r['state'] != 'PAID')),
+              complete: complete),
           _metric(
               'منها قيد الصرف',
               _total('merchantNet',
-                  orders.where((r) => r['state'] == 'IN_PAYOUT'))),
+                  orders.where((r) => r['state'] == 'IN_PAYOUT')),
+              complete: complete),
           _metric(
               'صُرف فعليًا خلال الفترة',
               paidFlows.fold(
                   BigInt.zero,
                   (a, r) =>
                       a +
-                      BigInt.from((r['amount']['minorAmount'] as num).toInt())))
+                      BigInt.from((r['amount']['minorAmount'] as num).toInt())),
+              complete: complete)
         ]),
-        ExpansionTile(
-            key: const PageStorageKey('account-breakdown'),
-            title: const Text('تفصيل المنتجات والخصومات والتعويضات'),
-            children: [
-              Wrap(spacing: 8, runSpacing: 8, children: [
-                _metric('قيمة المنتجات', _total('goodsGross', orders)),
-                _metric('خصومات على المطعم',
-                    _total('merchantFundedDiscount', orders)),
-                _metric('خصومات تمولها المنصة',
-                    _total('platformFundedDiscount', orders)),
-                _metric(
-                    'عمولات على المطعم', _total('merchantCommission', orders)),
-                _metric('رسوم أخرى على المطعم',
-                    _total('merchantOtherCharges', orders)),
-                _metric('دعم توصيل على المطعم',
-                    _total('merchantDeliverySupport', orders)),
-                _metric('تعويضات طلبات مرتجعة أو متعذرة',
-                    _total('merchantExceptionCompensation', orders)),
-              ])
-            ]),
+        if (complete)
+          ExpansionTile(
+              key: const PageStorageKey('account-breakdown'),
+              title: const Text('تفصيل المنتجات والخصومات والتعويضات'),
+              children: [
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  _metric('قيمة المنتجات', _total('goodsGross', orders)),
+                  _metric('خصومات على المطعم',
+                      _total('merchantFundedDiscount', orders)),
+                  _metric('خصومات تمولها المنصة',
+                      _total('platformFundedDiscount', orders)),
+                  _metric('عمولات على المطعم',
+                      _total('merchantCommission', orders)),
+                  _metric('رسوم أخرى على المطعم',
+                      _total('merchantOtherCharges', orders)),
+                  _metric('دعم توصيل على المطعم',
+                      _total('merchantDeliverySupport', orders)),
+                  _metric('تعويضات طلبات مرتجعة أو متعذرة',
+                      _total('merchantExceptionCompensation', orders)),
+                ])
+              ]),
         const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Text(
-                'الصرف خلال الفترة قد يخص طلبات أقدم. لا تجمعه مع صافي طلبات الفترة لحساب الرصيد. العمولة والخصومات أدناه داخلة أصلًا في صافي المستحق.')),
+                'المبالغ المصروفة خلال الفترة قد تخص طلبات أقدم. صافي المستحق يحتسب الخصومات والعمولة بالفعل.')),
         DropdownButton<String>(
             isExpanded: true,
             value: _state,
@@ -365,6 +412,10 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
         for (final r in visible.take(_visibleLimit))
           Card(
               key: ValueKey(r['entryId']),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: const BorderSide(color: Color(0xffe2e8f2))),
               child: ExpansionTile(
                   key: PageStorageKey('account-entry-${r['entryId']}'),
                   title: Text(r['kind'] == 'EXCEPTION_COMPENSATION'
@@ -375,7 +426,7 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
                               ? 'صرف مستحقات'
                               : r['kind'] == 'EXCEPTION_FUNDING'
                                   ? 'تمويل أجرة بقرار موثق'
-                                  : 'قيد يحتاج مراجعة'),
+                                  : 'مستحقات بانتظار التدقيق'),
                   subtitle: Text(
                       '${r['settlementMode'] == 'OFFSET_ONLY' ? 'تمت التسوية بالمقاصة دون نقد' : (_states[r['state']] ?? r['state'])} · ${_at(r['occurredAt'])}'),
                   children: [
@@ -394,7 +445,7 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
                                         Expanded(
                                             child: Text(
                                                 _labels[a.key]?.toString() ??
-                                                    a.key.toString())),
+                                                    'تفصيل المستحق')),
                                         Text(_money(a.value))
                                       ])),
                               if (r['kind'] == 'EXCEPTION_FUNDING')
@@ -414,18 +465,7 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
                               ],
                               if (r['evidenceVerified'] != true)
                                 const Text(
-                                    'لم يُحتسب هذا القيد في المجاميع؛ يحتاج مراجعة الأدلة.'),
-                              if (r['statementId'] != null)
-                                SelectionArea(
-                                    child: Text(
-                                        'مرجع الكشف: ${r['statementId']}')),
-                              if (r['payoutId'] != null)
-                                SelectionArea(
-                                    child:
-                                        Text('مرجع الصرف: ${r['payoutId']}')),
-                              SelectionArea(
-                                  child: Text(
-                                      'مرجع الحركة: ${r['operationId'] ?? r['entryId']}')),
+                                    'تراجع الإدارة مستندات هذه الحركة. ستظهر تفاصيلها ومبلغها بعد اكتمال التدقيق.'),
                             ]))
                   ])),
         if (visible.length > _visibleLimit)
@@ -442,13 +482,13 @@ class _MerchantFinancialAccountState extends State<MerchantFinancialAccount>
           title: const Text('كيف تُحسب المستحقات؟'),
           children: [
             const Text(
-                'السجل مبني على القيود المالية المسجلة، وليس على أسعار اليوم. يشمل الطلبات المكتملة ذات صافي المستحق الصفري أيضًا، دون قيد محفظة أو صرف وهمي. التعديلات غير المعروفة تظهر للمراجعة ولا تُخفى ضمن المجاميع.'),
+                'تُسجّل مستحقات الطلبات بعد التسليم. وقد يشمل الصرف في الفترة المحددة مستحقات طلبات أقدم.'),
             const Text(
-                'تتحدث البيانات عند فتح الشاشة والعودة إليها، وكل دقيقة أثناء عرضها. يمكنك التحديث يدويًا أيضًا.'),
+                'الرصيد غير المصروف يخص جميع الفترات، أما ملخص الفترة فيخص التواريخ المختارة فقط.'),
             const Text(
                 'الخصم الذي تموله المنصة لا يُخصم من حق المطعم. رسوم الخدمة والتوصيل والإكرامية ليست دخلًا للمطعم.'),
           ]),
-      const Divider(height: 32),
+      const SizedBox(height: 12),
     ]);
   }
 }

@@ -1,3 +1,4 @@
+import '../widgets/merchant_financial_gate.dart';
 import '../widgets/wallet_transfer_gate.dart';
 import '../widgets/transfer_verification_sheet.dart';
 import 'merchant_finance_members_screen.dart';
@@ -10,14 +11,15 @@ import 'package:uuid/uuid.dart';
 import '../core/theme/whizz_colors.dart';
 import '../services/wallet_transfer_service.dart';
 
-class WalletTransferScreen extends StatefulWidget {
+class _UnlockedWalletTransferScreen extends StatefulWidget {
   final String businessId;
-  const WalletTransferScreen({super.key, required this.businessId});
+  const _UnlockedWalletTransferScreen({required this.businessId});
   @override
-  State<WalletTransferScreen> createState() => _WalletTransferScreenState();
+  State<_UnlockedWalletTransferScreen> createState() =>
+      _WalletTransferScreenState();
 }
 
-class _WalletTransferScreenState extends State<WalletTransferScreen> {
+class _WalletTransferScreenState extends State<_UnlockedWalletTransferScreen> {
   late final api = WalletTransferService(businessId: widget.businessId);
   final phone = TextEditingController(),
       amount = TextEditingController(),
@@ -313,212 +315,254 @@ class _WalletTransferScreenState extends State<WalletTransferScreen> {
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12)))));
   @override
-  Widget build(BuildContext context) => WalletTransferGate(check:()async{final current=await api.call('context');if(mounted)setState(()=>account=current);return current['canTransfer']==true;},builder:(transfersEnabled)=>Directionality(
-      textDirection: TextDirection.rtl,
-      child: PopScope(
-          canPop: !sending,
-          child: Scaffold(
-              backgroundColor: WhizzColors.grey50,
-              appBar: AppBar(
-                  title: const Text('محفظة المطعم'),
-                  actions: [
-                    if (account?['isOwner'] == true)
-                      IconButton(
-                          tooltip: 'الموظفون الماليون',
-                          onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => MerchantFinanceMembersScreen(
-                                      businessId: widget.businessId))),
-                          icon: const Icon(Icons.manage_accounts_outlined))
-                  ],
-                  backgroundColor: Colors.white),
-              body: loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                          padding: const EdgeInsets.all(20),
-                          children: [
-                            if (error != null)
-                              Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: Semantics(
-                                      liveRegion: true,
-                                      child: Text(error!,
-                                          style: const TextStyle(
-                                              color: WhizzColors.secondary)))),
-                            if (account == null)
-                              OutlinedButton(
-                                  onPressed: _load,
-                                  child: const Text('إعادة المحاولة')),
-                            if (account != null) ...[
-                              Container(
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                      color: WhizzColors.secondary,
-                                      borderRadius: BorderRadius.circular(18)),
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('الرصيد المتاح للتحويل',
-                                            style: TextStyle(
-                                                color: Colors.white70)),
-                                        const SizedBox(height: 8),
-                                        Text(money(account!['available']),
-                                            style: const TextStyle(
-                                                fontSize: 28,
-                                                fontWeight: FontWeight.w700,
-                                                color: Colors.white)),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                            'المتبقي اليوم: ${money(account!['dailyRemaining'])}',
-                                            style: const TextStyle(
-                                                color: Colors.white))
-                                      ])),
-                              const SizedBox(height: 16),
-                              Text(
-                                  'من ${money(account!['minAmount'])} إلى ${money(account!['maxAmount'])} لكل تحويل. الحد اليومي ${money(account!['dailyLimit'])} حسب توقيت بغداد.',
-                                  style: Theme.of(context).textTheme.bodySmall),
-                              const SizedBox(height: 24),
-                              if (transfersEnabled && account!['canTransfer'] == true ||
-                                  uncertain) ...[
-                                Text('المستلم',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium),
-                                const SizedBox(height: 12),
-                                DropdownButtonFormField<String>(
-                                    initialValue: recipientType,
-                                    decoration: const InputDecoration(
-                                        labelText: 'نوع المستلم'),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: 'DRIVER', child: Text('سائق')),
-                                      DropdownMenuItem(
-                                          value: 'CUSTOMER',
-                                          child: Text('مستخدم'))
-                                    ],
-                                    onChanged: searching || sending || uncertain
-                                        ? null
-                                        : (value) => setState(() {
-                                              recipientType = value!;
-                                              recipient = null;
-                                            })),
-                                const SizedBox(height: 16),
-                                _field('رقم هاتف المستلم', phone,
-                                    numeric: true,
-                                    changed: (_) =>
-                                        setState(() => recipient = null)),
-                                OutlinedButton.icon(
-                                    onPressed: searching || sending || uncertain
-                                        ? null
-                                        : _find,
-                                    icon: searching
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2))
-                                        : const Icon(Icons.search),
-                                    label: const Text('البحث عن المستلم')),
-                                if (recipient != null)
-                                  ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(Icons.person_outline),
-                                      title:
-                                          Text(recipient!['name'].toString()),
-                                      subtitle: Text(
-                                          recipient!['phone'].toString(),
-                                          textDirection: TextDirection.ltr)),
-                                const SizedBox(height: 20),
-                                _field('المبلغ بالدينار', amount,
-                                    numeric: true),
-                                _field('سبب التحويل', reason),
-                                if (uncertain)
-                                  const Padding(
-                                      padding: EdgeInsets.only(bottom: 12),
-                                      child: Text(
-                                          'يوجد تحويل قيد التحقق. لن تُنشأ عملية جديدة عند إعادة المحاولة.')),
-                                if(transfersEnabled) FilledButton.icon(
-                                    style: FilledButton.styleFrom(
-                                        backgroundColor: WhizzColors.primary,
-                                        foregroundColor: WhizzColors.secondary,
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 16)),
-                                    onPressed: sending ? null : _submit,
-                                    icon: sending
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2))
-                                        : const Icon(Icons.arrow_outward),
-                                    label: Text(uncertain
-                                        ? 'التحقق وإكمال التحويل'
-                                        : 'مراجعة التحويل')),
-                              ] else
-                                const Text(
-                                    'التحويلات غير متاحة حاليًا لهذا الحساب.'),
-                              if (uncertain)
-                                TextButton(
-                                    onPressed: sending ? null : _cancelAttempt,
-                                    child: const Text(
-                                        'إلغاء المحاولة إذا لم تُنفذ')),
-                              const SizedBox(height: 32),
-                              Text('سجل التحويلات',
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 12),
-                              if (history.isEmpty)
-                                const Text('لا توجد تحويلات في هذه الصفحة.'),
-                              for (final row in history)
-                                ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: Icon(
-                                        (row['amount'] as num) < 0
-                                            ? Icons.north_east
-                                            : Icons.south_west,
-                                        color: WhizzColors.secondary),
-                                    title: Text(
-                                        '${(row['amount'] as num) < 0 ? 'تحويل صادر' : 'تحويل وارد'} · ${money((row['amount'] as num).abs())}'),
-                                    subtitle: Text(
-                                        '${row['description'] ?? ''}\n${DateTime.tryParse(row['createdAt'] ?? '')?.toLocal().toString().split('.').first ?? ''}'),
-                                    onTap: () => showModalBottomSheet(
-                                        context: context,
-                                        showDragHandle: true,
-                                        builder: (c) => SafeArea(
-                                            child: Padding(
-                                                padding:
-                                                    const EdgeInsets.all(24),
-                                                child: Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      const Text('تحويل مكتمل'),
-                                                      Text(money(
-                                                          (row['amount'] as num)
-                                                              .abs())),
-                                                      Text(row['description'] ??
-                                                          ''),
-                                                      const SizedBox(
-                                                          height: 12),
-                                                      const Text(
-                                                          'مرجع التحويل'),
-                                                      SelectableText(
-                                                          row['transactionId'] ??
-                                                              '')
-                                                    ]))))),
-                              if (cursor != null)
-                                TextButton(
-                                    onPressed: more ? null : _more,
-                                    child: Text(more
-                                        ? 'جارٍ التحميل…'
-                                        : 'تحميل المزيد')),
-                            ]
-                          ]))))));
+  Widget build(BuildContext context) => WalletTransferGate(
+      check: () async {
+        final current = await api.call('context');
+        if (mounted) setState(() => account = current);
+        return current['canTransfer'] == true;
+      },
+      builder: (transfersEnabled) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: PopScope(
+              canPop: !sending,
+              child: Scaffold(
+                  backgroundColor: WhizzColors.grey50,
+                  appBar: AppBar(
+                      title: const Text('محفظة المطعم'),
+                      actions: [
+                        if (account?['isOwner'] == true)
+                          IconButton(
+                              tooltip: 'الموظفون الماليون',
+                              onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          MerchantFinanceMembersScreen(
+                                              businessId: widget.businessId))),
+                              icon: const Icon(Icons.manage_accounts_outlined))
+                      ],
+                      backgroundColor: Colors.white),
+                  body: loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView(
+                              padding: const EdgeInsets.all(20),
+                              children: [
+                                if (error != null)
+                                  Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 16),
+                                      child: Semantics(
+                                          liveRegion: true,
+                                          child: Text(error!,
+                                              style: const TextStyle(
+                                                  color:
+                                                      WhizzColors.secondary)))),
+                                if (account == null)
+                                  OutlinedButton(
+                                      onPressed: _load,
+                                      child: const Text('إعادة المحاولة')),
+                                if (account != null) ...[
+                                  Container(
+                                      padding: const EdgeInsets.all(20),
+                                      decoration: BoxDecoration(
+                                          color: WhizzColors.secondary,
+                                          borderRadius:
+                                              BorderRadius.circular(18)),
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text('الرصيد المتاح للتحويل',
+                                                style: TextStyle(
+                                                    color: Colors.white70)),
+                                            const SizedBox(height: 8),
+                                            Text(money(account!['available']),
+                                                style: const TextStyle(
+                                                    fontSize: 28,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Colors.white)),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                                'المتبقي اليوم: ${money(account!['dailyRemaining'])}',
+                                                style: const TextStyle(
+                                                    color: Colors.white))
+                                          ])),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                      'من ${money(account!['minAmount'])} إلى ${money(account!['maxAmount'])} لكل تحويل. الحد اليومي ${money(account!['dailyLimit'])} حسب توقيت بغداد.',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                  const SizedBox(height: 24),
+                                  if (transfersEnabled &&
+                                          account!['canTransfer'] == true ||
+                                      uncertain) ...[
+                                    Text('المستلم',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String>(
+                                        initialValue: recipientType,
+                                        decoration: const InputDecoration(
+                                            labelText: 'نوع المستلم'),
+                                        items: const [
+                                          DropdownMenuItem(
+                                              value: 'DRIVER',
+                                              child: Text('سائق')),
+                                          DropdownMenuItem(
+                                              value: 'CUSTOMER',
+                                              child: Text('مستخدم'))
+                                        ],
+                                        onChanged:
+                                            searching || sending || uncertain
+                                                ? null
+                                                : (value) => setState(() {
+                                                      recipientType = value!;
+                                                      recipient = null;
+                                                    })),
+                                    const SizedBox(height: 16),
+                                    _field('رقم هاتف المستلم', phone,
+                                        numeric: true,
+                                        changed: (_) =>
+                                            setState(() => recipient = null)),
+                                    OutlinedButton.icon(
+                                        onPressed:
+                                            searching || sending || uncertain
+                                                ? null
+                                                : _find,
+                                        icon: searching
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth: 2))
+                                            : const Icon(Icons.search),
+                                        label: const Text('البحث عن المستلم')),
+                                    if (recipient != null)
+                                      ListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          leading:
+                                              const Icon(Icons.person_outline),
+                                          title: Text(
+                                              recipient!['name'].toString()),
+                                          subtitle: Text(
+                                              recipient!['phone'].toString(),
+                                              textDirection:
+                                                  TextDirection.ltr)),
+                                    const SizedBox(height: 20),
+                                    _field('المبلغ بالدينار', amount,
+                                        numeric: true),
+                                    _field('سبب التحويل', reason),
+                                    if (uncertain)
+                                      const Padding(
+                                          padding: EdgeInsets.only(bottom: 12),
+                                          child: Text(
+                                              'يوجد تحويل قيد التحقق. لن تُنشأ عملية جديدة عند إعادة المحاولة.')),
+                                    if (transfersEnabled)
+                                      FilledButton.icon(
+                                          style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  WhizzColors.primary,
+                                              foregroundColor:
+                                                  WhizzColors.secondary,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 16)),
+                                          onPressed: sending ? null : _submit,
+                                          icon: sending
+                                              ? const SizedBox(
+                                                  width: 18,
+                                                  height: 18,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                          strokeWidth: 2))
+                                              : const Icon(Icons.arrow_outward),
+                                          label: Text(uncertain
+                                              ? 'التحقق وإكمال التحويل'
+                                              : 'مراجعة التحويل')),
+                                  ] else
+                                    const Text(
+                                        'التحويلات غير متاحة حاليًا لهذا الحساب.'),
+                                  if (uncertain)
+                                    TextButton(
+                                        onPressed:
+                                            sending ? null : _cancelAttempt,
+                                        child: const Text(
+                                            'إلغاء المحاولة إذا لم تُنفذ')),
+                                  const SizedBox(height: 32),
+                                  Text('سجل التحويلات',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                  const SizedBox(height: 12),
+                                  if (history.isEmpty)
+                                    const Text(
+                                        'لا توجد تحويلات في هذه الصفحة.'),
+                                  for (final row in history)
+                                    ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                            (row['amount'] as num) < 0
+                                                ? Icons.north_east
+                                                : Icons.south_west,
+                                            color: WhizzColors.secondary),
+                                        title: Text(
+                                            '${(row['amount'] as num) < 0 ? 'تحويل صادر' : 'تحويل وارد'} · ${money((row['amount'] as num).abs())}'),
+                                        subtitle: Text(
+                                            '${row['description'] ?? ''}\n${DateTime.tryParse(row['createdAt'] ?? '')?.toLocal().toString().split('.').first ?? ''}'),
+                                        onTap: () => showModalBottomSheet(
+                                            context: context,
+                                            showDragHandle: true,
+                                            builder: (c) => SafeArea(
+                                                child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                            24),
+                                                    child: Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          const Text(
+                                                              'تحويل مكتمل'),
+                                                          Text(money(
+                                                              (row['amount']
+                                                                      as num)
+                                                                  .abs())),
+                                                          Text(
+                                                              row['description'] ??
+                                                                  ''),
+                                                          const SizedBox(
+                                                              height: 12),
+                                                          const Text(
+                                                              'مرجع التحويل'),
+                                                          SelectableText(
+                                                              row['transactionId'] ??
+                                                                  '')
+                                                        ]))))),
+                                  if (cursor != null)
+                                    TextButton(
+                                        onPressed: more ? null : _more,
+                                        child: Text(more
+                                            ? 'جارٍ التحميل…'
+                                            : 'تحميل المزيد')),
+                                ]
+                              ]))))));
+}
+
+class WalletTransferScreen extends StatelessWidget {
+  final String businessId;
+  const WalletTransferScreen({super.key, required this.businessId});
+  @override
+  Widget build(BuildContext context) {
+    final child = _UnlockedWalletTransferScreen(businessId: businessId);
+    if (!merchantFinancialLockEnabled) return child;
+    return MerchantFinancialGate(branchId: businessId, child: child);
+  }
 }

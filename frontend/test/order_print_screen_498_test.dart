@@ -1,3 +1,5 @@
+import 'package:whizz_merchants/services/order_print_service.dart';
+import 'package:whizz_merchants/services/kitchen_dispatch_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +20,7 @@ void main() {
           OrderItem(id: 'p', name: 'بيتزا كبيرة', price: 8000, quantity: 1)
         ],
         totalAmount: 10000,
+        deliveryFee: 2000,
         status: OrderStatus.confirmed,
         createdAt: DateTime(2026));
     await tester.pumpWidget(MaterialApp(
@@ -37,5 +40,12 @@ void main() {
     await tester.pump();
     expect(find.byType(Image), findsOneWidget);
     expect(tester.takeException(), isNull);
+    await tester.runAsync(() async {
+      for (final width in [384, 576]) {
+        final png = await KitchenDispatchService.previewBytes(
+            order, width, OrderPrintService.lines(order, 'customer'));
+        expect(png.take(4), [137, 80, 78, 71]);
+      }
+    });
   });
 }

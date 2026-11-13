@@ -468,6 +468,8 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                 storeName: order.storeName,
                 status: displayStatus, // Use normalized display status
                 originalStatus: orderStatus, // Keep original for debugging
+                pricing: Object.fromEntries(['goodsSubtotal', 'serviceFee', 'discount', 'tip', 'packagingFee', 'tax', 'deliveryFee', 'total'].filter(key => Number.isFinite(Number(pricing[key])) && pricing[key] != null).map(key => [key, Number(pricing[key])])),
+                ...Object.fromEntries(['subtotal', 'serviceFee_legacy', 'discount_legacy', 'tip_legacy', 'packagingFee_legacy', 'tax_legacy'].filter(key => order[key] != null && Number.isFinite(Number(order[key]))).map(key => [key, Number(order[key])])),
                 totalAmount: totalAmount,
                 deliveryFee: deliveryFee,
                 items: order.items || [],

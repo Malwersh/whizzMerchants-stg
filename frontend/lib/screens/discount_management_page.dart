@@ -1,3 +1,4 @@
+import '../models/item_discount_title.dart';
 import '../models/discount_overlap.dart';
 import 'dart:io';
 import '../widgets/merchant_discount_value_fields.dart';
@@ -1433,6 +1434,27 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                SwitchListTile.adaptive(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('خصم على وجبات محددة',
+                                      style: TextStyle(
+                                          color: Color(0xFF00296B),
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: const Text(
+                                      'يظهر للزبون السعر القديم والجديد لكل وجبة تختارها.'),
+                                  value: perItem,
+                                  onChanged: (value) => setState(() {
+                                    perItem = value;
+                                    if (value) {
+                                      applicability =
+                                          DiscountApplicability.specificItems;
+                                      selectedCategoryIds.clear();
+                                      minOrderController.text = '0';
+                                      customerUsesController.clear();
+                                      discountCapController.clear();
+                                    }
+                                  }),
+                                ),
                                 // Section: Basic Information
                                 DiscountFundingNotice(
                                   editing: isEditing,
@@ -1445,110 +1467,28 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                                   businessId:
                                                       widget.business.id))),
                                 ),
-                                Text(
-                                  AppLocalizations.of(context)!
-                                      .basicInformation,
-                                  style: AppTypography.titleMedium.copyWith(
-                                    color: WhizzColors.textPrimary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                SizedBox(height: AppSpacing.sm),
-
-                                // Title Field with modern styling
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: WhizzColors.grey50,
-                                    borderRadius: BorderRadius.circular(
-                                        AppDimensions.borderRadiusMD),
-                                    border: Border.all(
-                                      color: WhizzColors.grey200,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: TextFormField(
-                                    controller: titleController,
-                                    style: AppTypography.bodyLarge.copyWith(
-                                      color: WhizzColors.textPrimary,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    decoration: InputDecoration(
-                                      labelText:
-                                          AppLocalizations.of(context)!.title,
-                                      labelStyle:
-                                          AppTypography.bodyMedium.copyWith(
-                                        color: WhizzColors.grey600,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      floatingLabelStyle:
-                                          AppTypography.bodySmall.copyWith(
-                                        color: const Color(0xFF00296B),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      border: InputBorder.none,
-                                      enabledBorder: InputBorder.none,
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                            AppDimensions.borderRadiusMD),
-                                        borderSide: BorderSide(
-                                          color: WhizzColors.primary,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      errorBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                            AppDimensions.borderRadiusMD),
-                                        borderSide: BorderSide(
-                                          color: WhizzColors.error,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      focusedErrorBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                            AppDimensions.borderRadiusMD),
-                                        borderSide: BorderSide(
-                                          color: WhizzColors.error,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: AppSpacing.md,
-                                        vertical: AppSpacing.md,
-                                      ),
-                                      filled: false,
-                                      prefixIcon: Icon(
-                                        Icons.label_rounded,
-                                        color: WhizzColors.grey600,
-                                        size: AppDimensions.iconSizeMD,
-                                      ),
-                                    ),
-                                    validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return AppLocalizations.of(context)!
-                                            .pleaseEnterTitle;
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                                SizedBox(height: AppSpacing.lg),
-
-                                // Section: Discount Image (optional)
-                                Text(
-                                  AppLocalizations.of(context)!.uploadImage,
-                                  style: AppTypography.titleMedium.copyWith(
-                                    color: WhizzColors.textPrimary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                SizedBox(height: AppSpacing.sm),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                ExpansionTile(
+                                  key: ValueKey('offer-details-$perItem'),
+                                  title: const Text('اسم العرض وصورته',
+                                      style:
+                                          TextStyle(color: Color(0xFF00296B))),
+                                  subtitle: Text(perItem
+                                      ? 'اختياري · الاسم يُنشأ تلقائيًا'
+                                      : 'بيانات العرض'),
+                                  initiallyExpanded: !perItem,
                                   children: [
-                                    // Preview of picked file or existing URL
+                                    Text(
+                                      AppLocalizations.of(context)!
+                                          .basicInformation,
+                                      style: AppTypography.titleMedium.copyWith(
+                                        color: WhizzColors.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    SizedBox(height: AppSpacing.sm),
+
+                                    // Title Field with modern styling
                                     Container(
-                                      width: 72,
-                                      height: 72,
                                       decoration: BoxDecoration(
                                         color: WhizzColors.grey50,
                                         borderRadius: BorderRadius.circular(
@@ -1558,127 +1498,242 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                           width: 1,
                                         ),
                                       ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: _pickedImage != null
-                                          ? Image.file(
-                                              _pickedImage!,
-                                              fit: BoxFit.cover,
-                                              width: 72,
-                                              height: 72,
-                                            )
-                                          : (_existingImageUrl != null &&
-                                                  _existingImageUrl!.isNotEmpty)
-                                              ? Image.network(
-                                                  _existingImageUrl!,
+                                      child: TextFormField(
+                                        controller: titleController,
+                                        style: AppTypography.bodyLarge.copyWith(
+                                          color: WhizzColors.textPrimary,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        decoration: InputDecoration(
+                                          labelText: perItem
+                                              ? 'اسم العرض (اختياري)'
+                                              : AppLocalizations.of(context)!
+                                                  .title,
+                                          helperText: perItem
+                                              ? 'ننشئ اسمًا تلقائيًا إذا تركته فارغًا'
+                                              : null,
+                                          labelStyle:
+                                              AppTypography.bodyMedium.copyWith(
+                                            color: WhizzColors.grey600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          floatingLabelStyle:
+                                              AppTypography.bodySmall.copyWith(
+                                            color: const Color(0xFF00296B),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          border: InputBorder.none,
+                                          enabledBorder: InputBorder.none,
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                                AppDimensions.borderRadiusMD),
+                                            borderSide: BorderSide(
+                                              color: WhizzColors.primary,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          errorBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                                AppDimensions.borderRadiusMD),
+                                            borderSide: BorderSide(
+                                              color: WhizzColors.error,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          focusedErrorBorder:
+                                              OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                                AppDimensions.borderRadiusMD),
+                                            borderSide: BorderSide(
+                                              color: WhizzColors.error,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: AppSpacing.md,
+                                            vertical: AppSpacing.md,
+                                          ),
+                                          filled: false,
+                                          prefixIcon: Icon(
+                                            Icons.label_rounded,
+                                            color: WhizzColors.grey600,
+                                            size: AppDimensions.iconSizeMD,
+                                          ),
+                                        ),
+                                        validator: (value) {
+                                          if (!perItem &&
+                                              (value == null ||
+                                                  value.trim().isEmpty)) {
+                                            return AppLocalizations.of(context)!
+                                                .pleaseEnterTitle;
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                    ),
+                                    SizedBox(height: AppSpacing.lg),
+
+                                    // Section: Discount Image (optional)
+                                    Text(
+                                      AppLocalizations.of(context)!.uploadImage,
+                                      style: AppTypography.titleMedium.copyWith(
+                                        color: WhizzColors.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    SizedBox(height: AppSpacing.sm),
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // Preview of picked file or existing URL
+                                        Container(
+                                          width: 72,
+                                          height: 72,
+                                          decoration: BoxDecoration(
+                                            color: WhizzColors.grey50,
+                                            borderRadius: BorderRadius.circular(
+                                                AppDimensions.borderRadiusMD),
+                                            border: Border.all(
+                                              color: WhizzColors.grey200,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          clipBehavior: Clip.antiAlias,
+                                          child: _pickedImage != null
+                                              ? Image.file(
+                                                  _pickedImage!,
                                                   fit: BoxFit.cover,
                                                   width: 72,
                                                   height: 72,
-                                                  errorBuilder: (context, error,
-                                                          stackTrace) =>
-                                                      Icon(
-                                                    Icons.broken_image_outlined,
-                                                    color: WhizzColors.grey400,
-                                                  ),
                                                 )
-                                              : Icon(
-                                                  Icons.image_outlined,
-                                                  color: WhizzColors.grey400,
+                                              : (_existingImageUrl != null &&
+                                                      _existingImageUrl!
+                                                          .isNotEmpty)
+                                                  ? Image.network(
+                                                      _existingImageUrl!,
+                                                      fit: BoxFit.cover,
+                                                      width: 72,
+                                                      height: 72,
+                                                      errorBuilder: (context,
+                                                              error,
+                                                              stackTrace) =>
+                                                          Icon(
+                                                        Icons
+                                                            .broken_image_outlined,
+                                                        color:
+                                                            WhizzColors.grey400,
+                                                      ),
+                                                    )
+                                                  : Icon(
+                                                      Icons.image_outlined,
+                                                      color:
+                                                          WhizzColors.grey400,
+                                                      size: AppDimensions
+                                                          .iconSizeLG,
+                                                    ),
+                                        ),
+                                        SizedBox(width: AppSpacing.sm),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              OutlinedButton.icon(
+                                                onPressed: _uploadingImage
+                                                    ? null
+                                                    : () async {
+                                                        try {
+                                                          final XFile?
+                                                              pickedFile =
+                                                              await imagePicker
+                                                                  .pickImage(
+                                                            source: ImageSource
+                                                                .gallery,
+                                                          );
+                                                          if (pickedFile !=
+                                                              null) {
+                                                            setState(() {
+                                                              _pickedImage =
+                                                                  File(pickedFile
+                                                                      .path);
+                                                              _existingImageUrl =
+                                                                  null;
+                                                            });
+                                                          }
+                                                        } catch (e) {
+                                                          AppLogger.error(
+                                                              '[DiscountManagement] Error picking image: $e');
+                                                          if (context.mounted) {
+                                                            showAdaptiveSnackBar(
+                                                              context: context,
+                                                              message:
+                                                                  '${AppLocalizations.of(context)!.errorPickingImage}: $e',
+                                                              type:
+                                                                  AdaptiveSnackBarType
+                                                                      .error,
+                                                            );
+                                                          }
+                                                        }
+                                                      },
+                                                icon: Icon(
+                                                  Icons.photo_library_outlined,
                                                   size:
-                                                      AppDimensions.iconSizeLG,
+                                                      AppDimensions.iconSizeSM,
                                                 ),
-                                    ),
-                                    SizedBox(width: AppSpacing.sm),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          OutlinedButton.icon(
-                                            onPressed: _uploadingImage
-                                                ? null
-                                                : () async {
-                                                    try {
-                                                      final XFile? pickedFile =
-                                                          await imagePicker
-                                                              .pickImage(
-                                                        source:
-                                                            ImageSource.gallery,
-                                                      );
-                                                      if (pickedFile != null) {
-                                                        setState(() {
-                                                          _pickedImage = File(
-                                                              pickedFile.path);
-                                                          _existingImageUrl =
-                                                              null;
-                                                        });
-                                                      }
-                                                    } catch (e) {
-                                                      AppLogger.error(
-                                                          '[DiscountManagement] Error picking image: $e');
-                                                      if (context.mounted) {
-                                                        showAdaptiveSnackBar(
-                                                          context: context,
-                                                          message:
-                                                              '${AppLocalizations.of(context)!.errorPickingImage}: $e',
-                                                          type:
-                                                              AdaptiveSnackBarType
-                                                                  .error,
-                                                        );
-                                                      }
-                                                    }
-                                                  },
-                                            icon: Icon(
-                                              Icons.photo_library_outlined,
-                                              size: AppDimensions.iconSizeSM,
-                                            ),
-                                            label: Text(
-                                              (_pickedImage != null ||
-                                                      (_existingImageUrl !=
-                                                              null &&
-                                                          _existingImageUrl!
-                                                              .isNotEmpty))
-                                                  ? AppLocalizations.of(
-                                                          context)!
-                                                      .changeImage
-                                                  : AppLocalizations.of(
-                                                          context)!
-                                                      .uploadImage,
-                                            ),
+                                                label: Text(
+                                                  (_pickedImage != null ||
+                                                          (_existingImageUrl !=
+                                                                  null &&
+                                                              _existingImageUrl!
+                                                                  .isNotEmpty))
+                                                      ? AppLocalizations.of(
+                                                              context)!
+                                                          .changeImage
+                                                      : AppLocalizations.of(
+                                                              context)!
+                                                          .uploadImage,
+                                                ),
+                                              ),
+                                              if (_pickedImage != null ||
+                                                  (_existingImageUrl != null &&
+                                                      _existingImageUrl!
+                                                          .isNotEmpty)) ...[
+                                                SizedBox(height: AppSpacing.xs),
+                                                TextButton.icon(
+                                                  onPressed: _uploadingImage
+                                                      ? null
+                                                      : () {
+                                                          setState(() {
+                                                            _pickedImage = null;
+                                                            _existingImageUrl =
+                                                                null;
+                                                          });
+                                                        },
+                                                  icon: Icon(
+                                                    Icons.close_rounded,
+                                                    size: AppDimensions
+                                                        .iconSizeSM,
+                                                    color: WhizzColors.error,
+                                                  ),
+                                                  label: Text(
+                                                    AppLocalizations.of(
+                                                            context)!
+                                                        .delete,
+                                                    style: TextStyle(
+                                                        color:
+                                                            WhizzColors.error),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
                                           ),
-                                          if (_pickedImage != null ||
-                                              (_existingImageUrl != null &&
-                                                  _existingImageUrl!
-                                                      .isNotEmpty)) ...[
-                                            SizedBox(height: AppSpacing.xs),
-                                            TextButton.icon(
-                                              onPressed: _uploadingImage
-                                                  ? null
-                                                  : () {
-                                                      setState(() {
-                                                        _pickedImage = null;
-                                                        _existingImageUrl =
-                                                            null;
-                                                      });
-                                                    },
-                                              icon: Icon(
-                                                Icons.close_rounded,
-                                                size: AppDimensions.iconSizeSM,
-                                                color: WhizzColors.error,
-                                              ),
-                                              label: Text(
-                                                AppLocalizations.of(context)!
-                                                    .delete,
-                                                style: TextStyle(
-                                                    color: WhizzColors.error),
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
+                                    SizedBox(height: AppSpacing.lg),
                                   ],
                                 ),
-                                SizedBox(height: AppSpacing.lg),
                                 // Section: Discount Configuration
                                 Text(
                                   AppLocalizations.of(context)!
@@ -2440,53 +2495,60 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                     start: startDate,
                                     end: endDate,
                                     currentId: isEditing ? discount?.id : null),
-                                SwitchListTile.adaptive(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: const Text('خصم على كل قطعة',
-                                      style: TextStyle(
-                                          color: Color(0xFF00296B),
-                                          fontWeight: FontWeight.w600)),
-                                  subtitle: const Text(
-                                      'للوجبات المحددة: يظهر السعر السابق والجديد. دون حد أدنى أو سقف خصم أو حد استخدام لكل زبون. يطبق عرض واحد لكل طلب. التوفير مقرب وفق السياسة المعتمدة إلى مضاعفات ٢٥٠ د.ع.'),
-                                  value: perItem,
-                                  onChanged: (value) => setState(() {
-                                    perItem = value;
-                                    if (value) {
-                                      applicability =
-                                          DiscountApplicability.specificItems;
-                                      selectedCategoryIds.clear();
-                                      minOrderController.text = '0';
-                                      customerUsesController.clear();
-                                      discountCapController.clear();
-                                    }
-                                  }),
-                                ),
-                                MerchantDiscountUsageFields(
-                                    total: totalUsesController,
-                                    customer: customerUsesController,
-                                    cap: discountCapController,
-                                    percentage: discountType ==
-                                        DiscountType.percentage),
-                                const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: minOrderController,
-                                  decoration: InputDecoration(
-                                    labelText: AppLocalizations.of(context)!
-                                        .minimumOrderAmount(''),
-                                    border: const OutlineInputBorder(),
+                                if (perItem)
+                                  ExpansionTile(
+                                    title: const Text('إعدادات إضافية',
+                                        style: TextStyle(
+                                            color: Color(0xFF00296B))),
+                                    children: [
+                                      TextFormField(
+                                        controller: totalUsesController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                            labelText:
+                                                'إجمالي مرات استخدام العرض (اختياري)',
+                                            helperText:
+                                                'اتركه فارغًا دون حد إجمالي',
+                                            border: OutlineInputBorder()),
+                                        validator: (value) => value == null ||
+                                                value.trim().isEmpty ||
+                                                (int.tryParse(value.trim()) ??
+                                                        0) >
+                                                    0
+                                            ? null
+                                            : 'أدخل عددًا صحيحًا أكبر من صفر',
+                                      ),
+                                      const SizedBox(height: 12),
+                                    ],
                                   ),
-                                  keyboardType: TextInputType.number,
-                                  validator: (value) {
-                                    if (value != null &&
-                                        value.isNotEmpty &&
-                                        double.tryParse(value) == null) {
-                                      return AppLocalizations.of(context)!
-                                          .pleaseEnterValidNumber;
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 10),
+                                if (!perItem) ...[
+                                  MerchantDiscountUsageFields(
+                                      total: totalUsesController,
+                                      customer: customerUsesController,
+                                      cap: discountCapController,
+                                      percentage: discountType ==
+                                          DiscountType.percentage),
+                                  const SizedBox(height: 10),
+                                  TextFormField(
+                                    controller: minOrderController,
+                                    decoration: InputDecoration(
+                                      labelText: AppLocalizations.of(context)!
+                                          .minimumOrderAmount(''),
+                                      border: const OutlineInputBorder(),
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    validator: (value) {
+                                      if (value != null &&
+                                          value.isNotEmpty &&
+                                          double.tryParse(value) == null) {
+                                        return AppLocalizations.of(context)!
+                                            .pleaseEnterValidNumber;
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 10),
+                                ],
                                 Row(
                                   children: [
                                     Expanded(
@@ -2798,7 +2860,16 @@ class _DiscountManagementPageState extends State<DiscountManagementPage> {
                                             DateTime.now()
                                                 .millisecondsSinceEpoch
                                                 .toString(),
-                                        name: titleController.text,
+                                        name: perItem
+                                            ? itemDiscountTitle(
+                                                customTitle:
+                                                    titleController.text,
+                                                percentage: discountType ==
+                                                    DiscountType.percentage,
+                                                value: valueController.text,
+                                                itemCount:
+                                                    selectedItemIds.length)
+                                            : titleController.text.trim(),
                                         description:
                                             '', // Description field removed from creation
                                         type: discountType,

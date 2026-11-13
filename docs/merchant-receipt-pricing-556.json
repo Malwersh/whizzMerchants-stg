@@ -1,0 +1,21 @@
+{
+  "batch": 556,
+  "status": "SERVER_PUBLISHED_CLIENT_BUILT_INSTALLED_SIMULATOR",
+  "cause": "Merchant order GET omitted pricing breakdown. Cached Order serialization also omitted delivery fee.",
+  "fixes": [
+    "Expose whitelisted recorded pricing fields in merchant order read response",
+    "Merge canonical pricing with saved receipt fields rather than allowing an empty cache map to mask them",
+    "Persist delivery fee in cached Order",
+    "Itemize recorded subtotal discount service fee tip packaging tax and delivery; never derive a missing fee from total difference",
+    "Reject customer receipt generation when breakdown does not reconcile with recorded total",
+    "Draw dotted separators directly; no wrapping text dividers"
+  ],
+  "testsPassed": 15,
+  "lambda": {
+    "name": "order-receiver-merchant-orders-staging-v1",
+    "codeSha256": "j0kP/sA2NMo6bAztOI7JQr+a0cD/lbjR1cJJlExe7+4=",
+    "otherFilesUnchanged": true
+  },
+  "balancesChanged": false,
+  "physicalPrinterVerified": false
+}

@@ -122,7 +122,7 @@ class _OrderPrintScreenState extends State<OrderPrintScreen> {
               builder: (_, s) => s.hasData
                   ? Image.memory(s.data!, fit: BoxFit.contain)
                   : Text(s.hasError
-                      ? 'تعذر تجهيز المعاينة'
+                      ? '${s.error}'.replaceFirst('Bad state: ', '')
                       : 'جارٍ تجهيز المعاينة…')),
           const SizedBox(height: 16),
           FilledButton.icon(

@@ -49,6 +49,65 @@ void main() {
     expect(
         (await KitchenDispatchService.load(businessId: 'b')).printers, isEmpty);
   });
+  test('customer thermal receipt has item totals and separate amount columns',
+      () {
+    final lines = OrderPrintService.lines(order(), 'customer');
+    expect(lines, contains('زبون'));
+    expect(
+        lines.take(4), ['وصل الزبون', 'شركة الانطلاق الخاطف', 'توصيل', 'زبون']);
+
+    expect(lines, contains('٢ × بيتزا\t١٦٬٠٠٠ د.ع'));
+    expect(lines, contains('الإجمالي\t١٧٬٥٠٠ د.ع'));
+    expect(OrderPrintService.lines(order(), 'kitchen').join(''),
+        isNot(contains('سعر الوحدة')));
+  });
+  test('customer header omits driver and preserves address and both note types',
+      () {
+    final o = order().copyWith(
+        driverName: 'اسم السائق الخاص',
+        customerAddress: 'حي الجمعية، قرب المدرسة',
+        notes: 'بدون ملح');
+    final ticket = OrderPrintService.lines(o, 'customer');
+    expect(ticket.join('\n'), isNot(contains('اسم السائق الخاص')));
+    expect(ticket, contains('حي الجمعية، قرب المدرسة'));
+    expect(ticket, contains('ملاحظات للمطعم: بدون ملح'));
+    expect(ticket.last, 'الإجمالي\t١٧٬٥٠٠ د.ع');
+  });
+  test(
+      'receipt itemizes fees discount and tip and rejects unexplained difference',
+      () {
+    final o = Order.fromJson({
+      ...order().toJson(),
+      'totalAmount': 18000,
+      'receiptAmounts': {},
+      'pricing': {
+        'goodsSubtotal': 16000000,
+        'serviceFee': 500000,
+        'discount': 1000000,
+        'tip': 1000000
+      }
+    });
+    final text = OrderPrintService.lines(o, 'customer').join('\n');
+    expect(text, contains('رسوم الخدمة\t٥٠٠ د.ع'));
+    expect(text, contains('الخصم\t−١٬٠٠٠ د.ع'));
+    expect(text, contains('إكرامية السائق\t١٬٠٠٠ د.ع'));
+    expect(text, contains('الإجمالي\t١٨٬٠٠٠ د.ع'));
+    expect(
+        () =>
+            OrderPrintService.lines(o.copyWith(totalAmount: 18500), 'customer'),
+        throwsStateError);
+  });
+  test(
+      'Arabic numeric display preserves exact order identifier and input values',
+      () {
+    final o = order().copyWith(orderNumber: 'ORD123456');
+    final text = OrderPrintService.lines(o, 'customer').join('\n');
+    expect(text, contains('طلب #ORD123456'));
+    expect(text, contains('٢٠٢٦-١١-١٠'));
+    expect(text, contains('٢ × بيتزا'));
+    expect(o.totalAmount, 17500);
+    expect(o.items.single.quantity, 2);
+  });
   test('kitchen contains options and instructions but no prices', () {
     final ticket = OrderPrintService.lines(order(), 'kitchen').join('\n');
     expect(ticket, contains('حجم كبير'));
@@ -58,10 +117,10 @@ void main() {
   test('customer receipt retains authoritative total and unpaid cash wording',
       () {
     final ticket = OrderPrintService.lines(order(), 'customer').join('\n');
-    expect(ticket, contains('17,500'));
+    expect(ticket, contains('١٧٬٥٠٠'));
     expect(ticket, contains('غير محصّل'));
     expect(OrderPrintService.lines(order(), 'customer', reprint: true).first,
-        'إعادة طباعة');
+        'وصل الزبون');
   });
   test(
       'no configured printer gives actionable error, automatic observation does not fail',

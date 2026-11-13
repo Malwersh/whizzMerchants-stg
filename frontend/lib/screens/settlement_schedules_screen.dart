@@ -1,17 +1,21 @@
+import '../services/branch_settlement_service.dart';
+import '../widgets/merchant_financial_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import '../services/person_onboarding_service.dart';
 
-class SettlementSchedulesScreen extends StatefulWidget {
+class _UnlockedSettlementSchedulesScreen extends StatefulWidget {
   final String businessId;
   final PersonOnboardingService? service;
-  const SettlementSchedulesScreen(
-      {super.key, required this.businessId, this.service});
+  const _UnlockedSettlementSchedulesScreen(
+      {required this.businessId, this.service});
   @override
-  State<SettlementSchedulesScreen> createState() => _SettlementSchedulesState();
+  State<_UnlockedSettlementSchedulesScreen> createState() =>
+      _SettlementSchedulesState();
 }
 
-class _SettlementSchedulesState extends State<SettlementSchedulesScreen> {
+class _SettlementSchedulesState
+    extends State<_UnlockedSettlementSchedulesScreen> {
   late final _api = widget.service ?? PersonOnboardingService();
   Map<String, dynamic>? _data;
   String? _error;
@@ -24,7 +28,7 @@ class _SettlementSchedulesState extends State<SettlementSchedulesScreen> {
   }
 
   @override
-  void didUpdateWidget(covariant SettlementSchedulesScreen oldWidget) {
+  void didUpdateWidget(covariant _UnlockedSettlementSchedulesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.businessId != widget.businessId) _load();
   }
@@ -184,5 +188,26 @@ class _SettlementSchedulesState extends State<SettlementSchedulesScreen> {
             ...proposals.map((p) => _card(p)),
           ]),
         ));
+  }
+}
+
+class SettlementSchedulesScreen extends StatelessWidget {
+  final String businessId;
+  final PersonOnboardingService? service;
+  const SettlementSchedulesScreen({
+    super.key,
+    required this.businessId,
+    this.service,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final child = _UnlockedSettlementSchedulesScreen(
+      businessId: businessId,
+      service: service,
+    );
+    if (!merchantFinancialLockEnabled || service is BranchSettlementService) {
+      return child;
+    }
+    return MerchantFinancialGate(branchId: businessId, child: child);
   }
 }

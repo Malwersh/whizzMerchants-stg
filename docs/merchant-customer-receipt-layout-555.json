@@ -1,0 +1,22 @@
+{
+  "batch": 555,
+  "status": "BUILT_AND_INSTALLED_IOS_SIMULATOR",
+  "layout": [
+    "Centered Wizz wordmark",
+    "شركة الانطلاق الخاطف",
+    "Full-width dark gray delivery band with white text",
+    "Large recipient name without label",
+    "Baghdad order date/time and recorded delivery address",
+    "Order reference and merchant name",
+    "Items, modifiers, preparation and delivery notes",
+    "Recorded fees/discounts and authoritative total at bottom"
+  ],
+  "driverNamePrinted": false,
+  "testsPassed": 14,
+  "paperWidthsMm": [
+    58,
+    80
+  ],
+  "financialLogicChanged": false,
+  "physicalPrinterVerified": false
+}
