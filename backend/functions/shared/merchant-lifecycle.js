@@ -89,6 +89,11 @@ function merchantLifecycleClient(raw){
       operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#deviceExpectedStatus=:deviceExpectedStatus';
       operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#deviceExpectedStatus':'status'};
       operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':deviceExpectedStatus':actor.deviceOrder.expectedStatus};
+      if(actor.kitchenOrder){
+       operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#kitchenRev':'rev'};
+       operation.ConditionExpression+=' AND '+(actor.deviceOrder.expectedRevision===null?'attribute_not_exists(#kitchenRev)':'#kitchenRev=:kitchenRev');
+       if(actor.deviceOrder.expectedRevision!==null)operation.ExpressionAttributeValues[':kitchenRev']=actor.deviceOrder.expectedRevision;
+      }
       operation.UpdateExpression+=', lastStaffActorId=:deviceActorId';
       operation.ExpressionAttributeValues[':deviceActorId']=actor.sub;
      }

@@ -349,6 +349,17 @@ Resources:
                   authorizerUri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
                   authorizerResultTtlInSeconds: 0
           paths:
+              /auth/kitchen-screens:
+                post:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                  responses:
+                    '200':
+                      description: Success
               /auth/branch-devices:
                 get:
                   security:

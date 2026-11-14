@@ -31,6 +31,7 @@ async function route({db,cognito,authenticate},event){
  const lifecycle={pk:'ACCOUNT_LIFECYCLE#MERCHANT#'+sub,sk:'META'};
  const marker=(await db.send(new GetCommand({TableName:'staging-AccountDeletion',Key:lifecycle,ConsistentRead:true}))).Item;if(marker)throw fail('ACCOUNT_CLOSING',403);
  if(['/auth/order-returns','/auth/order-cancellation'].includes(path))return require('./order_returns').route({db,sub},event,input);
+ if(path==='/auth/kitchen-screens'){if(process.env.KITCHEN_DISPLAY_ENABLED!=='true')throw fail('KITCHEN_NOT_ENABLED',503);return require('../../kitchen-display/pairing').createService({db}).management({db,sub,identity},input);}
  if(path==='/auth/branch-devices')return require('./device_pairing_verification').route({db,cognito,sub,identity},event,input);
  if(path==='/auth/branch-staff')return require('./branch_staff').route({db,sub,identity,phone},event,input);
  if(path==='/auth/settlement-schedules')return require('./settlement_schedules').route(event,input);

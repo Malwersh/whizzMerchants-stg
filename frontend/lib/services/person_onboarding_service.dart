@@ -68,6 +68,14 @@ class PersonOnboardingService {
         throw LegalRegistrationException(data['code']);
       }
       throw Exception(<String, String>{
+            'KITCHEN_NOT_ENABLED': 'خدمة شاشات المطبخ لم تُفعّل لهذا الإصدار بعد.',
+            'KITCHEN_PAIRING_EXPIRED': 'انتهت صلاحية رمز الشاشة أو استُخدم. أنشئ رمزًا جديدًا من التلفزيون.',
+            'KITCHEN_STATE_CHANGED': 'تغيرت إعدادات الشاشة. حدّث القائمة قبل إعادة المحاولة.',
+            'KITCHEN_RATE_LIMIT': 'محاولات كثيرة. انتظر قليلًا ثم حاول مجددًا.',
+            'INVALID_KITCHEN_CONFIGURATION': 'اكتب اسم الشاشة واختر نمط استخدامها.',
+            'RECENT_SIGN_IN_REQUIRED': 'لربط شاشة جديدة، أعد التحقق من دخول حساب المالك ثم حاول خلال خمس دقائق.',
+            'OWNER_REQUIRED': 'ربط شاشات المطبخ متاح لمالك الفرع فقط.',
+
             'PAYOUT_FINANCIAL_UNLOCK_REQUIRED':
                 'افتح القسم المالي برمز التحقق أولًا.',
             'PAYOUT_FINANCIAL_INVALID_CODE': 'رمز التحقق غير صحيح.',

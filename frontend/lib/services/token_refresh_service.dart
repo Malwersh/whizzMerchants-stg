@@ -24,7 +24,8 @@ class TokenRefreshService {
     if (accessToken != null &&
         accessToken.isNotEmpty &&
         !TokenValidator.isTokenExpired(accessToken)) {
-      return idToken ?? accessToken; // return access if id absent
+      if (idToken == null || idToken.isEmpty) return accessToken;
+      // An expired ID token must be refreshed, even if access is still valid.
     }
     // Refresh
     final refreshed = await refreshTokens();

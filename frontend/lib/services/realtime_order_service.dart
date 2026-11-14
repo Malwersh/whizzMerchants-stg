@@ -15,7 +15,7 @@ import 'order_service.dart';
 import 'app_auth_service.dart';
 import 'audio_notification_service.dart';
 import 'merchant_notification_inbox.dart';
-import 'secure_token_storage.dart';
+import 'token_refresh_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app_state.dart';
 
@@ -42,7 +42,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   // WebSocket connection
   WebSocketChannel? _channel;
+  int _connectionEpoch = 0;
+  bool _orderRefreshPending = false;
   Timer? _pingTimer;
+  Timer? _sessionRenewalTimer;
   Timer? _heartbeatTimer; // ✅ Heartbeat timer for connection monitoring
   Timer? _reconnectTimer;
   Timer? _pollingTimer;
@@ -373,6 +376,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       } catch (_) {}
     }
 
+    final connectionEpoch = ++_connectionEpoch;
     _manualDisconnect =
         false; // Reset manual disconnect flag on new connection attempt
 
@@ -382,8 +386,11 @@ class RealtimeOrderService with WidgetsBindingObserver {
       String? userId;
 
       try {
-        token = await SecureTokenStorage.getIdToken();
-        if (token != null && token.isNotEmpty) {
+        token = await TokenRefreshService.getValidIdToken();
+        if (token == null || JwtDecoder.isExpired(token)) {
+          throw StateError('A valid session is required for order updates');
+        }
+        if (token.isNotEmpty) {
           debugPrint('🔐 JWT Token obtained (${token.length} chars)');
 
           // ✅ Extract userId from JWT token (sub claim)
@@ -401,11 +408,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
         debugPrint('❌ Failed to get JWT token: $e');
       }
 
-      // ✅ Use businessId as fallback userId if JWT decoding failed
-      if (userId == null || userId.isEmpty) {
-        debugPrint(
-            '⚠️ Using businessId as fallback userId for WebSocket connection');
-        userId = _businessId;
+      if (token == null || userId == null || userId.isEmpty) {
+        throw StateError('Cannot authenticate merchant order connection');
       }
 
       debugPrint('🔍 AppConfig.webSocketUrl: ${AppConfig.webSocketUrl}');
@@ -429,7 +433,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       };
 
       // Add token if available
-      if (token != null && token.isNotEmpty) {
+      if (token.isNotEmpty) {
         queryParams['token'] = token;
       }
 
@@ -437,14 +441,14 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
       debugPrint('🔌 Connecting to WebSocket with:');
       debugPrint('   businessId: $_businessId');
-      debugPrint('   userId: $userId (${userId?.length ?? 0} chars)');
+      debugPrint('   userId: $userId (${userId.length} chars)');
       debugPrint('   entityType: business');
       debugPrint('   userType: merchant');
       debugPrint('   platform: $platform');
       debugPrint('   appVersion: $appVersion');
       debugPrint('   deviceId: $deviceId');
       debugPrint(
-          '   token: ${token != null ? "✅ Present (${token.length} chars)" : "❌ Not available"}');
+          '   token: ✅ Present (${token.length} chars)');
       debugPrint(
           '🔗 Full WebSocket URL: ${wsUri.toString().replaceAll(RegExp(r'token=[^&]+'), 'token=***')}');
       debugPrint('🔗 URL scheme: ${wsUri.scheme}');
@@ -468,6 +472,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
         rethrow;
       }
 
+      await _channel!.ready.timeout(const Duration(seconds: 15));
+      if (generation != _branchGeneration || _isDisposed || _manualDisconnect) return;
+
       // Start manual ping for all platforms
       _startPing();
 
@@ -477,21 +484,37 @@ class RealtimeOrderService with WidgetsBindingObserver {
       // Listen for messages
       _channel!.stream.listen(
         (message) {
-          if (generation == _branchGeneration) _handleWebSocketMessage(message);
+          if (generation == _branchGeneration && connectionEpoch == _connectionEpoch) {
+            _handleWebSocketMessage(message);
+          }
         },
         onError: (Object error) {
-          if (generation == _branchGeneration) _handleWebSocketError(error);
+          if (generation == _branchGeneration && connectionEpoch == _connectionEpoch) {
+            _handleWebSocketError(error);
+          }
         },
         onDone: () {
-          if (generation == _branchGeneration) _handleWebSocketDisconnection();
+          if (generation == _branchGeneration && connectionEpoch == _connectionEpoch) {
+            _handleWebSocketDisconnection();
+          }
         },
       );
 
-      // 🔥 CRITICAL FIX: Mark as connected immediately for iOS
-      // iOS needs this flag set early to receive messages
+      // Only publish connected after the authenticated handshake succeeds.
       _isConnected = true;
       _reconnectAttempts = 0;
       _safeAddToConnectionController(true);
+      _sessionRenewalTimer?.cancel();
+      final renewAfter = JwtDecoder.getExpirationDate(token).difference(DateTime.now()) -
+          const Duration(seconds: 60);
+      _sessionRenewalTimer = Timer(
+        renewAfter.isNegative ? const Duration(seconds: 1) : renewAfter,
+        () {
+          if (generation == _branchGeneration && !_manualDisconnect && !_isDisposed) {
+            _connectWebSocket();
+          }
+        },
+      );
 
       debugPrint(
           '🔌 WebSocket stream created, waiting for CONNECTION_ESTABLISHED...');
@@ -536,6 +559,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
         });
         _didSendSubscribe = true;
         debugPrint('✅ SUBSCRIBE_ORDERS sent successfully');
+        // Reconcile after the server confirms this branch subscription.
       }
     } catch (error) {
       debugPrint('❌ WebSocket connection failed: $error');
@@ -675,12 +699,16 @@ class RealtimeOrderService with WidgetsBindingObserver {
         case 'connection_established':
           debugPrint('🎉 CONNECTION_ESTABLISHED received from server!');
           break;
+        case 'ORDER_SUBSCRIPTION_ACK':
         case 'SUBSCRIBED':
+          _triggerOrdersRefresh();
           debugPrint('✅ SUBSCRIBED confirmation received from server!');
           break;
         case 'subscription_ack':
+          _triggerOrdersRefresh();
           debugPrint('✅ subscription_ack received');
           break;
+        case 'REGISTRATION_ACK':
         case 'REGISTERED':
           debugPrint('✅ REGISTERED confirmation received from server!');
           break;
@@ -713,6 +741,14 @@ class RealtimeOrderService with WidgetsBindingObserver {
   /// Set callback for order refresh (called by order screen/provider)
   void setOrderRefreshCallback(OrderRefreshCallback? callback) {
     _onOrdersNeedRefresh = callback;
+    if (callback != null && _orderRefreshPending) {
+      final generation = _branchGeneration;
+      scheduleMicrotask(() {
+        if (generation == _branchGeneration && !_isDisposed && _onOrdersNeedRefresh != null) {
+          _triggerOrdersRefresh();
+        }
+      });
+    }
     debugPrint(
         '🔔 Order refresh callback ${callback != null ? "registered" : "cleared"}');
   }
@@ -727,10 +763,12 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
     // Notify listeners (order screen/provider) to refresh
     if (_onOrdersNeedRefresh != null) {
+      _orderRefreshPending = false;
       debugPrint('✅ Calling order refresh callback');
       _onOrdersNeedRefresh!();
     } else {
-      debugPrint('⚠️ No order refresh callback registered!');
+      _orderRefreshPending = true;
+      debugPrint('Order refresh retained until the screen is ready');
     }
   }
 
@@ -1033,6 +1071,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
   void _stopHeartbeatTimer() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _sessionRenewalTimer?.cancel();
+    _sessionRenewalTimer = null;
     debugPrint('💓 Heartbeat timer stopped');
   }
 
@@ -1057,14 +1097,16 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   /// Schedule reconnection attempt
   void _scheduleReconnect() {
-    if (_isDisposed || _reconnectAttempts >= maxReconnectAttempts) {
+    if (_isDisposed || _manualDisconnect) {
       debugPrint(
-          '❌ Max reconnection attempts reached or service disposed. Using polling fallback.');
+          'Order connection stopped.');
       return;
     }
 
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(reconnectDelay, () {
+    final delay = _reconnectAttempts >= maxReconnectAttempts
+        ? const Duration(seconds: 30) : reconnectDelay;
+    _reconnectTimer = Timer(delay, () {
       _reconnectAttempts++;
       debugPrint('🔄 WebSocket reconnection attempt $_reconnectAttempts');
       _connectWebSocket();
@@ -1121,6 +1163,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
   /// Disconnect WebSocket
   Future<void> disconnect() async {
     _manualDisconnect = true;
+    _connectionEpoch++;
+    _orderRefreshPending = false;
     _channel?.sink.close();
     _stopPing();
     _stopHeartbeatTimer(); // ✅ Stop heartbeat timer

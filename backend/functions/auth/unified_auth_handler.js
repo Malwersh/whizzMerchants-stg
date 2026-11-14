@@ -99,6 +99,7 @@ module.exports.handler = async (event) => {
             return createResponse(200,await require('./branch_devices').runtime(dynamodb,event,input));
         } catch(error) { return createResponse(error.status || 503,{code:error.status?error.message:'DEVICE_UNAVAILABLE'}); }
     }
+
     console.log('Auth request', { method: event.httpMethod, path: event.path });
     const { httpMethod, path } = event;
 
@@ -111,7 +112,7 @@ module.exports.handler = async (event) => {
             try{return createResponse(200,await require('./onboarding_regions').list(dynamodb));}
             catch(_){return createResponse(503,{success:false,code:'REGIONS_UNAVAILABLE',message:'تعذر تحميل المناطق. حاول مجددًا.'});}
         }
-        if (['/auth/settlement-schedules','/auth/commercial-agreements','/auth/order-cancellation','/auth/order-returns','/auth/branch-devices','/auth/branch-staff','/auth/business-changes','/auth/person-registration','/auth/person-profile','/auth/branch-drafts','/auth/branch-drafts/submit','/auth/branch-drafts/config','/auth/branch-drafts/rebase','/auth/branch-assets'].includes(path)) {
+        if (['/auth/kitchen-screens','/auth/settlement-schedules','/auth/commercial-agreements','/auth/order-cancellation','/auth/order-returns','/auth/branch-devices','/auth/branch-staff','/auth/business-changes','/auth/person-registration','/auth/person-profile','/auth/branch-drafts','/auth/branch-drafts/submit','/auth/branch-drafts/config','/auth/branch-drafts/rebase','/auth/branch-assets'].includes(path)) {
             try { return createResponse(200,await require('./person_onboarding').route({db:dynamodb,cognito:cognitoClient,authenticate:async request=>{
                 const token=(request.headers?.Authorization||request.headers?.authorization||'').replace(/^Bearer /,'');
                 if(!token)throw Object.assign(Error('UNAUTHORIZED'),{status:401});

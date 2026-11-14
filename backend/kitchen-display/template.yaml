@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Wizz hosted kitchen display, isolated staging stack
+Parameters:
+  Stage:
+    Type: String
+    Default: staging
+    AllowedValues: [staging]
+  Enabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  OrdersStreamArn:
+    Type: String
+  MerchantOrderFunctionArn:
+    Type: String
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 256
+    CodeUri: .build/
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        ORDERS_TABLE: WizzOrders
+        KITCHEN_DISPLAY_ENABLED: !Ref Enabled
+Resources:
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  OriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-kitchen'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  SecurityHeaders:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${AWS::StackName}-kitchen'
+        SecurityHeadersConfig:
+          ContentTypeOptions: {Override: true}
+          FrameOptions: {FrameOption: DENY, Override: true}
+          ReferrerPolicy: {ReferrerPolicy: no-referrer, Override: true}
+          StrictTransportSecurity: {AccessControlMaxAgeSec: 31536000, Override: true}
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; connect-src https: wss:; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
+            Override: true
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: kitchen
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccess
+            S3OriginConfig: {OriginAccessIdentity: ''}
+        DefaultCacheBehavior:
+          TargetOriginId: kitchen
+          ViewerProtocolPolicy: redirect-to-https
+          ResponseHeadersPolicyId: !Ref SecurityHeaders
+          ForwardedValues: {QueryString: false}
+          MinTTL: 0
+          DefaultTTL: 0
+          MaxTTL: 300
+        ViewerCertificate: {CloudFrontDefaultCertificate: true}
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub '${WebBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+  KitchenApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: staging
+      EndpointConfiguration: REGIONAL
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+          DataTraceEnabled: false
+      DefinitionBody:
+        swagger: '2.0'
+        info: {title: Wizz Kitchen, version: '1'}
+        paths:
+          /kitchen-display/pairing:
+            post:
+              responses: {}
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HttpFunction.Arn}/invocations'
+            options:
+              responses: {}
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HttpFunction.Arn}/invocations'
+          /kitchen-display/advance:
+            post:
+              responses: {}
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MerchantOrderFunctionArn}/invocations'
+            options:
+              responses:
+                '204':
+                  headers:
+                    Access-Control-Allow-Origin: {type: string}
+                    Access-Control-Allow-Methods: {type: string}
+                    Access-Control-Allow-Headers: {type: string}
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates: {application/json: '{"statusCode":204}'}
+                responses:
+                  default:
+                    statusCode: '204'
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'https://${Distribution.DomainName}'"
+                      method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+  AdvancePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MerchantOrderFunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${KitchenApi}/staging/POST/kitchen-display/advance'
+  HttpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: kitchen-display/runtime.http
+      Environment:
+        Variables:
+          KITCHEN_ORIGIN: !Sub 'https://${Distribution.DomainName}'
+      Events:
+        Pair:
+          Type: Api
+          Properties: {RestApiId: !Ref KitchenApi, Path: /kitchen-display/pairing, Method: post}
+        Options:
+          Type: Api
+          Properties: {RestApiId: !Ref KitchenApi, Path: /kitchen-display/pairing, Method: options}
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:ConditionCheckItem]
+              Resource:
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses'
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-AccountDeletion'
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WizzOrders'
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem]
+              Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-MerchantPlatform'
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['KITCHEN_PAIR#*', 'KITCHEN_RATE#*', 'KITCHEN_INDEX_STATE', 'BRANCH#*']
+  SocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-socket'
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: '$request.body.action'
+  SocketIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SocketFunction.Arn}/invocations'
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref SocketApi, RouteKey: '$connect', Target: !Sub 'integrations/${SocketIntegration}'}
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref SocketApi, RouteKey: '$default', Target: !Sub 'integrations/${SocketIntegration}'}
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref SocketApi, RouteKey: '$disconnect', Target: !Sub 'integrations/${SocketIntegration}'}
+  SocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref SocketApi
+      StageName: staging
+      AutoDeploy: true
+      DefaultRouteSettings: {ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10, DataTraceEnabled: false}
+  SocketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SocketFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SocketApi}/*'
+  SocketFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: kitchen-display/runtime.socket
+      Environment:
+        Variables:
+          KITCHEN_WEBSOCKET_ENDPOINT: !Sub 'https://${SocketApi}.execute-api.${AWS::Region}.amazonaws.com/staging'
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:ConditionCheckItem]
+              Resource:
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses'
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-AccountDeletion'
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:ConditionCheckItem]
+              Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-MerchantPlatform'
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['KITCHEN_PAIR#*', 'KITCHEN_CONNECTION#*', 'BRANCH#*']
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource:
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SocketApi}/staging/POST/@connections/*'
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SocketApi}/staging/DELETE/@connections/*'
+  StreamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: kitchen-display/runtime.stream
+      Environment:
+        Variables:
+          KITCHEN_WEBSOCKET_ENDPOINT: !Sub 'https://${SocketApi}.execute-api.${AWS::Region}.amazonaws.com/staging'
+      Events:
+        Orders:
+          Type: DynamoDB
+          Properties:
+            Stream: !Ref OrdersStreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            BisectBatchOnFunctionError: true
+            FunctionResponseTypes: [ReportBatchItemFailures]
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:ConditionCheckItem]
+              Resource:
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WhizzMerchants_Businesses'
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-AccountDeletion'
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/WizzOrders'
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem, dynamodb:DeleteItem]
+              Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/staging-MerchantPlatform'
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['KITCHEN_PAIR#*', 'KITCHEN_CONNECTION#*', 'BRANCH#*']
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource:
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SocketApi}/staging/POST/@connections/*'
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SocketApi}/staging/DELETE/@connections/*'
+Outputs:
+  DisplayUrl: {Value: !Sub 'https://${Distribution.DomainName}'}
+  WebBucket: {Value: !Ref WebBucket}
+  HttpEndpoint: {Value: !Sub 'https://${KitchenApi}.execute-api.${AWS::Region}.amazonaws.com/staging/kitchen-display/pairing'}
+  ActionEndpoint: {Value: !Sub 'https://${KitchenApi}.execute-api.${AWS::Region}.amazonaws.com/staging/kitchen-display/advance'}
+  WebsocketEndpoint: {Value: !Sub 'wss://${SocketApi}.execute-api.${AWS::Region}.amazonaws.com/staging'}

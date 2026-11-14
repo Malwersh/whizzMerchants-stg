@@ -50,3 +50,13 @@ test('legacy employee ready retains its original state and audit value',async()=
 });
 
 test('device menu version is server-created for the same branch and cannot be supplied by caller',async()=>{const f=fixture();await f.run({TableName:'WhizzMerchants_Products',Key:{productId:'p'},UpdateExpression:'SET price=:p',ExpressionAttributeValues:{':p':1000}});const version=f.transactions[0].find(x=>x.Update?.Key?.sk==='MENU_DRAFT#META');assert.equal(version.Update.Key.pk,'BRANCH#b');assert.equal(version.Update.ExpressionAttributeValues[':b'],'b');const bad=fixture();await assert.rejects(bad.run({TableName:'staging-MerchantPlatform',Key:{pk:'BRANCH#foreign',sk:'MENU_DRAFT#META'},UpdateExpression:'ADD #v :one',ExpressionAttributeValues:{':one':1}}),/DEVICE_WRITE_SCOPE_INVALID/);assert.equal(bad.transactions.length,0);});
+
+test('kitchen write carries canonical revision fence and screen identity in audit',async()=>{
+ const f=fixture();f.actor.kitchenOrder=true;f.actor.deviceOrder.expectedRevision=4;f.actor.sub='KITCHEN#screen';
+ await f.run();const update=f.transactions[0].find(x=>x.Update).Update;
+ assert.match(update.ConditionExpression,/#kitchenRev=:kitchenRev/);assert.equal(update.ExpressionAttributeValues[':kitchenRev'],4);assert.equal(f.events[0].actorId,'KITCHEN#screen');
+});
+test('legacy kitchen order with no revision cannot overwrite a newly versioned order',async()=>{
+ const f=fixture();f.actor.kitchenOrder=true;f.actor.deviceOrder.expectedRevision=null;
+ await f.run();const update=f.transactions[0].find(x=>x.Update).Update;assert.match(update.ConditionExpression,/attribute_not_exists\(#kitchenRev\)/);
+});

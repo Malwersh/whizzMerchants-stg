@@ -59,3 +59,6 @@ frontend/android/build/
 # Python build cache
 **/__pycache__/
 *.pyc
+
+# Generated hosted kitchen package
+backend/kitchen-display/.build/

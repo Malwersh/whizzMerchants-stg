@@ -327,32 +327,19 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
             try {
                 console.log(`🔍 Fetching full order data for ${limitedOrders.length} orders to get driver info...`);
                 
-                // BatchGetItem in chunks of 100 (AWS limit)
-                const chunkSize = 100;
+                // Read canonical rows with bounded concurrency using existing GetItem access.
                 const fullOrders = [];
-                
-                for (let i = 0; i < limitedOrders.length; i += chunkSize) {
-                    const chunk = limitedOrders.slice(i, i + chunkSize);
-                    const keys = chunk.map(order => ({
-                        PK: `ORDER#${order.orderId}`,
-                        SK: 'META'
-                    }));
-                    
-                    const batchGetParams = {
-                        RequestItems: {
-                            [ORDERS_TABLE]: {
-                                Keys: keys,
-                                ConsistentRead: true
-                            }
-                        }
-                    };
-                    
-                    const batchResult = await dynamodb.send(new BatchGetCommand(batchGetParams));
-                    if (batchResult.Responses && batchResult.Responses[ORDERS_TABLE]) {
-                        fullOrders.push(...batchResult.Responses[ORDERS_TABLE]);
-                    }
+                for (let i = 0; i < limitedOrders.length; i += 8) {
+                    const results = await Promise.all(limitedOrders.slice(i, i + 8).map(order =>
+                        dynamodb.send(new GetCommand({
+                            TableName: ORDERS_TABLE,
+                            Key: { PK: `ORDER#${order.orderId}`, SK: 'META' },
+                            ConsistentRead: true
+                        }))
+                    ));
+                    fullOrders.push(...results.map(result => result.Item).filter(Boolean));
                 }
-                
+
                 // Merge full data back into limitedOrders (preserve GSI fields, add missing fields)
                 for (let i = 0; i < limitedOrders.length; i++) {
                     const fullOrder = fullOrders.find(fo => fo.orderId === limitedOrders[i].orderId);
@@ -380,7 +367,7 @@ async function handleGetOrdersForBusiness(businessId, queryParams) {
                 }
             } catch (batchError) {
                 console.error('⚠️ Error fetching full order data:', batchError);
-                // Continue without driver info - non-critical
+                return createResponse(503, { success: false, error: 'ORDER_STATE_UNAVAILABLE', message: 'تعذر تحديث حالة الطلبات. أعد المحاولة.' });
             }
         }
 
@@ -1759,6 +1746,11 @@ async function handleTimeoutLog(orderId, requestData) {
 const originalMerchantHandler=module.exports.handler;
 const authenticatedMerchantHandler=merchantHandler(originalMerchantHandler,{db:lifecycleRawDb,deviceOrders:true});
 module.exports.handler=async(event,context)=>{
+ if(event.path==='/kitchen-display/advance'){
+  try{return createResponse(200,await require('../../kitchen-display/advance').handle({db:lifecycleRawDb,event,context,original:originalMerchantHandler,scope:require('../shared/merchant-lifecycle').merchantRequestContext}));}
+  catch(e){return createResponse(e.status||503,{code:e.status?e.message:'KITCHEN_UNAVAILABLE'});}
+ }
+
  if(event.path?.includes('/webhooks/orders')&&event.httpMethod==='POST'){
   const expected=process.env.MERCHANT_WEBHOOK_INTERNAL_KEY;
   const supplied=event.headers?.['x-merchant-webhook-key']||event.headers?.['X-Merchant-Webhook-Key'];

@@ -1,3 +1,4 @@
+import '../screens/kitchen_screens_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../services/kitchen_dispatch_service.dart';
@@ -232,6 +233,12 @@ class _KitchenOutputSectionState extends State<KitchenOutputSection> {
                   style: TextStyle(
                       color: _ink, fontSize: 17, fontWeight: FontWeight.w700)),
             ]),
+            TextButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        KitchenScreensScreen(businessId: widget.businessId))),
+                icon: const Icon(Icons.connected_tv),
+                label: const Text('شاشات المطبخ')),
             const SizedBox(height: 4),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
