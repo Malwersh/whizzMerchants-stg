@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:whizz_merchants/l10n/app_localizations.dart';
 import 'package:whizz_merchants/models/order.dart';
@@ -23,7 +24,7 @@ void main() {
 
       // Build widget with English locale
       await tester.pumpWidget(
-        MaterialApp(
+        localizedOrderApp(
           locale: Locale('en'),
           localizationsDelegates: [
             AppLocalizations.delegate,
@@ -66,7 +67,7 @@ void main() {
 
       // Build widget with Arabic locale
       await tester.pumpWidget(
-        MaterialApp(
+        localizedOrderApp(
           locale: Locale('ar'),
           localizationsDelegates: [
             AppLocalizations.delegate,
@@ -122,7 +123,7 @@ void main() {
 
         // Test English
         await tester.pumpWidget(
-          MaterialApp(
+          localizedOrderApp(
             locale: Locale('en'),
             localizationsDelegates: [
               AppLocalizations.delegate,
@@ -150,7 +151,7 @@ void main() {
 
         // Test Arabic
         await tester.pumpWidget(
-          MaterialApp(
+          localizedOrderApp(
             locale: Locale('ar'),
             localizationsDelegates: [
               AppLocalizations.delegate,
@@ -179,3 +180,15 @@ void main() {
     });
   });
 }
+
+Widget localizedOrderApp(
+        {required Widget home,
+        Locale? locale,
+        required List<LocalizationsDelegate<dynamic>> localizationsDelegates,
+        required List<Locale> supportedLocales}) =>
+    ProviderScope(
+        child: MaterialApp(
+            home: home,
+            locale: locale,
+            localizationsDelegates: localizationsDelegates,
+            supportedLocales: supportedLocales));

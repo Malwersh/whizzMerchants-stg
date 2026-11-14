@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:whizz_merchants/l10n/app_localizations.dart';
 import 'package:whizz_merchants/widgets/support_category_selector.dart';
 
 void main() {
   group('SupportCategorySelector Animation Tests', () {
     testWidgets('Animation intervals are valid for all categories',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       // Build the widget
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {},
             ),
           ),
@@ -48,6 +57,10 @@ void main() {
 
     testWidgets('Animation interval calculation produces valid results',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       // Test the animation interval logic directly
       final testCases = [
         {'index': 0, 'expectedStart': 0.0, 'expectedEnd': 0.5},
@@ -63,9 +76,9 @@ void main() {
         final startDelay = (index * 0.08).clamp(0.0, 0.4);
         final endDelay = (startDelay + 0.5).clamp(0.0, 1.0);
 
-        expect(startDelay, testCase['expectedStart'],
+        expect(startDelay, closeTo(testCase['expectedStart'] as double, 1e-10),
             reason: 'Start delay for index $index');
-        expect(endDelay, testCase['expectedEnd'],
+        expect(endDelay, closeTo(testCase['expectedEnd'] as double, 1e-10),
             reason: 'End delay for index $index');
 
         // Critical: Ensure end <= 1.0
@@ -76,13 +89,21 @@ void main() {
 
     testWidgets('Category selection triggers callback after animation',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       String? selectedCategory;
       String? selectedDescription;
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {
                 selectedCategory = category;
                 selectedDescription = description;
@@ -108,12 +129,20 @@ void main() {
 
     testWidgets('Multiple rapid taps are prevented during animation',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       int callbackCount = 0;
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {
                 callbackCount++;
               },
@@ -140,12 +169,20 @@ void main() {
 
     testWidgets('Widget disposes cleanly after category selection',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       bool categorySelected = false;
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {
                 categorySelected = true;
               },
@@ -164,20 +201,31 @@ void main() {
       expect(categorySelected, true);
 
       // Remove widget from tree
-      await tester
-          .pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+      await tester.pumpWidget(const MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: SizedBox())));
       await tester.pumpAndSettle();
 
       // No errors should occur during disposal
     });
 
     testWidgets('Close button works correctly', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       bool closeCalled = false;
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {},
               onClose: () {
                 closeCalled = true;
@@ -201,12 +249,20 @@ void main() {
 
     testWidgets('All category cards are interactive',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final selectedCategories = <String>[];
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {
                 selectedCategories.add(category);
               },
@@ -231,8 +287,12 @@ void main() {
         // Rebuild widget
         await tester.pumpWidget(
           MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SupportCategorySelector(
+                key: UniqueKey(),
                 onCategorySelected: (category, description) {
                   selectedCategories.add(category);
                 },
@@ -254,10 +314,18 @@ void main() {
 
   group('SupportCategorySelector Visual Tests', () {
     testWidgets('Header displays correct text', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {},
             ),
           ),
@@ -273,10 +341,18 @@ void main() {
 
     testWidgets('Footer displays WhizzMe AI branding',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {},
             ),
           ),
@@ -294,10 +370,18 @@ void main() {
 
     testWidgets('Category cards display all information',
         (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SupportCategorySelector(
+              key: UniqueKey(),
               onCategorySelected: (category, description) {},
             ),
           ),

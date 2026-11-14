@@ -1,0 +1,14 @@
+{
+  "status": "PUBLISHED_STAGING",
+  "function": "order-receiver-regional-staging-image-upload-v1-sam",
+  "codeSha256": "t7wFtzJWc1ju1jS6mNO55rCkx8fiHfzDdixKB4whxtw=",
+  "configurationAndOtherArchiveEntriesPreserved": true,
+  "newPermissions": false,
+  "financialOrCampaignRecordsWritten": false,
+  "merchantBuild": 348,
+  "tests": {
+    "imageValidation": 3,
+    "compiledHandler": "GIF original bytes, MIME and branch ownership; unauthenticated and non-discount GIF rejection"
+  },
+  "humanRetryPending": true
+}

@@ -1,0 +1,1 @@
+{"name":"staging-merchant-platform","version":"0.1.0","private":true,"scripts":{"test":"node --test test/*.test.cjs"},"engines":{"node":">=22"}}

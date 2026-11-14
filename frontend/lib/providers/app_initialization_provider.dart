@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../services/address_autofill_service.dart';
 import '../services/fcm_platform_service.dart';
-import '../services/firebase_messaging_service.dart';
+import '../services/push_notifications_service.dart';
 import '../services/audio_notification_service.dart';
 import '../services/region_service.dart';
 import 'auth_provider_riverpod.dart';
@@ -187,12 +187,12 @@ class AppInitializationNotifier extends StateNotifier<AppInitState> {
       }),
     );
 
-    // Firebase Messaging Service
+    // Unified push service (do not register a second foreground listener)
     futures.add(
-      FirebaseMessagingService().initialize().then((_) {
-        debugPrint('✅ AppInit: Firebase Messaging Service initialized');
+      PushNotificationsService.instance.initialize().then((_) {
+        debugPrint('✅ AppInit: Push notification service initialized');
       }).catchError((e) {
-        debugPrint('⚠️ AppInit: Firebase Messaging Service failed: $e');
+        debugPrint('⚠️ AppInit: Push notification service failed: $e');
       }),
     );
 

@@ -3,47 +3,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whizz_merchants/screens/splash_screen.dart';
 
 void main() {
-  testWidgets('Splash screen displays correctly', (WidgetTester tester) async {
-    // Build splash screen
-    await tester.pumpWidget(
-      MaterialApp(
+  testWidgets('Splash displays the current image and loading indicator',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
         home: SplashScreen(
-          nextScreen: const Scaffold(
-            body: Center(child: Text('Next Screen')),
-          ),
-        ),
-      ),
-    );
-
-    // Verify splash screen renders
-    expect(find.text('WHIZZ'), findsOneWidget);
-    expect(find.text('MERCHANTS'), findsOneWidget);
-    expect(find.text('Manage Your Business, Effortlessly'), findsOneWidget);
-    expect(find.text('Powered by Whizz Ecosystem'), findsOneWidget);
-    expect(find.text('W'), findsOneWidget); // Logo text
-
-    // Verify loading indicator exists
+            nextScreen: const Scaffold(body: Text('Next Screen')))));
+    final image = tester.widget<Image>(find.byType(Image));
+    expect((image.image as AssetImage).assetName,
+        'assets/images/WizBussinessico.png');
+    expect(find.text('Business'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 4));
   });
-
-  testWidgets('Splash screen animations initialize',
-      (WidgetTester tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
+  testWidgets('Splash navigates after its configured delay', (tester) async {
+    await tester.pumpWidget(MaterialApp(
         home: SplashScreen(
-          nextScreen: const Scaffold(
-            body: Center(child: Text('Next Screen')),
-          ),
-          duration: const Duration(milliseconds: 100),
-        ),
-      ),
-    );
-
-    // Initial state
-    expect(find.text('WHIZZ'), findsOneWidget);
-
-    // Let animations start
+            duration: const Duration(milliseconds: 100),
+            nextScreen: const Scaffold(body: Text('Next Screen')))));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(find.text('WHIZZ'), findsOneWidget);
+    expect(find.text('Next Screen'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(find.text('Next Screen'), findsOneWidget);
   });
 }

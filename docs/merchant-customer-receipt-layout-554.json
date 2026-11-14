@@ -1,0 +1,8 @@
+{
+  "batch": 554,
+  "status": "IMPLEMENTED_TESTED_SIMULATOR_BUILD_SUCCEEDED",
+  "scope": "Customer thermal receipt: customer/driver if present, order identifier, Baghdad order time, piece count, item quantity and line total in separate RTL columns, modifiers and notes, recorded financial breakdown and prominent authoritative total. Kitchen unchanged.",
+  "testsPassed": 13,
+  "financialLogicChanged": false,
+  "physicalPrinterVerified": false
+}

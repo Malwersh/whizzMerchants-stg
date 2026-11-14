@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-23",
+  "timezone": "America/Chicago",
+  "branch": "feature/malwersh/bootstrap",
+  "purpose": "تسليم جميع تحديثات الجلسة للزميل عبر GitHub",
+  "scope": "Staging work only; legacy non-staging worktrees excluded",
+  "repositories": [
+    "whizzDrivers-stg",
+    "whizzMerchants-stg",
+    "wizzuser-stg",
+    "whizzCentralPlatform-stg"
+  ],
+  "pull": [
+    "git fetch origin",
+    "git switch feature/malwersh/bootstrap",
+    "git pull --ff-only origin feature/malwersh/bootstrap"
+  ],
+  "latestNativeDriverBuild": 258,
+  "latestDemandPalette": "Secondary navy and shades; supersedes temporary yellow palette",
+  "notes": [
+    "لا يجرى دمج تلقائي في staging-main أو integration؛ يسحب الزميل فرع التسليم ويدمج وفق عمله.",
+    "الرفع إلى GitHub لا يعيد تنفيذ الطلبات أو التسويات أو نشر الخدمات.",
+    "نقاط الاستئناف والتقارير توثّق النشر السابق على staging؛ ليست إعلان اكتمال الخطة المالية كلها."
+  ],
+  "repository": "whizzMerchants-stg",
+  "sections": [
+    {
+      "area": "نموذج عروض المتجر293",
+      "changes": [
+        "واجهة عربية وRTL محصورة بإدارة العروض، واستكمال ترجمات ARB والملفات المولدة.",
+        "حقول نوع الخصم والقيمة بعرض مناسب دون تجاوز، وعناوين نسبة/دينار واضحة.",
+        "حفظ النسب السابقة غير الموجودة في الخيارات والتحقق من القيم الثابتة ودعم لوحة المفاتيح والشاشات الصغيرة.",
+        "الحفاظ على عقود تمويل الخصم والعمولة واتفاق التوصيل؛ لا تغييرات مالية في هذه الواجهة."
+      ]
+    }
+  ],
+  "validation": {
+    "flutterPassed": 6,
+    "test": "merchant_discount_value_fields_test.dart",
+    "secretPatternScan": "No credential patterns found in changed/new files",
+    "whitespaceCheck": "PASS"
+  }
+}

@@ -15,6 +15,21 @@ import '../utils/token_validator.dart';
 class ApiService {
   final String baseUrl = AppConfig.baseUrl;
 
+  Future<Map<String, dynamic>> branchReadiness(String businessId,
+      {bool activate = false}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final url = Uri.parse(
+        '$baseUrl/businesses/$businessId/status${activate ? '' : '?includeReadiness=true'}');
+    final response = activate
+        ? await http.put(url,
+            headers: headers, body: jsonEncode({'action': 'complete_setup'}))
+        : await http.get(url, headers: headers);
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200 ||
+        (response.statusCode == 409 && data['missing'] is List)) return data;
+    throw Exception('تعذر التحقق من تجهيز الفرع. أعد المحاولة.');
+  }
+
   /// Helper method to get valid authentication token
   /// NOTE: This is the LOGIN TOKEN (access token from Cognito), NOT the FCM device token
   /// Used for: API authentication via Authorization header
@@ -40,9 +55,10 @@ class ApiService {
       final data = jsonDecode(response.body);
       // Store tokens and user data in shared preferences using SecureTokenStorage
       final prefs = await SharedPreferences.getInstance();
-      
+
       // Store tokens directly in SecureTokenStorage
-      if (data['access_token'] != null && data['access_token'].toString().isNotEmpty) {
+      if (data['access_token'] != null &&
+          data['access_token'].toString().isNotEmpty) {
         await SecureTokenStorage.setAccessToken(
           data['access_token'].toString(),
         );
@@ -52,7 +68,8 @@ class ApiService {
       }
 
       // Store refresh token (also sanitize it)
-      if (data['refresh_token'] != null && data['refresh_token'].toString().isNotEmpty) {
+      if (data['refresh_token'] != null &&
+          data['refresh_token'].toString().isNotEmpty) {
         final refreshToken = data['refresh_token'].toString().trim();
         await SecureTokenStorage.setRefreshToken(refreshToken);
         await prefs.setString('refresh_token', refreshToken);
@@ -65,7 +82,7 @@ class ApiService {
       if (expiry != null) {
         await SecureTokenStorage.setTokenExpiry(expiry);
       }
-      
+
       await prefs.setString('user', jsonEncode(data['user']));
       return data;
     } else {
@@ -166,22 +183,35 @@ class ApiService {
         throw Exception('Failed to get user businesses: ${data['message']}');
       }
     } else {
-      AppLogger.error('❌ getUserBusinesses: HTTP ${response.statusCode}: ${response.body}');
+      AppLogger.error(
+          '❌ getUserBusinesses: HTTP ${response.statusCode}: ${response.body}');
       throw Exception('Failed to get user businesses: ${response.body}');
     }
   }
 
-  Future<List<Map<String, dynamic>>> getDiscounts() async {
+  Future<void> _checkDiscountSession(String token) async {
+    if (await SecureTokenStorage.getIdToken() != token &&
+        await SecureTokenStorage.getAccessToken() != token) {
+      throw Exception('تغيرت جلسة الدخول. أعد تحميل الخصومات.');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDiscounts(
+      {required String businessId}) async {
     // ✅ Use automatic token retrieval
-    final token = await _getValidToken();
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
 
     final response = await http.get(
-      Uri.parse('$baseUrl/discounts'),
+      Uri.parse('$baseUrl/discounts')
+          .replace(queryParameters: {'businessId': businessId}),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -362,17 +392,21 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> createDiscount(
-      Map<String, dynamic> discountData) async {
-    final token = await _getValidToken();
+  Future<Map<String, dynamic>> createDiscount(Map<String, dynamic> discountData,
+      {required String businessId}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.post(
-      Uri.parse('$baseUrl/discounts'),
+      Uri.parse('$baseUrl/discounts')
+          .replace(queryParameters: {'businessId': businessId}),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
       body: jsonEncode(discountData),
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode == 201) {
       final data = jsonDecode(response.body);
@@ -387,16 +421,23 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> updateDiscount(
-      String discountId, Map<String, dynamic> discountData) async {
-    final token = await _getValidToken();
+      String discountId, Map<String, dynamic> discountData,
+      {required String businessId, String? baseRevision}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.put(
-      Uri.parse('$baseUrl/discounts/$discountId'),
+      Uri.parse('$baseUrl/discounts/$discountId').replace(queryParameters: {
+        'businessId': businessId,
+        if (baseRevision != null) 'baseRevision': baseRevision
+      }),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
       body: jsonEncode(discountData),
     );
+
+    await _checkDiscountSession(token);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -410,21 +451,55 @@ class ApiService {
     }
   }
 
-  Future<void> deleteDiscount(String discountId) async {
-    final token = await _getValidToken();
+  Future<void> deleteDiscount(String discountId,
+      {required String businessId, String? baseRevision}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
     final response = await http.delete(
-      Uri.parse('$baseUrl/discounts/$discountId'),
+      Uri.parse('$baseUrl/discounts/$discountId').replace(queryParameters: {
+        'businessId': businessId,
+        if (baseRevision != null) 'baseRevision': baseRevision
+      }),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
     );
 
+    await _checkDiscountSession(token);
+
     if (response.statusCode != 200) {
       final data = jsonDecode(response.body);
       throw Exception(
           'Failed to delete discount: ${data['message'] ?? response.body}');
     }
+  }
+
+  /// Toggle a discount between active and paused.
+  Future<Map<String, dynamic>> toggleDiscountStatus(String discountId,
+      {required String businessId, String? baseRevision}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final token = headers['Authorization']!.substring(7);
+    final response = await http.patch(
+      Uri.parse('$baseUrl/discounts/$discountId/toggle-status').replace(
+          queryParameters: {
+            'businessId': businessId,
+            if (baseRevision != null) 'baseRevision': baseRevision
+          }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    await _checkDiscountSession(token);
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(
+          'Failed to toggle discount: ${data['message'] ?? response.body}');
+    }
+    return data;
   }
 
   // POS Settings API Methods
@@ -534,6 +609,13 @@ class ApiService {
       return data;
     } else {
       final data = jsonDecode(response.body);
+      if (data['error'] == 'LOCATION_OUTSIDE_REGION')
+        throw Exception(
+            'النقطة خارج منطقة الفرع المسجلة. اختر نقطة داخل المنطقة أو اطلب تعديل منطقة الفرع.');
+      if (data['error'] == 'REGION_UNAVAILABLE')
+        throw Exception('منطقة الفرع غير متاحة حاليًا.');
+      if (response.statusCode == 409)
+        throw Exception('تغيرت بيانات الموقع. أعد فتح الإعدادات وحاول مجددًا.');
       throw Exception(
           'Failed to update business location settings: ${data['message'] ?? response.body}');
     }

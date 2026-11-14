@@ -1,3 +1,4 @@
+import 'merchant_order_alerts.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -13,7 +14,8 @@ import '../config/app_config.dart';
 import 'order_service.dart';
 import 'app_auth_service.dart';
 import 'audio_notification_service.dart';
-import 'secure_token_storage.dart';
+import 'merchant_notification_inbox.dart';
+import 'token_refresh_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app_state.dart';
 
@@ -40,7 +42,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   // WebSocket connection
   WebSocketChannel? _channel;
+  int _connectionEpoch = 0;
+  bool _orderRefreshPending = false;
   Timer? _pingTimer;
+  Timer? _sessionRenewalTimer;
   Timer? _heartbeatTimer; // ✅ Heartbeat timer for connection monitoring
   Timer? _reconnectTimer;
   Timer? _pollingTimer;
@@ -49,6 +54,20 @@ class RealtimeOrderService with WidgetsBindingObserver {
   int _reconnectAttempts = 0;
   String? _businessId;
   String? _authToken;
+  int _branchGeneration = 0;
+  bool _branchSelectionBound = false;
+  void selectBranch(String? id) {
+    _branchSelectionBound = true;
+    if (_businessId == id && id != null) return;
+    ++_branchGeneration;
+    _businessId = id;
+    _authToken = null;
+    _lastKnownOrderIds = [];
+    _soundPlayedForOrders.clear();
+    _pollingTimer?.cancel();
+    unawaited(disconnect());
+  }
+
   bool _isDisposed = false;
   bool _isConnecting = false;
   Future<void>? _ongoingInitialize;
@@ -57,7 +76,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
   // Sound notification tracking to prevent duplicates
   final Set<String> _soundPlayedForOrders = <String>{};
   Timer? _soundTrackingCleanupTimer;
-  
+
   // Order refresh callback (set by order screen/provider)
   OrderRefreshCallback? _onOrdersNeedRefresh;
 
@@ -112,21 +131,21 @@ class RealtimeOrderService with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       const deviceIdKey = 'stable_device_id_business';
-      
+
       String? existingDeviceId = prefs.getString(deviceIdKey);
-      
+
       if (existingDeviceId != null && existingDeviceId.isNotEmpty) {
         debugPrint('WebSocket: استخدام Device ID موجود: $existingDeviceId');
         return existingDeviceId;
       }
-      
+
       // إنشاء Device ID جديد مستقر
-      final stableDeviceId = 'flutter_business_${platform}_${DateTime.now().millisecondsSinceEpoch}';
+      final stableDeviceId =
+          'flutter_business_${platform}_${DateTime.now().millisecondsSinceEpoch}';
       await prefs.setString(deviceIdKey, stableDeviceId);
-      
+
       debugPrint('WebSocket: إنشاء Device ID جديد مستقر: $stableDeviceId');
       return stableDeviceId;
-      
     } catch (e) {
       debugPrint('WebSocket: خطأ في الحصول على Device ID مستقر: $e');
       // fallback إلى Device ID مؤقت
@@ -150,22 +169,40 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   // Safe methods to add to stream controllers
   void _safeAddToNewOrderController(Order order) {
+    if (order.businessId != _businessId) return;
     if (!_isDisposed &&
         _newOrderController != null &&
         !_newOrderController!.isClosed) {
       _newOrderController!.add(order);
-      
+      MerchantOrderAlerts.receive(
+          {'orderId': order.id, 'businessId': order.businessId});
+      unawaited(MerchantNotificationInbox.recordPush({
+        'businessId': order.businessId,
+        'orderId': order.id,
+        'action': 'new_order',
+        'updatedAt': order.createdAt.toIso8601String()
+      },
+              title: 'طلب جديد #${order.orderNumber ?? order.id}',
+              body: order.customerName)
+          .catchError((Object _) {}));
+
       // Play sound notification for new order (with deduplication)
       _playNewOrderNotificationSoundOnce(order);
     }
   }
 
   void _safeAddToOrderUpdateController(Map<String, dynamic> update) {
+    if (update['businessId'] != null && update['businessId'] != _businessId)
+      return;
     if (!_isDisposed &&
         _orderUpdateController != null &&
         !_orderUpdateController!.isClosed) {
+      if (MerchantOrderAlerts.isCancellation(update)) {
+        MerchantOrderAlerts.receive(update);
+        return;
+      }
       _orderUpdateController!.add(update);
-      
+
       // Play sound notification for order updates
       _playOrderUpdateNotificationSound(update);
     }
@@ -195,7 +232,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       bool isUrgent = order.totalAmount > 100.0; // Orders over $100 are urgent
 
       // Play appropriate sound based on urgency
-      _audioService.playNotificationSound('new_order', isUrgent: isUrgent);
+      _audioService.playNewOrderSoundOnce(order.id);
 
       debugPrint(
           '🔊 Sound notification played for order: ${order.id} (${isUrgent ? 'URGENT' : 'NORMAL'})');
@@ -256,16 +293,22 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   /// Initialize the service with business context
   Future<void> initialize(String? businessId) async {
+    if (_branchSelectionBound && businessId != _businessId) return;
     // If already connected to the same business, skip
     if (_isConnected && _businessId != null && _businessId == businessId) {
-      debugPrint('ℹ️ RealtimeOrderService already connected for business $_businessId');
+      debugPrint(
+          'ℹ️ RealtimeOrderService already connected for business $_businessId');
       return;
     }
 
     // Coalesce concurrent initialize calls
     if (_isConnecting) {
-      debugPrint('ℹ️ Initialize already in progress, awaiting existing operation');
+      debugPrint(
+          'ℹ️ Initialize already in progress, awaiting existing operation');
       await _ongoingInitialize;
+      if (!_isDisposed &&
+          (!_branchSelectionBound || businessId == _businessId) &&
+          !_isConnected) await initialize(businessId);
       return;
     }
 
@@ -281,10 +324,14 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   Future<void> _initializeInternal(String? businessId) async {
     _businessId = businessId;
-    _authToken = await AppAuthService.getAccessToken();
+    final generation = _branchGeneration;
+    final token = await AppAuthService.getAccessToken();
+    if (generation != _branchGeneration || _isDisposed) return;
+    _authToken = token;
 
     // Initialize audio service
     await _audioService.initialize();
+    if (generation != _branchGeneration || _isDisposed) return;
     debugPrint('🔊 Audio notification service initialized');
 
     if (_authToken == null || _authToken!.isEmpty) {
@@ -293,13 +340,15 @@ class RealtimeOrderService with WidgetsBindingObserver {
       return;
     }
 
-    debugPrint('✅ Initializing RealtimeOrderService with businessId: $_businessId');
+    debugPrint(
+        '✅ Initializing RealtimeOrderService with businessId: $_businessId');
     await _connectWebSocket();
     _startPollingFallback(); // Always have polling as backup
   }
 
   /// Connect to WebSocket
   Future<void> _connectWebSocket() async {
+    final generation = _branchGeneration;
     if (_businessId == null || _businessId!.isEmpty) {
       debugPrint('❌ Cannot connect WebSocket: businessId is null or empty');
       return;
@@ -317,7 +366,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
     // Note: Don't check or set _isConnecting here - it's managed by initialize()
     // This allows both initialize() and reconnect() to work correctly
-    
+
     _didSendSubscribe = false; // reset before new connection
 
     // If an existing channel is present, ensure it is closed before reconnecting
@@ -327,18 +376,23 @@ class RealtimeOrderService with WidgetsBindingObserver {
       } catch (_) {}
     }
 
-    _manualDisconnect = false; // Reset manual disconnect flag on new connection attempt
+    final connectionEpoch = ++_connectionEpoch;
+    _manualDisconnect =
+        false; // Reset manual disconnect flag on new connection attempt
 
     try {
       // ✅ Get JWT token for authentication and userId
       String? token;
       String? userId;
-      
+
       try {
-        token = await SecureTokenStorage.getIdToken();
-        if (token != null && token.isNotEmpty) {
+        token = await TokenRefreshService.getValidIdToken();
+        if (token == null || JwtDecoder.isExpired(token)) {
+          throw StateError('A valid session is required for order updates');
+        }
+        if (token.isNotEmpty) {
           debugPrint('🔐 JWT Token obtained (${token.length} chars)');
-          
+
           // ✅ Extract userId from JWT token (sub claim)
           try {
             final decodedToken = JwtDecoder.decode(token);
@@ -353,11 +407,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
       } catch (e) {
         debugPrint('❌ Failed to get JWT token: $e');
       }
-      
-      // ✅ Use businessId as fallback userId if JWT decoding failed
-      if (userId == null || userId.isEmpty) {
-        debugPrint('⚠️ Using businessId as fallback userId for WebSocket connection');
-        userId = _businessId;
+
+      if (token == null || userId == null || userId.isEmpty) {
+        throw StateError('Cannot authenticate merchant order connection');
       }
 
       debugPrint('🔍 AppConfig.webSocketUrl: ${AppConfig.webSocketUrl}');
@@ -367,6 +419,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
       const appVersion = '1.0.0';
       final deviceId = await _getStableDeviceId(platform);
 
+      if (generation != _branchGeneration || _isDisposed) return;
       // ✅ بناء WebSocket URL الصحيح مع query parameters
       final baseUri = Uri.parse(AppConfig.webSocketUrl);
       final queryParams = {
@@ -378,31 +431,33 @@ class RealtimeOrderService with WidgetsBindingObserver {
         'appVersion': appVersion,
         'deviceId': deviceId,
       };
-      
+
       // Add token if available
-      if (token != null && token.isNotEmpty) {
+      if (token.isNotEmpty) {
         queryParams['token'] = token;
       }
-      
+
       final wsUri = baseUri.replace(queryParameters: queryParams);
-      
+
       debugPrint('🔌 Connecting to WebSocket with:');
       debugPrint('   businessId: $_businessId');
-      debugPrint('   userId: $userId (${userId?.length ?? 0} chars)');
+      debugPrint('   userId: $userId (${userId.length} chars)');
       debugPrint('   entityType: business');
       debugPrint('   userType: merchant');
       debugPrint('   platform: $platform');
       debugPrint('   appVersion: $appVersion');
       debugPrint('   deviceId: $deviceId');
-      debugPrint('   token: ${token != null ? "✅ Present (${token.length} chars)" : "❌ Not available"}');
-      debugPrint('🔗 Full WebSocket URL: ${wsUri.toString().replaceAll(RegExp(r'token=[^&]+'), 'token=***')}');
+      debugPrint(
+          '   token: ✅ Present (${token.length} chars)');
+      debugPrint(
+          '🔗 Full WebSocket URL: ${wsUri.toString().replaceAll(RegExp(r'token=[^&]+'), 'token=***')}');
       debugPrint('🔗 URL scheme: ${wsUri.scheme}');
       debugPrint('🔗 URL host: ${wsUri.host}');
-      
+
       // ✅ Use IOWebSocketChannel for iOS/Android - preserves wss:// scheme correctly
       try {
         debugPrint('WebSocket: إنشاء IOWebSocketChannel...');
-        
+
         if (kIsWeb) {
           // Web platform
           _channel = WebSocketChannel.connect(wsUri);
@@ -410,38 +465,66 @@ class RealtimeOrderService with WidgetsBindingObserver {
           // iOS/Android - Use IOWebSocketChannel to preserve wss:// scheme
           _channel = IOWebSocketChannel.connect(wsUri);
         }
-        
+
         debugPrint('✅ WebSocket channel created successfully');
       } catch (e) {
         debugPrint('❌ WebSocket connection failed: $e');
         rethrow;
       }
-      
+
+      await _channel!.ready.timeout(const Duration(seconds: 15));
+      if (generation != _branchGeneration || _isDisposed || _manualDisconnect) return;
+
       // Start manual ping for all platforms
       _startPing();
-      
+
       // ✅ Start heartbeat timer for connection monitoring
       _startHeartbeatTimer();
 
       // Listen for messages
       _channel!.stream.listen(
-        _handleWebSocketMessage,
-        onError: _handleWebSocketError,
-        onDone: _handleWebSocketDisconnection,
+        (message) {
+          if (generation == _branchGeneration && connectionEpoch == _connectionEpoch) {
+            _handleWebSocketMessage(message);
+          }
+        },
+        onError: (Object error) {
+          if (generation == _branchGeneration && connectionEpoch == _connectionEpoch) {
+            _handleWebSocketError(error);
+          }
+        },
+        onDone: () {
+          if (generation == _branchGeneration && connectionEpoch == _connectionEpoch) {
+            _handleWebSocketDisconnection();
+          }
+        },
       );
 
-      // 🔥 CRITICAL FIX: Mark as connected immediately for iOS
-      // iOS needs this flag set early to receive messages
+      // Only publish connected after the authenticated handshake succeeds.
       _isConnected = true;
       _reconnectAttempts = 0;
       _safeAddToConnectionController(true);
+      _sessionRenewalTimer?.cancel();
+      final renewAfter = JwtDecoder.getExpirationDate(token).difference(DateTime.now()) -
+          const Duration(seconds: 60);
+      _sessionRenewalTimer = Timer(
+        renewAfter.isNegative ? const Duration(seconds: 1) : renewAfter,
+        () {
+          if (generation == _branchGeneration && !_manualDisconnect && !_isDisposed) {
+            _connectWebSocket();
+          }
+        },
+      );
 
-      debugPrint('🔌 WebSocket stream created, waiting for CONNECTION_ESTABLISHED...');
+      debugPrint(
+          '🔌 WebSocket stream created, waiting for CONNECTION_ESTABLISHED...');
 
       // Wait a brief moment for the connection to fully establish
       await Future.delayed(const Duration(milliseconds: 500));
 
-      if (!_isConnected || _manualDisconnect) {
+      if (generation != _branchGeneration ||
+          !_isConnected ||
+          _manualDisconnect) {
         debugPrint('❌ Connection was closed during establishment');
         return;
       }
@@ -462,7 +545,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
       await Future.delayed(const Duration(milliseconds: 300));
 
       // Then send subscription request (only once per connection)
-      if (!_didSendSubscribe && !_manualDisconnect) {
+      if (generation == _branchGeneration &&
+          !_didSendSubscribe &&
+          !_manualDisconnect) {
         debugPrint('📤 Sending SUBSCRIBE_ORDERS...');
         _sendWebSocketMessage({
           'type': 'SUBSCRIBE_ORDERS',
@@ -474,6 +559,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
         });
         _didSendSubscribe = true;
         debugPrint('✅ SUBSCRIBE_ORDERS sent successfully');
+        // Reconcile after the server confirms this branch subscription.
       }
     } catch (error) {
       debugPrint('❌ WebSocket connection failed: $error');
@@ -490,11 +576,11 @@ class RealtimeOrderService with WidgetsBindingObserver {
     try {
       final message = json.decode(data);
       debugPrint('📦 Raw WebSocket message received: $message');
-      
+
       // Handle different message structures from backend
       String? messageType;
       Map<String, dynamic>? payload;
-      
+
       // Check for 'type' field (current backend format from order stream)
       if (message['type'] != null) {
         messageType = message['type'];
@@ -531,20 +617,23 @@ class RealtimeOrderService with WidgetsBindingObserver {
           debugPrint('📝 ORDER STATUS UPDATE RECEIVED (OrderService format)');
           final statusData = payload ?? message;
           debugPrint('📝 Status update data: $statusData');
-          
+
           final orderId = statusData['orderId'] ?? statusData['order_id'];
           final status = statusData['status'];
-          
+
           if (orderId != null && status != null) {
             // Forward to order update stream
             _safeAddToOrderUpdateController({
               'orderId': orderId,
               'status': status,
-              'cancelReason': statusData['cancelReason'] ?? statusData['message'],
-              'timestamp': statusData['timestamp'] ?? DateTime.now().toIso8601String(),
+              'cancelReason':
+                  statusData['cancelReason'] ?? statusData['message'],
+              'timestamp':
+                  statusData['timestamp'] ?? DateTime.now().toIso8601String(),
             });
-            
-            debugPrint('✅ ORDER STATUS UPDATE processed for order: $orderId, status: $status');
+
+            debugPrint(
+                '✅ ORDER STATUS UPDATE processed for order: $orderId, status: $status');
           } else {
             debugPrint('⚠️ ORDER STATUS UPDATE missing orderId or status');
           }
@@ -554,11 +643,13 @@ class RealtimeOrderService with WidgetsBindingObserver {
           debugPrint('🔴 ORDER CANCELLED NOTIFICATION RECEIVED');
           final orderData = payload ?? message;
           debugPrint('🔴 Cancelled order data: $orderData');
-          
+
           // Extract order information
           final orderId = orderData['orderId'] ?? orderData['order_id'];
-          final cancelReason = orderData['cancelReason'] ?? orderData['cancel_reason'] ?? 'Customer cancelled';
-          
+          final cancelReason = orderData['cancelReason'] ??
+              orderData['cancel_reason'] ??
+              'Customer cancelled';
+
           if (orderId != null) {
             // Send update to order update stream
             _safeAddToOrderUpdateController({
@@ -567,8 +658,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
               'cancelReason': cancelReason,
               'timestamp': DateTime.now().toIso8601String(),
             });
-            
-            debugPrint('✅ ORDER CANCELLED notification processed for order: $orderId');
+
+            debugPrint(
+                '✅ ORDER CANCELLED notification processed for order: $orderId');
           } else {
             debugPrint('⚠️ ORDER CANCELLED notification missing orderId');
           }
@@ -588,9 +680,11 @@ class RealtimeOrderService with WidgetsBindingObserver {
             final isActive = data['isActive'];
             if (isActive is bool) {
               AppState().updateOnlineStatus(isActive);
-              debugPrint('✅ business_status_update applied: isActive=$isActive');
+              debugPrint(
+                  '✅ business_status_update applied: isActive=$isActive');
             } else {
-              debugPrint('ℹ️ business_status_update received (no isActive), ignoring');
+              debugPrint(
+                  'ℹ️ business_status_update received (no isActive), ignoring');
             }
           } catch (e) {
             debugPrint('⚠️ Error handling business_status_update: $e');
@@ -598,18 +692,23 @@ class RealtimeOrderService with WidgetsBindingObserver {
           break;
         case 'working_hours_update':
           // Not relevant to merchant order stream; acknowledge quietly
-          debugPrint('🗓️ working_hours_update received (ignored in merchant app)');
+          debugPrint(
+              '🗓️ working_hours_update received (ignored in merchant app)');
           break;
         case 'CONNECTION_ESTABLISHED':
         case 'connection_established':
           debugPrint('🎉 CONNECTION_ESTABLISHED received from server!');
           break;
+        case 'ORDER_SUBSCRIPTION_ACK':
         case 'SUBSCRIBED':
+          _triggerOrdersRefresh();
           debugPrint('✅ SUBSCRIBED confirmation received from server!');
           break;
         case 'subscription_ack':
+          _triggerOrdersRefresh();
           debugPrint('✅ subscription_ack received');
           break;
+        case 'REGISTRATION_ACK':
         case 'REGISTERED':
           debugPrint('✅ REGISTERED confirmation received from server!');
           break;
@@ -638,13 +737,22 @@ class RealtimeOrderService with WidgetsBindingObserver {
       debugPrint('Raw data: $data');
     }
   }
-  
+
   /// Set callback for order refresh (called by order screen/provider)
   void setOrderRefreshCallback(OrderRefreshCallback? callback) {
     _onOrdersNeedRefresh = callback;
-    debugPrint('🔔 Order refresh callback ${callback != null ? "registered" : "cleared"}');
+    if (callback != null && _orderRefreshPending) {
+      final generation = _branchGeneration;
+      scheduleMicrotask(() {
+        if (generation == _branchGeneration && !_isDisposed && _onOrdersNeedRefresh != null) {
+          _triggerOrdersRefresh();
+        }
+      });
+    }
+    debugPrint(
+        '🔔 Order refresh callback ${callback != null ? "registered" : "cleared"}');
   }
-  
+
   /// Trigger immediate orders refresh (called from multiple sources)
   void _triggerOrdersRefresh() {
     debugPrint('🔄 Triggering immediate orders refresh...');
@@ -652,27 +760,29 @@ class RealtimeOrderService with WidgetsBindingObserver {
     // 1. WebSocket NEW_ORDER messages
     // 2. Push notifications (foreground)
     // 3. App resume from background
-    
+
     // Notify listeners (order screen/provider) to refresh
     if (_onOrdersNeedRefresh != null) {
+      _orderRefreshPending = false;
       debugPrint('✅ Calling order refresh callback');
       _onOrdersNeedRefresh!();
     } else {
-      debugPrint('⚠️ No order refresh callback registered!');
+      _orderRefreshPending = true;
+      debugPrint('Order refresh retained until the screen is ready');
     }
   }
-  
+
   /// Handle new order messages
   void _handleNewOrder(Map<String, dynamic> message) {
     try {
       debugPrint('🔍 Processing new order notification: $message');
-      
+
       // 🔥 CRITICAL FIX: Always trigger refresh first for immediate UI update
       _triggerOrdersRefresh();
-      
+
       // Try different possible data structures
       Map<String, dynamic>? orderData;
-      
+
       // First, try the 'data' field (current backend format from order stream)
       if (message['data'] is Map<String, dynamic>) {
         orderData = message['data'] as Map<String, dynamic>;
@@ -720,12 +830,12 @@ class RealtimeOrderService with WidgetsBindingObserver {
           _fetchAndAddOrder(orderData['orderId'], orderData['businessId']);
           return;
         }
-        
+
         // Ensure we have the required fields for Order.fromJson
         if (!orderData.containsKey('orderId') && orderData.containsKey('id')) {
           orderData['orderId'] = orderData['id'];
         }
-        
+
         try {
           final order = Order.fromJson(orderData);
           _safeAddToNewOrderController(order);
@@ -733,7 +843,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
         } catch (parseError) {
           debugPrint('❌ Error parsing order data: $parseError');
           debugPrint('📄 Order data: $orderData');
-          
+
           // Create a minimal order object as fallback
           final fallbackOrder = _createFallbackOrder(
               orderData, orderData['businessId']?.toString() ?? 'unknown');
@@ -805,8 +915,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
   /// Create a fallback order when parsing fails
   Order? _createFallbackOrder(Map<String, dynamic> data, String businessId) {
     try {
-      final orderId = data['orderId'] ?? data['id'] ?? 'unknown-${DateTime.now().millisecondsSinceEpoch}';
-      
+      final orderId = data['orderId'] ??
+          data['id'] ??
+          'unknown-${DateTime.now().millisecondsSinceEpoch}';
+
       return Order(
         id: orderId.toString(),
         businessId: businessId, // Add businessId parameter
@@ -815,7 +927,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
         customerPhone: data['customerPhone']?.toString() ?? 'N/A',
         deliveryAddress: DeliveryAddress(
           id: 'temp-${DateTime.now().millisecondsSinceEpoch}',
-          street: data['deliveryAddress']?['street']?.toString() ?? 'Unknown Address',
+          street: data['deliveryAddress']?['street']?.toString() ??
+              'Unknown Address',
           city: data['deliveryAddress']?['city']?.toString() ?? 'Unknown City',
           district:
               data['deliveryAddress']?['district']?.toString() ?? 'Unknown',
@@ -876,7 +989,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
   }
 
   /// Send merchant logout notification via WebSocket (public method)
-  void sendMerchantLogout({required String businessId, required String userId}) {
+  void sendMerchantLogout(
+      {required String businessId, required String userId}) {
     debugPrint('🔌 Sending merchant logout notification');
     _sendWebSocketMessage({
       'type': 'MERCHANT_LOGOUT',
@@ -932,11 +1046,12 @@ class RealtimeOrderService with WidgetsBindingObserver {
     if (_isConnected && _channel != null && _businessId != null) {
       final message = {
         'action': 'heartbeat',
-        'type': 'heartbeat',  // ✅ Must be lowercase to match Route Selection Expression
+        'type':
+            'heartbeat', // ✅ Must be lowercase to match Route Selection Expression
         'businessId': _businessId,
         'timestamp': DateTime.now().toIso8601String(),
       };
-      
+
       // ✅ Use _sendWebSocketMessage to ensure consistent message sending
       _sendWebSocketMessage(message);
       debugPrint('💓 Heartbeat sent at ${message['timestamp']}');
@@ -956,6 +1071,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
   void _stopHeartbeatTimer() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _sessionRenewalTimer?.cancel();
+    _sessionRenewalTimer = null;
     debugPrint('💓 Heartbeat timer stopped');
   }
 
@@ -980,14 +1097,16 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   /// Schedule reconnection attempt
   void _scheduleReconnect() {
-    if (_isDisposed || _reconnectAttempts >= maxReconnectAttempts) {
+    if (_isDisposed || _manualDisconnect) {
       debugPrint(
-          '❌ Max reconnection attempts reached or service disposed. Using polling fallback.');
+          'Order connection stopped.');
       return;
     }
 
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(reconnectDelay, () {
+    final delay = _reconnectAttempts >= maxReconnectAttempts
+        ? const Duration(seconds: 30) : reconnectDelay;
+    _reconnectTimer = Timer(delay, () {
       _reconnectAttempts++;
       debugPrint('🔄 WebSocket reconnection attempt $_reconnectAttempts');
       _connectWebSocket();
@@ -996,14 +1115,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   /// Start polling fallback for when WebSocket is not available
   void _startPollingFallback() {
+    // Order reads happen on events, initial load, resume and reconnect only.
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(pollingFallbackInterval, (_) async {
-      if (!_isConnected && _businessId != null && !_isDisposed) {
-        await _pollForNewOrders();
-      }
-    });
-    debugPrint(
-        '📊 Polling fallback started (${pollingFallbackInterval.inSeconds}s interval)');
+    _pollingTimer = null;
   }
 
   /// Poll for new orders when WebSocket is not available
@@ -1011,7 +1125,11 @@ class RealtimeOrderService with WidgetsBindingObserver {
 
   Future<void> _pollForNewOrders() async {
     try {
-      final orders = await _orderService.getMerchantOrders(_businessId);
+      final branch = _businessId, generation = _branchGeneration;
+      if (branch == null) return;
+      final orders = await _orderService.getMerchantOrders(branch);
+      if (generation != _branchGeneration || _isDisposed || _manualDisconnect)
+        return;
       final currentOrderIds = orders.map((o) => o.id).toList();
 
       // Find new orders
@@ -1045,6 +1163,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
   /// Disconnect WebSocket
   Future<void> disconnect() async {
     _manualDisconnect = true;
+    _connectionEpoch++;
+    _orderRefreshPending = false;
     _channel?.sink.close();
     _stopPing();
     _stopHeartbeatTimer(); // ✅ Stop heartbeat timer
@@ -1060,10 +1180,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
   void dispose() {
     debugPrint('🗑️ Disposing RealtimeOrderService...');
     _isDisposed = true;
-    
+
     // Remove lifecycle observer
     WidgetsBinding.instance.removeObserver(this);
-    
+
     disconnect();
     _newOrderController?.close();
     _orderUpdateController?.close();
@@ -1077,30 +1197,31 @@ class RealtimeOrderService with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     debugPrint('📱 App Lifecycle State Changed: $state');
-    
+
     switch (state) {
       case AppLifecycleState.resumed:
         // App returned to foreground
         debugPrint('🟢 App resumed - Reconnecting WebSocket...');
         _handleAppResumed();
         break;
-      
+
       case AppLifecycleState.paused:
         // App went to background
-        debugPrint('⏸️ App paused - Keeping WebSocket alive for background notifications');
+        debugPrint(
+            '⏸️ App paused - Keeping WebSocket alive for background notifications');
         _handleAppPaused();
         break;
-      
+
       case AppLifecycleState.inactive:
         // App is inactive (transitioning)
         debugPrint('🟡 App inactive');
         break;
-      
+
       case AppLifecycleState.detached:
         // App is being terminated
         debugPrint('🔴 App detached');
         break;
-        
+
       case AppLifecycleState.hidden:
         // App window is hidden but still running
         debugPrint('👻 App hidden');
@@ -1116,18 +1237,18 @@ class RealtimeOrderService with WidgetsBindingObserver {
       debugPrint('⚡ Polling immediately after app resume...');
       _pollForNewOrders();
     }
-    
+
     // Reconnect WebSocket if disconnected
     if (!_isConnected && _businessId != null && !_manualDisconnect) {
       debugPrint('🔄 Reconnecting WebSocket after app resume...');
       _connectWebSocket();
     }
-    
+
     // Resume ping timer
     if (_isConnected && _pingTimer == null) {
       _startPing();
     }
-    
+
     // Resume normal polling
     if (_pollingTimer == null || !_pollingTimer!.isActive) {
       _startPollingFallback();
@@ -1142,15 +1263,15 @@ class RealtimeOrderService with WidgetsBindingObserver {
       debugPrint('⚡ Polling immediately before background...');
       _pollForNewOrders();
     }
-    
+
     // On iOS, WebSocket connections are suspended in background
     // We need to increase ping frequency to keep connection alive
     if (_isConnected) {
       debugPrint('📡 Adjusting WebSocket for background mode...');
-      
+
       // Stop normal ping
       _stopPing();
-      
+
       // Start aggressive ping for background (every 10 seconds)
       _pingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
         if (_isConnected && !_manualDisconnect) {
@@ -1162,15 +1283,9 @@ class RealtimeOrderService with WidgetsBindingObserver {
         }
       });
     }
-    
-    // CRITICAL iOS FIX: Increase polling frequency to 5 seconds (was 10)
-    // This provides faster order detection in background
+
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-      if (_businessId != null && !_manualDisconnect) {
-        await _pollForNewOrders();
-      }
-    });
+    _pollingTimer = null;
   }
 
   /// Send order status update to customers via WebSocket
@@ -1182,7 +1297,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
   }) {
     try {
       if (!_isConnected) {
-        debugPrint('⚠️ Cannot send order status update - WebSocket not connected');
+        debugPrint(
+            '⚠️ Cannot send order status update - WebSocket not connected');
         return;
       }
 
@@ -1195,7 +1311,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
       };
 
       _sendWebSocketMessage(message);
-      debugPrint('📤 Sent order status update to customers: $orderId -> $status');
+      debugPrint(
+          '📤 Sent order status update to customers: $orderId -> $status');
     } catch (e) {
       debugPrint('❌ Error sending order status update: $e');
     }

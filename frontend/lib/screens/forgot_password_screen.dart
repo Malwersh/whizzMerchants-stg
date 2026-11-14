@@ -83,7 +83,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget _buildContent() {
     final loc = AppLocalizations.of(context)!;
     final isMobile = ResponsiveHelper.isMobile(context);
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -106,10 +106,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           child: Icon(
             _emailSent ? Icons.mark_email_read : Icons.lock_reset,
             size: ResponsiveHelper.getResponsiveIconSize(context, baseSize: 64),
-            color: WhizzColors.primary,
+            color: const Color(0xFF00296B),
           ),
         ),
-        
+
         // Header Section
         Container(
           padding: EdgeInsets.all(isMobile ? AppSpacing.lg : AppSpacing.xl),
@@ -133,9 +133,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 textAlign: TextAlign.center,
               ),
-              
               SizedBox(height: AppSpacing.sm),
-              
               Text(
                 _emailSent
                     ? loc.emailSentDescription
@@ -149,7 +147,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ],
           ),
         ),
-        
+
         SizedBox(height: isMobile ? AppSpacing.xl : AppSpacing.xxl),
 
         if (!_emailSent) ...[
@@ -244,7 +242,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ],
             ),
           ),
-          
+
           SizedBox(height: isMobile ? AppSpacing.xl : AppSpacing.xxl),
 
           // Continue Button - Using AdaptiveButton

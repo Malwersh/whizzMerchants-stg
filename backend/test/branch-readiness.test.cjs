@@ -1,0 +1,6 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const r=require('../functions/business/branch_readiness');
+test('readiness requires a positive finite price, name and availability',()=>{assert.ok(r.validProduct({name:'كباب',price:3500,isAvailable:true}));for(const p of [{name:'',price:3500,isAvailable:true},{name:'x',price:NaN,isAvailable:true},{name:'x',price:-1,isAvailable:true},{name:'x',price:3500,isAvailable:false}])assert.ok(!r.validProduct(p));});
+test('onboarding day zero is Sunday and closed days are preserved',()=>{const b={businessId:'b',openingHours:Array.from({length:7},(_,day)=>({day,closed:day!==0,periods:day===0?[{open:'09:00',close:'23:00'}]:[]}))};const rows=r.schedule(b,[]);assert.equal(rows[0].weekday,'Sunday');assert.equal(rows[1].isClosed,true);assert.equal(r.validSchedule(rows),true);});
+test('invalid and entirely closed schedules never pass readiness',()=>{assert.equal(r.validSchedule([]),false);assert.equal(r.validSchedule([{isClosed:true,opening:'closed',closing:'closed'}]),false);assert.equal(r.validSchedule([{isClosed:false,opening:'23:00',closing:'09:00'}]),false);});
+test('existing operational hours take precedence over the onboarding copy',()=>{const rows=[{weekday:'Monday',isClosed:false,opening:'10:00',closing:'20:00'}];assert.equal(r.schedule({},rows),rows);});

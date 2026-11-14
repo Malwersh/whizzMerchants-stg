@@ -1,0 +1,18 @@
+{
+  "status": "implemented_merchant_simulator_354",
+  "changes": [
+    "Removed permanent publish card and automatic menu history fetch on page open",
+    "History and rollback accessible through administrative overflow menu",
+    "Pending publication state persisted per branch and notification shown only on failure",
+    "Successful publication hides retry; create update delete record automatic publication status",
+    "Bulk import completes with automatic publication and shared failure recovery"
+  ],
+  "validation": {
+    "flutterTests": 7,
+    "result": "passed"
+  },
+  "limitations": [
+    "Pending notification records failures observed on this app installation; server-side versions remain authoritative",
+    "Existing role restrictions on history, rollback and explicit recovery API are retained"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "feature": "شاشة تجهيز الطلبات KDS",
+  "status": "IMPLEMENTED_SIMULATOR_INSTALLED_TWO_DEVICE_ACCEPTANCE_PENDING",
+  "entry": "تطبيق المطعم ← الطلبات ← شاشة التجهيز",
+  "implementation": {
+    "sharedOrderState": true,
+    "existingRealtimeAndPermissions": true,
+    "additionalPolling": false,
+    "responsive": "Three columns at >=850 logical pixels; stage tabs on phone",
+    "stages": [
+      "confirmed",
+      "preparing",
+      "ready_for_pickup"
+    ],
+    "handover": "Remains in existing orders screen; handed-over orders excluded",
+    "cancellation": "Authoritative cancelled snapshots remove ticket; REQUESTED review blocks kitchen action",
+    "printing": "Uses existing observation and journal; no second print workflow"
+  },
+  "validation": {
+    "automatedTestsPassed": 17,
+    "coverage": [
+      "stage membership",
+      "handover exclusion",
+      "no prices or customer identity",
+      "modifiers and preparation notes",
+      "concurrent tap prevention",
+      "employee permissions",
+      "cancellation snapshot",
+      "responsive three columns",
+      "existing cancellation cache and print regressions"
+    ],
+    "iosSimulatorBuild": "PASS; installed and launched on iPhone 16"
+  },
+  "remaining": [
+    "Two actual devices synchronized on staging with confirmed, preparing, ready and cancellation",
+    "Dedicated kitchen employee provisioning using existing branch grants",
+    "Background/resume and reconnect acceptance on actual kitchen hardware",
+    "No guarantee of paper or live physical device test from widget tests"
+  ]
+}

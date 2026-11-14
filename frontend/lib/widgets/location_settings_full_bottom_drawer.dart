@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'package:uuid/uuid.dart';
+import '../services/person_onboarding_service.dart';
+import '../screens/merchant_location_picker_screen.dart';
+import '../services/merchant_places_service.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/whizz_colors.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,10 +15,14 @@ import '../core/design_system/typography_system.dart';
 
 class LocationSettingsFullBottomDrawer extends ConsumerStatefulWidget {
   final Business business;
+  final ApiService? api;
+  final PersonOnboardingService? onboarding;
 
   const LocationSettingsFullBottomDrawer({
     super.key,
     required this.business,
+    this.api,
+    this.onboarding,
   });
 
   @override
@@ -40,12 +49,19 @@ class LocationSettingsFullBottomDrawer extends ConsumerStatefulWidget {
 class _LocationSettingsFullBottomDrawerState
     extends ConsumerState<LocationSettingsFullBottomDrawer> {
   final _formKey = GlobalKey<FormState>();
-  final _cityController = TextEditingController();
-  final _districtController = TextEditingController();
-  final _countryController = TextEditingController();
   final _streetController = TextEditingController();
 
   bool _isLoading = false;
+  double? _latitude, _longitude;
+  List<Map<String, dynamic>> _regions = [];
+  List<String> _regionPath = [];
+  String? _loadError;
+  dynamic _locationVersion;
+
+  double? _originalLatitude, _originalLongitude;
+  List<String> _originalPath=[];
+  String? _pendingId, _pendingSignature;
+  bool get _moved => _latitude!=_originalLatitude || _longitude!=_originalLongitude || jsonEncode(_regionPath)!=jsonEncode(_originalPath);
 
   @override
   void initState() {
@@ -55,9 +71,6 @@ class _LocationSettingsFullBottomDrawerState
 
   @override
   void dispose() {
-    _cityController.dispose();
-    _districtController.dispose();
-    _countryController.dispose();
     _streetController.dispose();
     super.dispose();
   }
@@ -68,80 +81,49 @@ class _LocationSettingsFullBottomDrawerState
     });
 
     try {
-      // Load business data
-      final business = widget.business;
-
-      // Extract data directly from business properties
-      String city = business.city ?? '';
-      String district = business.district ?? '';
-      String street = business.street ?? '';
-      String country = business.country ?? 'Iraq';
-      String mainAddress = business.address ?? '';
-
-      // If we don't have a full address but have components, build it
-      if (mainAddress.isEmpty &&
-          (city.isNotEmpty || district.isNotEmpty || street.isNotEmpty)) {
-        final addressParts = [street, district, city, country]
-            .where((part) => part.isNotEmpty)
-            .toList();
-        mainAddress = addressParts.join(', ');
-      }
-
-      // Set the form fields with extracted data
+      final responses = await Future.wait([
+        (widget.api ?? ApiService())
+            .getBusinessLocationSettings(widget.business.id),
+        (widget.onboarding ?? PersonOnboardingService())
+            .call('onboarding-regions', authenticated: false),
+      ]);
+      final data = Map<String, dynamic>.from(responses[0]['settings']);
+      if (!mounted) return;
       setState(() {
-        _cityController.text = city;
-        _districtController.text = district;
-        _streetController.text = street;
-        _countryController.text = country;
+        _loadError = null;
+        _regions = List<Map<String, dynamic>>.from(responses[1]['items']);
+        _regionPath = List<String>.from(data['regionPath'] ?? []);
+        _latitude = double.tryParse(data['latitude'].toString());
+        _longitude = double.tryParse(data['longitude'].toString());
+        _locationVersion = data['locationVersion'];
+        _originalLatitude=_latitude; _originalLongitude=_longitude; _originalPath=List<String>.from(_regionPath);
+        _streetController.text = data['address']?.toString() ?? '';
       });
-
-      // Try to load additional location settings from API
-      final apiService = ApiService();
-      try {
-        final settings =
-            await apiService.getBusinessLocationSettings(business.id);
-        if (mounted && settings['settings'] != null) {
-          final locationData = settings['settings'];
-
-          setState(() {
-            // Override with API data if available and more specific
-            if (locationData['city']?.toString().isNotEmpty == true) {
-              _cityController.text = locationData['city'].toString();
-            }
-            if (locationData['district']?.toString().isNotEmpty == true) {
-              _districtController.text = locationData['district'].toString();
-            }
-            if (locationData['street']?.toString().isNotEmpty == true) {
-              _streetController.text = locationData['street'].toString();
-            }
-            if (locationData['country']?.toString().isNotEmpty == true) {
-              _countryController.text = locationData['country'].toString();
-            }
-          });
-        }
-      } catch (e) {
-        // If location settings don't exist, continue with business data
-      }
-    } catch (e) {
-      if (mounted) {
-        final loc = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(loc.failedToLoadLocationSettings(e.toString())),
-            backgroundColor: WhizzColors.error,
-          ),
-        );
-      }
+    } catch (_) {
+      if (mounted)
+        setState(() => _loadError =
+            'تعذر تحميل العنوان المحفوظ أو قائمة المناطق. أعد المحاولة.');
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<void> _pickLocation() async {
+    final selected = await Navigator.of(context).push<MerchantLocation>(
+        MaterialPageRoute(
+            builder: (_) => MerchantLocationPickerScreen(
+                initial: _latitude != null && _longitude != null
+                    ? MerchantLocation(_latitude!, _longitude!)
+                    : null)));
+    if (selected != null && mounted)
+      setState(() {
+        _latitude = selected.latitude;
+        _longitude = selected.longitude;
+      });
+  }
+
   Future<void> _saveLocationSettings() async {
+    if (_loadError != null) return;
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -151,52 +133,40 @@ class _LocationSettingsFullBottomDrawerState
     });
 
     try {
-      final apiService = ApiService();
+      final apiService = widget.api ?? ApiService();
 
       // Create comprehensive location settings object
+      if (_loadError != null ||
+          _regionPath.length != 4 ||
+          _latitude == null ||
+          _longitude == null)
+        throw Exception('أكمل المنطقة وحدد الموقع على الخريطة.');
       final settings = {
-        // Individual address components for mapping
-        'city': _cityController.text.trim(),
-        'district': _districtController.text.trim(),
-        'country': _countryController.text.trim(),
-        'street': _streetController.text.trim(),
-
-        // Build address string for backward compatibility
-        'address': _buildAddressString(),
-
-        // Additional metadata
-        'updated_at': DateTime.now().toIso8601String(),
-
-        // Also include the DynamoDB format for backward compatibility
-        'address_components': {
-          'city': {'S': _cityController.text.trim()},
-          'district': {'S': _districtController.text.trim()},
-          'country': {'S': _countryController.text.trim()},
-          'street': {'S': _streetController.text.trim()},
-        },
+        'latitude': _latitude,
+        'longitude': _longitude,
+        'regionPath': List<String>.from(_regionPath),
+        'locationVersion': _locationVersion,
+        'address': _streetController.text.trim(),
       };
 
-      // Remove empty fields to keep the data clean
-      settings.removeWhere((key, value) => (value is String && value.isEmpty));
-
-      // Also remove empty nested components
-      if (settings['address_components'] != null) {
-        final components =
-            settings['address_components'] as Map<String, dynamic>;
-        components.removeWhere((key, value) {
-          if (value is Map<String, dynamic> && value['S'] is String) {
-            return (value['S'] as String).isEmpty;
-          }
-          return false;
-        });
-
-        if (components.isEmpty) {
-          settings.remove('address_components');
-        }
+      if (_moved) {
+        final reason=TextEditingController();
+        final accepted=await showDialog<bool>(context:context,builder:(dialog)=>AlertDialog(
+          title:const Text('طلب نقل موقع النشاط'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+            const Text('يبقى الموقع المعتمد ساريًا حتى موافقة الشركة.'),
+            TextField(controller:reason,maxLength:1000,decoration:const InputDecoration(labelText:'سبب التعديل (خمسة أحرف على الأقل)'))]),
+          actions:[TextButton(onPressed:()=>Navigator.pop(dialog,false),child:const Text('إلغاء')),TextButton(onPressed:(){if(reason.text.trim().length>=5)Navigator.pop(dialog,true);},child:const Text('إرسال للمراجعة'))]));
+        final text=reason.text.trim();reason.dispose();
+        if(accepted!=true)return;
+        final proposed={'latitude':_latitude,'longitude':_longitude,'regionPath':List<String>.from(_regionPath),'address':_streetController.text.trim()};
+        final signature=jsonEncode([proposed,text]);
+        if(signature!=_pendingSignature){_pendingId=const Uuid().v4();_pendingSignature=signature;}
+        await (widget.onboarding??PersonOnboardingService()).call('business-changes',body:{
+          'businessId':widget.business.id,'requestId':_pendingId,'baseUpdatedAt':_locationVersion,
+          'kind':'LOCATION','proposed':proposed,'reason':text});
+      } else {
+        await apiService.updateBusinessLocationSettings(widget.business.id, settings);
       }
-
-      await apiService.updateBusinessLocationSettings(
-          widget.business.id, settings);
 
       if (mounted) {
         final loc = AppLocalizations.of(context)!;
@@ -208,7 +178,7 @@ class _LocationSettingsFullBottomDrawerState
                 Icon(Icons.check_circle, color: WhizzColors.onSecondary),
                 SizedBox(width: GoldenRatio.spacing12),
                 Text(
-                  loc.locationSettingsSavedSuccessfully,
+                  _moved ? 'أُرسل طلب نقل الموقع للمراجعة. الموقع المعتمد لم يتغير.' : loc.locationSettingsSavedSuccessfully,
                   style: TypographySystem.bodyMedium.copyWith(
                     color: WhizzColors.onSecondary,
                     fontWeight: FontWeight.w500,
@@ -259,27 +229,6 @@ class _LocationSettingsFullBottomDrawerState
         });
       }
     }
-  }
-
-  /// Build a readable address string from individual components
-  String _buildAddressString() {
-    // Build from components
-    final parts = <String>[];
-
-    if (_streetController.text.trim().isNotEmpty) {
-      parts.add(_streetController.text.trim());
-    }
-    if (_districtController.text.trim().isNotEmpty) {
-      parts.add(_districtController.text.trim());
-    }
-    if (_cityController.text.trim().isNotEmpty) {
-      parts.add(_cityController.text.trim());
-    }
-    if (_countryController.text.trim().isNotEmpty) {
-      parts.add(_countryController.text.trim());
-    }
-
-    return parts.join(', ');
   }
 
   @override
@@ -372,6 +321,16 @@ class _LocationSettingsFullBottomDrawerState
                       children: [
                         // Business Address Section
                         _buildAddressSection(loc),
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          onPressed: _isLoading ? null : _pickLocation,
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text('تعديل الموقع على الخريطة'),
+                        ),
+                        if (_latitude != null && _longitude != null)
+                          Text(
+                              'الموقع المحدد: ${_latitude!.toStringAsFixed(7)}, ${_longitude!.toStringAsFixed(7)}',
+                              textDirection: TextDirection.ltr),
                         SizedBox(height: GoldenRatio.spacing24),
 
                         // Save Button
@@ -413,89 +372,81 @@ class _LocationSettingsFullBottomDrawerState
     );
   }
 
-  Widget _buildAddressSection(AppLocalizations loc) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(
-              Icons.business,
-              color: Colors.grey.shade600,
-              size: GoldenRatio.spacing20,
-            ),
-            SizedBox(width: GoldenRatio.spacing8),
-            Text(
-              loc.businessAddress,
-              style: TypographySystem.bodyLarge.copyWith(
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade700,
+  Widget _buildAddressSection(AppLocalizations loc) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_loadError != null) ...[
+            Text(_loadError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            TextButton(
+                onPressed: _loadLocationSettings,
+                child: const Text('إعادة المحاولة')),
+          ] else ...[
+            for (var level = 0; level < 4; level++) ...[
+              DropdownButtonFormField<String>(
+                key: ValueKey(
+                    'location-region-$level-${_regionPath.take(level).join('-')}'),
+                initialValue: _regionPath.length > level &&
+                        _regions.any((r) =>
+                            r['id'] == _regionPath[level] &&
+                            r['level'] == level &&
+                            (level == 0 ||
+                                r['parentId'] == _regionPath[level - 1]))
+                    ? _regionPath[level]
+                    : null,
+                decoration: InputDecoration(
+                    labelText: const [
+                      'البلد',
+                      'المحافظة',
+                      'القضاء',
+                      'المنطقة أو الحي'
+                    ][level],
+                    border: const OutlineInputBorder()),
+                items: [
+                  for (final region in _regions.where((r) =>
+                      r['level'] == level &&
+                      (level == 0 ||
+                          (_regionPath.length >= level &&
+                              r['parentId'] == _regionPath[level - 1]))))
+                    DropdownMenuItem(
+                        value: region['id'] as String,
+                        child: Text(region['labelAr'] as String))
+                ],
+                validator: (value) => value == null
+                    ? 'اختر ${const [
+                        'البلد',
+                        'المحافظة',
+                        'القضاء',
+                        'المنطقة أو الحي'
+                      ][level]}'
+                    : null,
+                onChanged:
+                    _isLoading || (level > 0 && _regionPath.length < level)
+                        ? null
+                        : (value) {
+                            if (value == null ||
+                                (_regionPath.length > level &&
+                                    _regionPath[level] == value)) return;
+                            setState(() {
+                              _regionPath = [..._regionPath.take(level), value];
+                              _latitude = null;
+                              _longitude = null;
+                            });
+                          },
               ),
-            ),
-          ],
-        ),
-        SizedBox(height: GoldenRatio.spacing16),
-
-        // Address form fields
-        Row(
-          children: [
-            Expanded(
-              child: _buildModernTextField(
-                controller: _cityController,
-                label: loc.city,
-                icon: Icons.location_city,
+              const SizedBox(height: 16),
+            ],
+            _buildModernTextField(
+                controller: _streetController,
+                label: 'العنوان التفصيلي',
+                icon: Icons.streetview,
                 color: Colors.grey.shade600,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return loc.cityRequired;
-                  }
-                  return null;
-                },
-              ),
-            ),
-            SizedBox(width: GoldenRatio.spacing16),
-            Expanded(
-              child: _buildModernTextField(
-                controller: _districtController,
-                label: loc.district,
-                icon: Icons.map,
-                color: Colors.grey.shade600,
-              ),
-            ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'أدخل العنوان التفصيلي'
+                    : null),
           ],
-        ),
-        SizedBox(height: GoldenRatio.spacing20),
-
-        _buildModernTextField(
-          controller: _countryController,
-          label: loc.country,
-          icon: Icons.public,
-          color: Colors.grey.shade600,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return loc.pleaseEnterCountry;
-            }
-            return null;
-          },
-        ),
-        SizedBox(height: GoldenRatio.spacing16),
-
-        _buildModernTextField(
-          controller: _streetController,
-          label: loc.streetName,
-          icon: Icons.streetview,
-          color: Colors.grey.shade600,
-          helperText: loc.streetNameHelper,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return loc.streetNameRequired;
-            }
-            return null;
-          },
-        ),
-      ],
-    );
-  }
+        ],
+      );
 
   Widget _buildSaveButton(AppLocalizations loc) {
     return Container(
@@ -552,7 +503,7 @@ class _LocationSettingsFullBottomDrawerState
                   SizedBox(width: GoldenRatio.spacing12),
                 ],
                 Text(
-                  _isLoading ? loc.saving : loc.saveLocationSettings,
+                  _isLoading ? loc.saving : (_moved ? 'طلب نقل الموقع' : loc.saveLocationSettings),
                   style: TypographySystem.titleMedium.copyWith(
                     color: WhizzColors.secondary,
                     fontWeight: FontWeight.bold,

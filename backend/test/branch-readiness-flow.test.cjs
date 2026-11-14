@@ -1,0 +1,14 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+function fixture({blocked=false,product=true,activated=false}={}){
+ const business={businessId:'b',ownerId:'owner',onboardingDraftId:'draft',onboardingSchemaVersion:2,businessName:'فتوش',phoneNumber:'+9647812345678',status:'approved',updatedAt:'v1',address:{fullAddress:'عنوان',latitude:31,longitude:44},regionPath:['c','p','d','r'],platformSuspended:blocked,onboardingComplete:activated,isActive:activated,openingHours:Array.from({length:7},(_,day)=>({day,closed:false,periods:[{open:'09:00',close:'23:00'}]}))};
+ const draft={pk:'PERSON#owner',sk:'DRAFT#draft',version:2,businessId:'b',reviewStatus:'APPROVED',submission:{agreement:{version:'terms1'}}},p={productId:'p',businessId:'b',name:'كباب',price:3500,isAvailable:true},writes=[];
+ const classes=Object.fromEntries(['GetCommand','QueryCommand','TransactWriteCommand'].map(kind=>[kind,class{constructor(input){this.input=input;this.kind=kind;}}]));
+ const context={module:{exports:{}},require:name=>name==='@aws-sdk/lib-dynamodb'?classes:{validate:async()=>({checks:[{ConditionCheck:{TableName:'WizzCentral_Regions',Key:{regionId:'r'}}}]})}};
+ vm.runInNewContext(fs.readFileSync(require.resolve('../functions/business/branch_readiness'),'utf8'),context);
+ const db={send:async command=>{const i=command.input;if(command.kind==='GetCommand')return {Item:i.TableName==='WhizzMerchants_Businesses'?business:i.TableName==='staging-MerchantPlatform'?draft:i.TableName==='WhizzMerchants_Products'?p:undefined};if(command.kind==='QueryCommand')return {Items:product?[p]:[]};writes.push(i);return {};}};
+ return {db,writes,...context.module.exports};
+}
+test('activation atomically initializes hours and remains offline',async()=>{const f=fixture(),r=await f.activate(f.db,'b');assert.equal(r.activated,true);assert.equal(r.acceptingOrders,false);const tx=f.writes[0].TransactItems;assert.equal(tx.filter(x=>x.Put?.TableName==='WhizzMerchants_BusinessWorkingHours').length,7);assert.ok(tx.some(x=>x.ConditionCheck?.TableName==='WhizzMerchants_Products'));assert.ok(tx.some(x=>x.Put?.TableName==='staging-MerchantPlatform'));assert.ok(!JSON.stringify(tx).includes('Wallet'));});
+test('company suspension prevents completion without a write',async()=>{const f=fixture({blocked:true}),r=await f.activate(f.db,'b');assert.equal(r.activated,false);assert.ok(r.missing.includes('APPROVAL'));assert.equal(f.writes.length,0);});
+test('missing usable product is explained and never activates',async()=>{const f=fixture({product:false}),r=await f.activate(f.db,'b');assert.ok(r.missing.includes('PRODUCT'));assert.equal(f.writes.length,0);});
+test('activation retry does not overwrite current reception status',async()=>{const f=fixture({activated:true}),r=await f.activate(f.db,'b');assert.equal(r.alreadyActivated,true);assert.equal(f.writes.length,0);});

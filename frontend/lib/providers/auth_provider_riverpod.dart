@@ -1,3 +1,4 @@
+import '../services/merchant_financial_session_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/app_auth_service.dart';
 import '../services/cognito_auth_service.dart';
@@ -36,11 +37,16 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier() : super(const AuthState());
+  AuthNotifier({Future<void> Function()? signOutAction})
+      : _signOutAction = signOutAction ?? AppAuthService.signOut,
+        super(const AuthState());
+
+  final Future<void> Function() _signOutAction;
   
   final CognitoAuthService _cognitoService = CognitoAuthService();
 
   Future<void> initialize() async {
+    MerchantFinancialSessionState.instance.clear();
     state = state.copyWith(isLoading: true);
     try {
       final signedIn = await AppAuthService.isSignedIn();
@@ -50,11 +56,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (signedIn) {
         userData = await AppAuthService.getCurrentUser();
         
-        // Register push token if already signed in
+        // Register only after live identity validation.
+        if (userData != null) {
         try {
-          final businessId = userData?['custom:business_id'] ?? 
-                            userData?['custom:businessId'] ?? 
-                            userData?['businessId'];
+          final businessId = userData['custom:business_id'] ??
+                            userData['custom:businessId'] ??
+                            userData['businessId'];
           await PushNotificationsService.instance.registerTokenIfPossible(
             businessId: businessId is String ? businessId : null,
           );
@@ -62,10 +69,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         } catch (e) {
           AppLogger.warning('⚠️ Push token registration failed on init (non-critical): $e');
         }
+        }
       }
       
-      state = state.copyWith(
-        status: signedIn
+      state = AuthState(
+        status: signedIn && userData != null
             ? AuthStatus.authenticated
             : AuthStatus.unauthenticated,
         isLoading: false,
@@ -81,14 +89,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
   
   Future<void> signOut() async {
+    MerchantFinancialSessionState.instance.clear();
+    // Leave protected UI before clearing the branch/session it reads.
+    state = const AuthState(
+      status: AuthStatus.unauthenticated,
+      isLoading: true,
+    );
     try {
-      await AppAuthService.signOut();
+      await _signOutAction();
     } catch (e) {}
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
   /// Sign in user with email and password
   Future<Map<String, dynamic>> signIn(String email, String password) async {
+    MerchantFinancialSessionState.instance.clear();
     state = state.copyWith(isLoading: true, errorMessage: null);
     
     try {

@@ -239,7 +239,7 @@ class _LanguageSettingsBottomDrawerState
                     ),
                     child: Icon(
                       Icons.check_rounded,
-                      color: WhizzColors.white,
+                      color: const Color(0xFF00296B),
                       size: 16,
                     ),
                   )

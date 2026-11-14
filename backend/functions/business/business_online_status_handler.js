@@ -1,10 +1,12 @@
+const {merchantLifecycleClient,merchantHandler}=require('../shared/merchant-lifecycle');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const jwt = require('jsonwebtoken');
 
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const dynamodb = DynamoDBDocumentClient.from(dynamoDbClient);
+const lifecycleRawDb = DynamoDBDocumentClient.from(dynamoDbClient);
+const dynamodb = merchantLifecycleClient(lifecycleRawDb);
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
 const corsHeaders = {
@@ -108,17 +110,23 @@ async function updateBusinessAcceptingOrders(businessId, acceptingOrders, userId
             Key: {
                 businessId: businessId
             },
-            UpdateExpression: 'SET acceptingOrders = :accepting, lastStatusUpdate = :timestamp, onlineStatus = :status, statusUpdatedBy = :userId, statusSource = :source',
+            UpdateExpression: 'SET acceptingOrders = :accepting, lastStatusUpdate = :timestamp, onlineStatus = :status, operatingStatus = :operating, statusUpdatedBy = :userId, statusSource = :source REMOVE ordersPausedUntil, orderPauseId',
             ExpressionAttributeValues: {
                 ':accepting': acceptingOrders,
                 ':timestamp': timestamp,
                 ':status': acceptingOrders ? 'online' : 'offline',
+                ':operating': acceptingOrders ? 'AVAILABLE' : 'OFFLINE',
                 ':userId': userId,
                 ':source': source
             },
             ReturnValues: 'ALL_NEW'
         });
 
+        if(acceptingOrders){
+            updateCommand.input.ConditionExpression='isActive=:enabled AND (#review=:approved OR #review=:active) AND (attribute_not_exists(onboardingSchemaVersion) OR onboardingComplete=:enabled) AND (attribute_not_exists(platformSuspended) OR platformSuspended=:disabled) AND (attribute_not_exists(ordersBlocked) OR ordersBlocked=:disabled)';
+            updateCommand.input.ExpressionAttributeNames={'#review':'status'};
+            Object.assign(updateCommand.input.ExpressionAttributeValues,{':enabled':true,':approved':'approved',':active':'active',':disabled':false});
+        }
         const result = await dynamodb.send(updateCommand);
         
         console.log(`✅ Business accepting orders updated successfully: ${businessId} -> ${acceptingOrders}`);
@@ -287,6 +295,16 @@ async function handleBusinessStatusToggle(event) {
         }
 
         const body = JSON.parse(bodyString);
+        if(['set_order_reception','pause_orders'].includes(body.action)){
+            const {Item:b}=await dynamodb.send(new GetCommand({TableName:process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}));
+            const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+            return createResponse(200,{success:true,data:await require('../shared/order-reception').execute(dynamodb,b,{subjectId:actor.sub,ownerId:actor.sub,role:'OWNER'},[],body,true)});
+        }
+
+        if(body.action==='complete_setup'){
+            const result=await require('./branch_readiness').activate(dynamodb,businessId);
+            return createResponse(result.activated?200:409,{success:result.activated,...result});
+        }
         const { status, source } = body;
 
         if (status === undefined) {
@@ -299,6 +317,11 @@ async function handleBusinessStatusToggle(event) {
 
         // Convert status to boolean
         const acceptingOrders = status === 'online' || status === true || status === 'true';
+
+        if(acceptingOrders){
+            const {Item:branch}=await dynamodb.send(new GetCommand({TableName:process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}));
+            if(!branch||branch.isActive!==true||branch.platformSuspended===true||branch.ordersBlocked===true||branch.deletionRequestId||!['approved','active'].includes(branch.status)||(branch.onboardingSchemaVersion>=2&&branch.onboardingComplete!==true))return createResponse(409,{success:false,code:'BRANCH_NOT_READY',message:'الفرع يحتاج اعتمادًا واكتمال التجهيز قبل استقبال الطلبات.'});
+        }
 
         console.log(`🔄 Toggle request: ${businessId} -> acceptingOrders: ${acceptingOrders} (user: ${userId})`);
 
@@ -320,7 +343,7 @@ async function handleBusinessStatusToggle(event) {
 
     } catch (error) {
         console.error('❌ Error in toggle handler:', error);
-        return createResponse(500, {
+        return createResponse(error.status||500, {
             success: false,
             message: 'Failed to update business status',
             error: error.message
@@ -333,6 +356,13 @@ async function handleBusinessStatusToggle(event) {
  */
 async function handleGetBusinessStatus(event) {
     try {
+        if(event.queryStringParameters?.view==='order-reception'){
+            const businessId=event.pathParameters.businessId;
+            const {Item:b}=await dynamodb.send(new GetCommand({TableName:process.env.BUSINESSES_TABLE||'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}));
+            const actor=require('../shared/merchant-lifecycle').merchantRequestContext.getStore();
+            return createResponse(200,{success:true,data:await require('../shared/order-reception').execute(dynamodb,b,{subjectId:actor.sub,ownerId:actor.sub,role:'OWNER'},[],{action:'read_order_reception'},true)});
+        }
+
         const { businessId } = event.pathParameters;
         const authHeader = event.headers.Authorization || event.headers.authorization;
         const userId = getUserIdFromToken(authHeader);
@@ -356,6 +386,10 @@ async function handleGetBusinessStatus(event) {
         }
 
         // Get current business status
+        if(event.queryStringParameters?.includeReadiness==='true'){
+            const result=await require('./branch_readiness').inspect(dynamodb,businessId);
+            return createResponse(200,{success:true,ready:result.ready,missing:result.missing,alreadyActivated:result.alreadyActivated});
+        }
         const statusResult = await getBusinessCurrentStatus(businessId);
 
         console.log(`✅ Status request completed: ${businessId}`);
@@ -382,7 +416,7 @@ async function handleGetBusinessStatus(event) {
  */
 exports.handler = async (event) => {
     console.log('🚀 Business Status Handler - Perfect Solution');
-    console.log('📥 Event:', JSON.stringify(event, null, 2));
+    console.log('📥 Event:', {method:event.httpMethod,path:event.path});
 
     // Handle preflight CORS requests
     if (event.httpMethod === 'OPTIONS') {
@@ -459,3 +493,5 @@ async function getBusinessOnlineStatus(businessId) {
 
 // Export for backward compatibility
 module.exports.getBusinessOnlineStatus = getBusinessOnlineStatus;
+
+module.exports.handler=merchantHandler(module.exports.handler,{db:lifecycleRawDb});

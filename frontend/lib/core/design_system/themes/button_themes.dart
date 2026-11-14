@@ -17,7 +17,7 @@ class ButtonThemes {
 
   static final ButtonStyle primaryElevatedButton = ElevatedButton.styleFrom(
     backgroundColor: WhizzColors.primary,
-    foregroundColor: Colors.white,
+    foregroundColor: WhizzColors.secondary,
     elevation: GoldenRatio.xs,
     padding: const EdgeInsets.symmetric(
       horizontal: GoldenRatio.lg,
@@ -32,7 +32,7 @@ class ButtonThemes {
 
   static final ButtonStyle secondaryElevatedButton = ElevatedButton.styleFrom(
     backgroundColor: WhizzColors.secondary,
-    foregroundColor: Colors.black,
+    foregroundColor: Colors.white,
     elevation: GoldenRatio.xs,
     padding: const EdgeInsets.symmetric(
       horizontal: GoldenRatio.lg,
@@ -47,7 +47,7 @@ class ButtonThemes {
 
   static final ButtonStyle largeElevatedButton = ElevatedButton.styleFrom(
     backgroundColor: WhizzColors.primary,
-    foregroundColor: Colors.white,
+    foregroundColor: WhizzColors.secondary,
     elevation: GoldenRatio.sm,
     padding: const EdgeInsets.symmetric(
       horizontal: GoldenRatio.xl,
@@ -65,7 +65,7 @@ class ButtonThemes {
   // ══════════════════════════════════════════════════════════════════════════
 
   static final ButtonStyle primaryOutlinedButton = OutlinedButton.styleFrom(
-    foregroundColor: WhizzColors.primary,
+    foregroundColor: WhizzColors.secondary,
     padding: const EdgeInsets.symmetric(
       horizontal: GoldenRatio.lg,
       vertical: GoldenRatio.md,
@@ -99,7 +99,7 @@ class ButtonThemes {
   );
 
   static final ButtonStyle largeOutlinedButton = OutlinedButton.styleFrom(
-    foregroundColor: WhizzColors.primary,
+    foregroundColor: WhizzColors.secondary,
     padding: EdgeInsets.symmetric(
       horizontal: GoldenRatio.xl,
       vertical: GoldenRatio.lg,
@@ -120,7 +120,7 @@ class ButtonThemes {
   // ══════════════════════════════════════════════════════════════════════════
 
   static final ButtonStyle primaryTextButton = TextButton.styleFrom(
-    foregroundColor: WhizzColors.primary,
+    foregroundColor: WhizzColors.secondary,
     padding: EdgeInsets.symmetric(
       horizontal: GoldenRatio.md,
       vertical: GoldenRatio.sm,
@@ -152,7 +152,7 @@ class ButtonThemes {
   static final FloatingActionButtonThemeData fabTheme =
       FloatingActionButtonThemeData(
     backgroundColor: WhizzColors.primary,
-    foregroundColor: Colors.white,
+    foregroundColor: WhizzColors.secondary,
     elevation: GoldenRatio.sm,
     focusElevation: GoldenRatio.md,
     hoverElevation: GoldenRatio.md,
@@ -167,7 +167,7 @@ class ButtonThemes {
   // ══════════════════════════════════════════════════════════════════════════
 
   static final ButtonStyle primaryIconButton = IconButton.styleFrom(
-    foregroundColor: WhizzColors.primary,
+    foregroundColor: WhizzColors.secondary,
     backgroundColor: WhizzColors.primary.withValues(alpha: 0.12),
     padding: EdgeInsets.all(GoldenRatio.sm),
     minimumSize: Size(GoldenRatio.xl, GoldenRatio.xl),

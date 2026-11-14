@@ -1,0 +1,11 @@
+{
+  "status": "published_verified_staging",
+  "function": "order-receiver-regional-staging-product-management-v4-sam",
+  "sha256": "n5jNg2iYJrhZv/x1RLC79uW57EzqGm0kVk/QfbaNL3g=",
+  "change": "Allow canonical menu.edit staff to assign validated product cuisineIds; legacy and unauthorized staff remain denied; branch guards and atomic audit retained",
+  "automatedTests": 19,
+  "publishedOperationsTests": 5,
+  "clientUpdateRequired": false,
+  "configurationUnchanged": true,
+  "uat": "Retry product classification from merchant signed-in branch session; no product changed by agent"
+}

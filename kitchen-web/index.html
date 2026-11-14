@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>ويز · شاشة المطبخ</title><link rel="stylesheet" href="kitchen.css"></head>
+<body><header><div><strong>شاشة المطبخ</strong><span id="branch"></span></div><div class="tools"><span id="connection" role="status">جارٍ الاتصال</span><button id="refresh" hidden>تحديث الطلبات</button><button id="unlink" hidden>فصل الشاشة</button></div></header>
+<main><section id="pairing" class="pairing"><div class="mark">Wizz</div><h1>اربط شاشة المطبخ</h1><p>من تطبيق المطعم، افتح «شاشات المطبخ» وأدخل الرمز:</p><div id="code" aria-live="polite" dir="ltr">—</div><p id="pair-status">جارٍ تجهيز رمز آمن…</p><button id="new-code" hidden>إنشاء رمز جديد</button></section>
+<section id="board" class="board" hidden aria-label="طلبات المطبخ"></section><p id="message" class="message" role="alert" hidden></p></main>
+<script src="config.js"></script><script src="kitchen.js"></script></body></html>
