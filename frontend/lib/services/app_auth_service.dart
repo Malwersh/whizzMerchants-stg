@@ -337,6 +337,40 @@ class AppAuthService {
 
   /// Step 1: start sign-in. Cognito's CreateAuthChallenge trigger sends the code via OTPIQ.
   static String? lastSignInStep;
+
+  /// Exchanges the one-use enrollment proof for a normal persisted session.
+  /// Uses the returned Cognito username, not a new phone challenge.
+  static Future<SignInResult> completeProductionEnrollment({
+    required String username,
+    required String loginProof,
+  }) async {
+    if (!AppConfig.isProduction ||
+        AppConfig.cognitoUserPoolId != 'us-east-1_2sKZ4fGbZ' ||
+        AppConfig.appClientId != '5l8ng11uudg146crop63926svq' ||
+        username.trim().isEmpty ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(loginProof)) {
+      throw StateError('Invalid production enrollment configuration');
+    }
+    await initialize();
+    try {
+      await amplify.Amplify.Auth.signOut();
+    } catch (_) {}
+    final result = await amplify.Amplify.Auth.signIn(
+      username: username,
+      options: const amplify.SignInOptions(
+        pluginOptions: CognitoSignInPluginOptions(
+          authFlowType: amplify.AuthenticationFlowType.customAuthWithoutSrp,
+        ),
+      ),
+    );
+    if (result.nextStep.signInStep !=
+        amplify.AuthSignInStep.confirmSignInWithCustomChallenge) {
+      return SignInResult(
+          success: false, message: 'ENROLLMENT_LOGIN_FAILED', businesses: []);
+    }
+    return confirmPhoneCode(loginProof);
+  }
+
   static Future<bool> startPhoneSignIn(String phoneE164) async {
     await initialize();
     try {

@@ -1088,6 +1088,47 @@ Resources:
                           method.response.header.Access-Control-Allow-Origin: "'*'"
                           method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
                           method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              /auth/ownership-transfer:
+                get:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                post:
+                  security:
+                    - CognitoAuthorizer: []
+                  x-amazon-apigateway-integration:
+                    type: aws_proxy
+                    httpMethod: POST
+                    uri: arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${UnifiedAuthFunction.Arn}/invocations
+                options:
+                  security: []
+                  responses:
+                    '200':
+                      description: CORS preflight response
+                      headers:
+                        Access-Control-Allow-Origin:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Methods:
+                          schema:
+                            type: string
+                        Access-Control-Allow-Headers:
+                          schema:
+                            type: string
+                  x-amazon-apigateway-integration:
+                    type: mock
+                    requestTemplates:
+                      application/json: '{"statusCode": 200}'
+                    responses:
+                      default:
+                        statusCode: "200"
+                        responseParameters:
+                          method.response.header.Access-Control-Allow-Origin: "'*'"
+                          method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+                          method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,Access-Token,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
               /auth/commercial-agreements:
                 get:
                   security:
@@ -2915,6 +2956,7 @@ Resources:
       Environment:
         Variables:
           SETTLEMENT_SCHEDULE_ADMIN_ENABLED: 'true'
+          MERCHANT_OWNERSHIP_TRANSFER_ENABLED: !If [IsFinancialReturnStaging, 'true', 'false']
           COMMERCIAL_ADMIN_ENABLED: !Ref CommercialAdminEnabled
           FINANCIAL_COD_RETURNS_MODE: !If [IsFinancialReturnStaging, 'REQUIRED', 'OFF']
           FINANCIAL_COD_ASSIGNMENTS_MODE: !If [IsFinancialReturnStaging, 'REQUIRED', 'OFF']
@@ -2925,6 +2967,14 @@ Resources:
       CodeUri: functions/auth/
       Handler: unified_auth_handler.handler
       Policies:
+        - !If [IsFinancialReturnStaging, 'arn:aws:iam::699561669180:policy/StagingMerchantOwnershipParticipantOnly', !Ref 'AWS::NoValue']
+        - !If
+          - IsFinancialReturnStaging
+          - Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: 'arn:aws:lambda:us-east-1:699561669180:function:wizzcentral-notifications-staging-pushSendMerchantOrder'
+          - !Ref AWS::NoValue
         - Statement:
           - Effect: Allow
             Action: [dynamodb:Query]

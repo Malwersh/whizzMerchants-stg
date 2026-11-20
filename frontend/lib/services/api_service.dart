@@ -7,6 +7,7 @@ import '../core/utils/app_logger.dart';
 import '../models/user.dart';
 import 'package:whizz_merchants/config/app_config.dart';
 import 'app_auth_service.dart';
+import '../config/merchant_auth_routes.dart';
 import 'auth_header_builder.dart';
 import 'secure_token_storage.dart';
 import 'token_refresh_service.dart';
@@ -164,7 +165,11 @@ class ApiService {
 
     AppLogger.debug('📡 getUserBusinesses: calling /auth/user-businesses...');
     final response = await http.get(
-      Uri.parse('$baseUrl/auth/user-businesses'),
+      MerchantAuthRoutes.resolve(
+        environment: AppConfig.environment,
+        baseUrl: baseUrl,
+        path: 'user-businesses',
+      ),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token', // ← LOGIN TOKEN for API auth

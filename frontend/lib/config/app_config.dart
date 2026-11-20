@@ -1,3 +1,5 @@
+import 'merchant_auth_routes.dart';
+
 class AppConfig {
   // Environment variables from dart-define
   static const String environment = String.fromEnvironment(
@@ -85,10 +87,24 @@ class AppConfig {
             : '',
       );
 
+  static const accountDeletionProductionUrl =
+      String.fromEnvironment('ACCOUNT_DELETION_PRODUCTION_URL');
+
   // WhizzMe (AI) API URL
   static String get whizzMeApiUrl {
     return const String.fromEnvironment('WHIZZME_API_URL', defaultValue: '');
   }
+
+  static const _ownershipTransferEnabled =
+      bool.fromEnvironment('MERCHANT_OWNERSHIP_TRANSFER_ENABLED');
+  static bool get ownershipTransferEnabled =>
+      isStaging && _ownershipTransferEnabled;
+
+  static const _ownershipPreviewBranch =
+      String.fromEnvironment('MERCHANT_OWNERSHIP_PREVIEW_BUSINESS_ID');
+  static bool ownershipPreviewEnabled(String? businessId) =>
+      isStaging && _ownershipPreviewBranch.isNotEmpty &&
+      businessId == _ownershipPreviewBranch;
 
   // Development flags
   static bool get isDevelopment => environment == 'development';
@@ -104,6 +120,29 @@ class AppConfig {
 
   static void validateOrThrow() {
     final env = environment.trim();
+    if (isProduction) {
+      for (final url in [apiUrl, orderServiceUrl, pushNotificationsUrl]) {
+        MerchantAuthRoutes.validateProductionEndpoint(url);
+      }
+      MerchantAuthRoutes.validateProductionEndpoint(webSocketUrl, socket: true);
+      // Optional integrations must obey the same environment boundary as orders.
+      // Empty means unavailable; a staging URL must never receive production tokens.
+      for (final url in [supportAttachmentsApiUrl, whizzMeApiUrl, accountDeletionProductionUrl]) {
+        if (url.trim().isNotEmpty) {
+          MerchantAuthRoutes.validateProductionEndpoint(url);
+        }
+      }
+      if (supportChatWebSocketUrl.trim().isNotEmpty) {
+        MerchantAuthRoutes.validateProductionEndpoint(
+          supportChatWebSocketUrl,
+          socket: true,
+        );
+      }
+      if (cognitoUserPoolId != 'us-east-1_2sKZ4fGbZ' ||
+          appClientId != '5l8ng11uudg146crop63926svq') {
+        throw StateError('Production merchant identity is not configured');
+      }
+    }
 
     void requireNonEmpty(String key, String value) {
       if (value.trim().isEmpty) {

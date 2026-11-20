@@ -32,6 +32,46 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('Personal deletion shows current financial blockers before SMS',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final service = AccountDeletionService(
+      scope: 'ACCOUNT',
+      client: MockClient((request) async {
+        expect(request.method, 'GET');
+        if (request.url.path.endsWith('/status')) {
+          return http.Response('{"request":null}', 200);
+        }
+        expect(request.url.path, endsWith('/eligibility'));
+        return http.Response(
+            jsonEncode({
+              'blockers': [
+                {'code': 'OWNED_BUSINESSES'}
+              ],
+              'businesses': [
+                {
+                  'businessId': 'store',
+                  'name': 'مطعم الاختبار',
+                  'blockers': [
+                    {'code': 'LOCKED_BALANCE', 'amount': 12000}
+                  ],
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }),
+    );
+    await mount(tester, service);
+    expect(find.text('مطعم الاختبار'), findsOneWidget);
+    expect(find.text('رصيد محجوز: 12000 د.ع.'), findsOneWidget);
+    await tap(tester, 'أفهم أثر حذف الحساب وأريد متابعة الطلب');
+    final send = find.widgetWithText(TextButton, 'إرسال رمز التحقق');
+    await tester.ensureVisible(send);
+    expect(tester.widget<TextButton>(send).onPressed, isNull);
+  });
+
   testWidgets('Consent and telephone code precede the durable deletion request',
       (tester) async {
     final requests = <Map<String, dynamic>>[];
@@ -68,12 +108,16 @@ void main() {
         isNotNull);
     await tap(tester, 'إرسال رمز التحقق');
     expect(requests, isEmpty);
-    await tester.scrollUntilVisible(find.byType(TextField), 200, scrollable: find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).first);
+    await tester.scrollUntilVisible(find.byType(TextField), 200,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView), matching: find.byType(Scrollable))
+            .first);
     expect(find.byType(TextField), findsOneWidget);
     expect(
         tester.widget<TextField>(find.byType(TextField)).obscureText, isFalse);
     await tester.enterText(find.byType(TextField), '123456');
-    await tap(tester, 'تأكيد طلب الحذف');
+    await tap(tester, 'تأكيد طلب إغلاق الفرع');
     expect(
         requests.single['scope'], {'kind': 'BUSINESS', 'businessId': 'store'});
     expect(requests.single['challengeId'], 'proof');

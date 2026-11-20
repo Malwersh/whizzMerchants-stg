@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
+import 'person_onboarding_service.dart';
 
 class OnboardingConfig {
   OnboardingConfig.fromJson(Map<String, dynamic> value) {
@@ -36,11 +37,27 @@ class OnboardingConfig {
 }
 
 class OnboardingConfigService {
-  OnboardingConfigService({http.Client? client})
-      : _client = client ?? http.Client();
+  OnboardingConfigService(
+      {http.Client? client,
+      String? environment,
+      Future<Map<String, dynamic>> Function(String path)? productionRead})
+      : _client = client ?? http.Client(),
+        _environment = environment ?? AppConfig.environment,
+        _productionRead = productionRead;
   final http.Client _client;
+  final String _environment;
+  final Future<Map<String, dynamic>> Function(String path)? _productionRead;
   void close() => _client.close();
   Future<OnboardingConfig> load({String? regionId}) async {
+    if (_environment == 'production') {
+      final read = _productionRead;
+      if (read != null) {
+        return OnboardingConfig.fromJson(await read('branch-drafts/config'));
+      }
+      final service = PersonOnboardingService(client: _client);
+      return OnboardingConfig.fromJson(
+          await service.call('branch-drafts/config'));
+    }
     final uri = Uri.parse('${AppConfig.baseUrl}/auth/onboarding-settings')
         .replace(queryParameters: {if (regionId != null) 'regionId': regionId});
     final response =

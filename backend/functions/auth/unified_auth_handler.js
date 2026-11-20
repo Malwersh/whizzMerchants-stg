@@ -112,16 +112,18 @@ module.exports.handler = async (event) => {
             try{return createResponse(200,await require('./onboarding_regions').list(dynamodb));}
             catch(_){return createResponse(503,{success:false,code:'REGIONS_UNAVAILABLE',message:'تعذر تحميل المناطق. حاول مجددًا.'});}
         }
-        if (['/auth/kitchen-screens','/auth/settlement-schedules','/auth/commercial-agreements','/auth/order-cancellation','/auth/order-returns','/auth/branch-devices','/auth/branch-staff','/auth/business-changes','/auth/person-registration','/auth/person-profile','/auth/branch-drafts','/auth/branch-drafts/submit','/auth/branch-drafts/config','/auth/branch-drafts/rebase','/auth/branch-assets'].includes(path)) {
+        if (['/auth/kitchen-screens','/auth/settlement-schedules','/auth/commercial-agreements','/auth/order-cancellation','/auth/order-returns','/auth/branch-devices','/auth/branch-staff','/auth/business-changes','/auth/ownership-transfer','/auth/person-registration','/auth/person-profile','/auth/branch-drafts','/auth/branch-drafts/submit','/auth/branch-drafts/config','/auth/branch-drafts/rebase','/auth/branch-assets'].includes(path)) {
             try { return createResponse(200,await require('./person_onboarding').route({db:dynamodb,cognito:cognitoClient,authenticate:async request=>{
-                const token=(request.headers?.Authorization||request.headers?.authorization||'').replace(/^Bearer /,'');
+                const token=path==='/auth/ownership-transfer'
+                    ? (request.headers?.['Access-Token']||request.headers?.['access-token']||'')
+                    : (request.headers?.Authorization||request.headers?.authorization||'').replace(/^Bearer /,'');
                 if(!token)throw Object.assign(Error('UNAUTHORIZED'),{status:401});
                 const identity=await require('../shared/merchant-lifecycle').liveMerchantIdentity(cognitoClient,token);
                 const {claims,user}=identity;const sub=(user.UserAttributes||[]).find(a=>a.Name==='sub')?.Value;
                 if(claims.iss!=='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_gtCR3ndzT'||(claims.token_use==='access'?claims.client_id:claims.aud)!=='4qabvh11nmghmf9fmc6e6ludd2'||!sub||sub!==claims.sub)throw Object.assign(Error('UNAUTHORIZED'),{status:401});
                 return identity;
             }},event)); }
-            catch(error){const unauthorized=['NotAuthorizedException','UserNotFoundException','UNAUTHORIZED'].includes(error.name)||error.message==='UNAUTHORIZED';return createResponse(error.status||(unauthorized?401:503),{success:false,code:error.status||unauthorized?error.message:'PERSON_ONBOARDING_UNAVAILABLE',message:'تعذر إكمال العملية. حاول مجددًا.'});}
+            catch(error){const unauthorized=['NotAuthorizedException','UserNotFoundException','UNAUTHORIZED'].includes(error.name)||error.message==='UNAUTHORIZED';return createResponse(error.status||(unauthorized?401:503),{success:false,code:error.status||unauthorized?error.message:'PERSON_ONBOARDING_UNAVAILABLE',message: error.message==='LOCATION_NOT_COVERED'?'نقطة الموقع غير مشمولة بالخدمة. صحح موقع النشاط على الخريطة ثم اختر المنطقة المطابقة.':error.message==='LOCATION_OUTSIDE_REGION'?'الموقع خارج المنطقة المختارة. صحح الدبوس أو اختيار المنطقة.':'تعذر إكمال العملية. حاول مجددًا.'});}
         }
         if (path === '/auth/onboarding-settings' && httpMethod === 'GET') {
             try { return createResponse(200, await require('./onboarding_settings').readSettings(dynamodb, {regionId: event.queryStringParameters?.regionId})); }

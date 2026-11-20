@@ -32,7 +32,12 @@ function contains(geometry,latitude,longitude){
 async function validate(db,ids,latitude,longitude){
  const selection=path((await list(db)).items,ids);
  const api=require('./customer-regions-313').create({db,sdk:{ScanCommand,GetCommand,QueryCommand},tables:{regions:BASE,derived:DERIVED,index:'WizzCentral_RegionIndex_staging'}});
- const result=await api.resolve(latitude,longitude);
+ let result;
+ try { result=await api.resolve(latitude,longitude); }
+ catch(error) {
+  if(error.code==='REGION_NOT_FOUND'||error.message==='REGION_NOT_FOUND')throw fail('LOCATION_NOT_COVERED');
+  throw error;
+ }
  if(result.regionId!==selection.regionId||JSON.stringify(result.coverage.regionPath)!==JSON.stringify(ids))throw fail('LOCATION_OUTSIDE_REGION');
  return {...selection,checks:api.checks(result.path)};
 }

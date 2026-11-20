@@ -13,6 +13,37 @@ void main() {
     'secure_access_token': token('member'),
     'MEMBERSHIP:store': jsonEncode({'ownerId': 'member', 'token': 'receipt-capability'}),
   }));
+  test('production deletion has no staging or development fallback', () {
+    for (final productionBase in [
+      '',
+      'https://77j15qyukg.execute-api.us-east-1.amazonaws.com/staging',
+      'https://service.example/production',
+    ]) {
+      expect(
+        () => AccountDeletionService.endpoint(
+          environment: 'production',
+          productionBase: productionBase,
+          operation: 'status',
+        ),
+        throwsStateError,
+      );
+    }
+  });
+
+  test('production deletion operations use the configured production stage', () {
+    const base = 'https://testapi123.execute-api.us-east-1.amazonaws.com/production';
+    for (final operation in ['status', 'eligibility', 'send', 'request', 'receipt']) {
+      expect(
+        AccountDeletionService.endpoint(
+          environment: 'production',
+          productionBase: base,
+          operation: operation,
+        ).toString(),
+        '$base/deletion/$operation',
+      );
+    }
+  });
+
   test('network loss preserves the saved receipt and does not return completed status', () async {
     final service = AccountDeletionService(scope: 'MEMBERSHIP', businessId: 'store', client: MockClient((_) async => throw const SocketException('offline')));
     await expectLater(service.call('status', followReceipt: true), throwsA(isA<SocketException>()));

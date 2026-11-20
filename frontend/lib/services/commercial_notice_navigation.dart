@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import '../screens/commercial_agreements_screen.dart';
+import '../screens/ownership_transfer_screen.dart';
+import '../config/app_config.dart';
 import 'person_onboarding_service.dart';
 import 'secure_token_storage.dart';
 
@@ -15,6 +17,13 @@ class CommercialNoticeNavigation {
   static bool _opening = false;
   static bool ownerReady = false;
   static void receive(Map<String, dynamic> data, {bool tapped = false}) {
+    if (data['type'] == 'ownership_invitation' && AppConfig.ownershipTransferEnabled) {
+      if (tapped) {
+        _pending = {'ownershipInvitation': true};
+        tryOpen();
+      }
+      return;
+    }
     if (merchantFinancialLockEnabled && data['action'] == 'open_wallet' && ['wallet_transfer_completed', 'merchant_payout_updated', 'merchant_exception_financial_updated'].contains(data['type'])) {
       if (tapped && data['driverId'] is String) {
         _pending = {'subjectId': data['driverId'], 'financialWallet': true, if(data['type']=='merchant_payout_updated') 'payoutId':data['payoutId'], if(data['type']=='merchant_payout_updated') 'branchId':data['branchId']};
@@ -40,6 +49,11 @@ class CommercialNoticeNavigation {
       }
       final token = await SecureTokenStorage.getAccessToken();
       if (token == null || JwtDecoder.isExpired(token)) return;
+      if (data['ownershipInvitation'] == true) {
+        _pending = null;
+        await nav.push(MaterialPageRoute(builder: (_) => const OwnershipTransferScreen()));
+        return;
+      }
       if (JwtDecoder.decode(token)['sub'] != data['subjectId']) {
         _pending = null;
         return;

@@ -12,6 +12,20 @@ Map<String, dynamic> config(List types) => {
       'types': types
     };
 void main() {
+  test('production reads authenticated branch policy without staging fallback',
+      () async {
+    final service = OnboardingConfigService(
+        environment: 'production',
+        client:
+            MockClient((_) async => throw StateError('general API forbidden')),
+        productionRead: (path) async {
+          expect(path, 'branch-drafts/config');
+          return config([]);
+        });
+    expect((await service.load()).version, 1);
+    service.close();
+  });
+
   test('empty policy never opens hardcoded business types', () async {
     final service = OnboardingConfigService(client: MockClient((r) async {
       expect(r.url.queryParameters['regionId'], 'najaf');

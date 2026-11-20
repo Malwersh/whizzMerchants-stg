@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import '../widgets/iraqi_phone_field.dart';
 import '../services/app_auth_service.dart';
 import '../services/merchant_places_service.dart';
@@ -109,7 +110,11 @@ class _MerchantBranchDraftScreenState extends State<MerchantBranchDraftScreen> {
 
   Future<void> _loadRegions() async {
     try {
-      final r = await _api.call('onboarding-regions', authenticated: false);
+      final r = await _api.call(
+          AppConfig.environment == 'production'
+              ? 'branch-drafts/regions'
+              : 'onboarding-regions',
+          authenticated: AppConfig.environment == 'production');
       if (mounted)
         setState(() => _regions = List<Map<String, dynamic>>.from(r['items']));
     } catch (_) {
@@ -248,7 +253,9 @@ class _MerchantBranchDraftScreenState extends State<MerchantBranchDraftScreen> {
     // Save and validate before opening the picker so a selected photo cannot
     // look attached when the unfinished draft prevented uploading it.
     Map<String, dynamic>? savedDraft;
-    await _perform(() async { savedDraft = await _persist(); });
+    await _perform(() async {
+      savedDraft = await _persist();
+    });
     if (savedDraft == null || !mounted) return;
     final selected = await ImagePicker().pickImage(
         source: ImageSource.gallery,

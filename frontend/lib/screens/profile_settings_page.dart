@@ -1,3 +1,6 @@
+import '../config/app_config.dart';
+import 'ownership_transfer_screen.dart';
+import 'delete_account_screen.dart';
 import 'branch_staff_screen.dart';
 import 'person_profile_screen.dart';
 import 'package:flutter/material.dart';
@@ -338,6 +341,37 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
               },
             ),
             const SizedBox(height: 20),
+
+            if (AppConfig.isStaging ||
+                (AppConfig.isProduction &&
+                    AppConfig.accountDeletionProductionUrl.isNotEmpty)) ...[
+              _buildModernSettingsCard(
+                icon: Icons.store_mall_directory_outlined,
+                title: 'إغلاق الفرع',
+                subtitle: 'مراجعة حالة الإغلاق للفرع المحدد',
+                color: theme.colorScheme.secondary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => DeleteAccountScreen(
+                      scope: 'BUSINESS', businessId: widget.business.id),
+                )),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            if (AppConfig.ownershipTransferEnabled ||
+                AppConfig.ownershipPreviewEnabled(widget.business.id))
+              _buildModernSettingsCard(
+                icon: Icons.swap_horiz_rounded,
+                title: 'نقل ملكية النشاط',
+                subtitle: 'إدارة طلب نقل المؤسسة وفروعها',
+                color: theme.colorScheme.secondary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => OwnershipTransferScreen(
+                    businessId: widget.business.id,
+                    businessName: widget.business.name,
+                  ),
+                )),
+              ),
 
             // Material 3 Logout Button
             Container(

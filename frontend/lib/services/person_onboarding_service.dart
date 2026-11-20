@@ -2,6 +2,7 @@ import 'merchant_financial_session_state.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
+import '../config/merchant_auth_routes.dart';
 import 'auth_header_builder.dart';
 import 'token_refresh_service.dart';
 import 'app_auth_service.dart';
@@ -23,14 +24,17 @@ class PersonOnboardingService {
       (await AppAuthService.confirmPhoneCode(code)).success;
   Future<Map<String, dynamic>> call(String path,
       {Map<String, dynamic>? body, bool authenticated = true}) async {
-    final uri = Uri.parse('${AppConfig.baseUrl}/auth/$path');
+    final uri = MerchantAuthRoutes.resolve(
+        environment: AppConfig.environment,
+        baseUrl: AppConfig.baseUrl,
+        path: path);
     final headers = authenticated
         ? await AuthHeaderBuilder.build()
         : <String, String>{'Content-Type': 'application/json'};
     // Gateway verifies the ID token; the commercial service independently
     // validates the access token and checks the live Cognito account.
     if (authenticated &&
-        ['commercial-agreements', 'settlement-schedules']
+        ['commercial-agreements', 'settlement-schedules', 'ownership-transfer']
             .contains(path.split('?').first)) {
       final accessToken = await TokenRefreshService.getValidUserAccessToken();
       if (accessToken == null || accessToken.isEmpty) {
@@ -68,6 +72,17 @@ class PersonOnboardingService {
         throw LegalRegistrationException(data['code']);
       }
       throw Exception(<String, String>{
+            'RECENT_VERIFICATION_REQUIRED': 'أعد تسجيل الدخول بالهاتف ثم حاول مجددًا خلال خمس دقائق.',
+            'TRANSFER_NOT_FOUND': 'لم يُعثر على طلب نقل مرتبط بحسابك بهذا المرجع.',
+            'INVALID_TRANSFER_RECIPIENT': 'تحقق من رقم هاتف المالك الجديد المسجّل في تطبيق وز للتاجر.',
+            'TRANSFER_RECIPIENT_CHANGED': 'تغيّر الحساب المرتبط بالرقم. راجع اسم المالك الجديد ثم أعد المحاولة.',
+            'TRANSFER_ALREADY_PENDING': 'يوجد طلب نقل ملكية مفتوح لهذه المؤسسة.',
+            'TRANSFER_ORGANIZATION_UNAVAILABLE': 'تعذر العثور على المؤسسة المرتبطة بهذا الفرع.',
+            'TRANSFER_SCOPE_CHANGED': 'تغير نطاق الفروع. حدّث بيانات الطلب.',
+            'TRANSFER_DESTINATION_RATE_LIMIT': 'انتظر دقيقة قبل طلب رمز جديد.',
+            'TRANSFER_DESTINATION_CODE_INVALID': 'الرمز غير صحيح أو انتهت صلاحيته.',
+            'TRANSFER_RECIPIENT_PROFILE_REQUIRED': 'تأكد من أن هاتفك الموثّق يطابق رقم هاتف ملفك الشخصي.',
+            'OWNERSHIP_TRANSFER_UNAVAILABLE': 'نقل الملكية غير متاح حاليًا.',
             'KITCHEN_NOT_ENABLED': 'خدمة شاشات المطبخ لم تُفعّل لهذا الإصدار بعد.',
             'KITCHEN_PAIRING_EXPIRED': 'انتهت صلاحية رمز الشاشة أو استُخدم. أنشئ رمزًا جديدًا من التلفزيون.',
             'KITCHEN_STATE_CHANGED': 'تغيرت إعدادات الشاشة. حدّث القائمة قبل إعادة المحاولة.',
@@ -217,6 +232,10 @@ class PersonOnboardingService {
             'REGION_PATH_REQUIRED': 'اختر البلد والمحافظة والقضاء والمنطقة.',
             'REGION_UNAVAILABLE':
                 'منطقة العمل غير متاحة أو لا تتبع المناطق المختارة. أعد تحميل المناطق.',
+            'REGION_NOT_FOUND':
+                'نقطة الموقع غير مشمولة بالخدمة. صحح موقع النشاط على الخريطة ثم اختر المنطقة المطابقة.',
+            'LOCATION_NOT_COVERED':
+                'نقطة الموقع غير مشمولة بالخدمة. صحح موقع النشاط على الخريطة ثم اختر المنطقة المطابقة.',
             'LOCATION_OUTSIDE_REGION':
                 'الموقع خارج المنطقة المختارة. صحح الدبوس أو اختيار المنطقة.',
             'INVALID_HOURS':

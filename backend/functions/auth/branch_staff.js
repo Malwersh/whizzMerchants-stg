@@ -74,6 +74,16 @@ async function route({db,sub,identity,phone},event,input){
  if(!['accept','leave'].includes(input.action)&&!owner)throw fail('OWNER_REQUIRED',403);
  const audit=(id,action,subjectId)=>({pk:'BRANCH#'+b.businessId,sk:'STAFF_AUDIT#'+id,ownerId:b.ownerId,businessId:b.businessId,actorId:sub,subjectId,action,createdAt:now});
  const fences=[account(sub),branch(b.businessId),guard(b),...(!owner?[account(b.ownerId)]:[])];
+ if(['invite','accept','update'].includes(input.action)){
+  const at=Date.parse(now);
+  if(b.orderIntakeTransferExpiresAt!==undefined&&
+     !(Number.isSafeInteger(b.orderIntakeTransferExpiresAt)&&b.orderIntakeTransferExpiresAt<=at)){
+   throw fail('OWNERSHIP_TRANSFER_PENDING',409);
+  }
+  const condition=fences[2].ConditionCheck;
+  condition.ConditionExpression+=' AND (attribute_not_exists(orderIntakeTransferExpiresAt) OR orderIntakeTransferExpiresAt<=:accessChangeAt)';
+  condition.ExpressionAttributeValues[':accessChangeAt']=at;
+ }
  if(input.action==='invite'){
   if(!uuid(input.requestId))throw fail('INVALID_REQUEST_ID');if(String(b.status).toLowerCase()!=='approved')throw fail('BRANCH_APPROVAL_REQUIRED',409);
   const g=fences[2].ConditionCheck;g.ConditionExpression+=' AND #approval=:approval';g.ExpressionAttributeNames={'#approval':'status'};g.ExpressionAttributeValues[':approval']=b.status;

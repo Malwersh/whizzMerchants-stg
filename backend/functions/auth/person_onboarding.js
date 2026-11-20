@@ -36,6 +36,7 @@ async function route({db,cognito,authenticate},event){
  if(path==='/auth/branch-staff')return require('./branch_staff').route({db,sub,identity,phone},event,input);
  if(path==='/auth/settlement-schedules')return require('./settlement_schedules').route(event,input);
  if(path==='/auth/commercial-agreements')return require('./commercial_agreements').route(event,input);
+ if(path==='/auth/ownership-transfer')return require('./ownership-transfer-route').route({db,cognito,identity},event,input);
  if(path==='/auth/business-changes')return require('./business_changes').route({db,sub},event,input);
  if(path==='/auth/branch-assets')return require('./onboarding_assets').route({db,sub},event,input);
  if(path.startsWith('/auth/branch-drafts'))return require('./onboarding_drafts').route({db,sub,phone},event,input);

@@ -1,3 +1,6 @@
+import '../../config/app_config.dart';
+import '../../services/production_person_onboarding_service.dart';
+import '../../services/merchant_enrollment_service.dart';
 import '../../legal/application_legal_service.dart';
 import '../../legal/application_legal_bundle.dart';
 import '../../legal/application_legal_consent.dart';
@@ -27,7 +30,15 @@ class _PersonRegistrationScreenState
       _phone = TextEditingController(),
       _email = TextEditingController(),
       _code = TextEditingController();
-  late final _api = widget.service ?? PersonOnboardingService();
+  late final PersonOnboardingService _api = widget.service ??
+      (AppConfig.isProduction
+          ? ProductionPersonOnboardingService()
+          : PersonOnboardingService());
+  late final ApplicationLegalService? _legalService = widget.legalService ??
+      (_api is ProductionPersonOnboardingService
+          ? ProductionEnrollmentLegalService(
+              (_api as ProductionPersonOnboardingService).enrollment)
+          : null);
   Map<String, dynamic>? _ack;
   bool _accepted = false, _busy = false, _sent = false, _verified = false;
   String? _error, _e164;
@@ -114,8 +125,9 @@ class _PersonRegistrationScreenState
         return;
       }
       if (mounted)
-        setState(() => _error =
-            'تعذر إرسال رمز التحقق. تحقق من البيانات والاتصال ثم حاول مجددًا.');
+        setState(() => _error = e is MerchantEnrollmentException
+            ? _enrollmentMessage(e.code)
+            : 'تعذر إرسال رمز التحقق. تحقق من البيانات والاتصال ثم حاول مجددًا.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -136,6 +148,14 @@ class _PersonRegistrationScreenState
     });
     try {
       if (!_verified) {
+        if (_api is ProductionPersonOnboardingService) {
+          await _api.call('person-registration', authenticated: false, body: {
+            'firstName': _first.text.trim(),
+            'lastName': _last.text.trim(),
+            'phoneNumber': _e164,
+            'legalAcceptance': _legalConsent!.pin,
+          });
+        }
         final success = await _api.verifyPhoneCode(_code.text.trim());
         if (!success) throw Exception('رمز غير صحيح أو منتهي.');
         _verified = true;
@@ -158,13 +178,30 @@ class _PersonRegistrationScreenState
         });
       if (e is LegalRegistrationException) return;
       if (mounted)
-        setState(() => _error = _verified
-            ? 'تم تأكيد الهاتف، لكن تعذر حفظ الحساب. اضغط متابعة للمحاولة مجددًا.'
-            : 'رمز غير صحيح أو منتهي، أو تعذر الاتصال. حاول مجددًا.');
+        setState(() => _error = e is MerchantEnrollmentException
+            ? _enrollmentMessage(e.code)
+            : _verified
+                ? 'تم تأكيد الهاتف، لكن تعذر حفظ الحساب. اضغط متابعة للمحاولة مجددًا.'
+                : 'رمز غير صحيح أو منتهي، أو تعذر الاتصال. حاول مجددًا.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  String _enrollmentMessage(String code) =>
+      const {
+        'ENROLLMENT_UNAVAILABLE':
+            'إنشاء الحسابات غير متاح حاليًا. حاول لاحقًا.',
+        'TRY_LATER': 'انتظر قليلًا قبل إعادة إرسال الرمز.',
+        'CHALLENGE_EXPIRED': 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.',
+        'INVALID_CODE': 'رمز التحقق غير صحيح. راجعه وحاول مجددًا.',
+        'ACCOUNT_RECOVERY_REQUIRED':
+            'تعذر إكمال التسجيل. تواصل مع الدعم لمراجعة الحساب.',
+        'DELIVERY_FAILED': 'تعذر إرسال الرمز. حاول بعد قليل.',
+        'LOGIN_EXCHANGE_FAILED':
+            'تم التحقق من الهاتف، لكن تعذر فتح الجلسة. اطلب رمزًا جديدًا لإكمال الدخول.',
+      }[code] ??
+      'تعذر إكمال التسجيل. حاول مجددًا.';
 
   Widget _field(TextEditingController controller, String label,
           {TextInputType? keyboard, bool optional = false}) =>
@@ -217,7 +254,7 @@ class _PersonRegistrationScreenState
                             const SizedBox(height: 24),
                             ApplicationLegalConsent(
                                 key: ValueKey('merchant-legal-$_legalEpoch'),
-                                service: widget.legalService,
+                                service: _legalService,
                                 enabled: !_busy,
                                 onChanged: (b) =>
                                     setState(() => _legalConsent = b)),
@@ -226,9 +263,10 @@ class _PersonRegistrationScreenState
                               _field(_last, 'اسم العائلة'),
                               _field(_phone, 'رقم الهاتف',
                                   keyboard: TextInputType.phone),
-                              _field(_email, 'البريد الإلكتروني — اختياري',
-                                  keyboard: TextInputType.emailAddress,
-                                  optional: true),
+                              if (!AppConfig.isProduction)
+                                _field(_email, 'البريد الإلكتروني — اختياري',
+                                    keyboard: TextInputType.emailAddress,
+                                    optional: true),
                               if (_ack != null)
                                 CheckboxListTile(
                                     contentPadding: EdgeInsets.zero,

@@ -1,3 +1,5 @@
+import '../config/app_config.dart';
+import 'ownership_transfer_screen.dart';
 import 'notification_settings_page.dart';
 import '../widgets/commercial_requests_banner.dart';
 import '../services/commercial_notice_navigation.dart';
@@ -207,6 +209,14 @@ class _MerchantBusinessesScreenState
                         context,
                         MaterialPageRoute(
                             builder: (_) => const NotificationSettingsPage()))),
+                if (AppConfig.ownershipTransferEnabled)
+                  IconButton(
+                    tooltip: 'طلبات نقل الملكية',
+                    icon: const Icon(Icons.swap_horiz_rounded),
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const OwnershipTransferScreen(),
+                    )),
+                  ),
                 IconButton(
                     tooltip: 'دعواتي وعضوياتي',
                     icon: const Icon(Icons.groups_outlined),
