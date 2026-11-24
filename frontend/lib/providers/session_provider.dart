@@ -199,7 +199,7 @@ class SessionNotifier extends StateNotifier<Session> {
           businessId: restored.businessId,
           businessData: restored.businessData,
           isReady: true);
-      if (restored.businessId == null)
+      if (restored.authenticated && restored.businessId == null)
         await _enqueue(() async {
           if (generation == _generation) await _store.clear();
         });

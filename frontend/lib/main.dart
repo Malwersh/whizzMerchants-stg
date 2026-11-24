@@ -85,6 +85,9 @@ class _OrderReceiverAppState extends ConsumerState<OrderReceiverApp>
       debugPrint('🔄 App resumed - validating session...');
       final sessionNotifier = ref.read(sessionProvider.notifier);
       sessionNotifier.onAppResumed();
+      if (ref.read(authProviderRiverpod).restorePending) {
+        unawaited(ref.read(authProviderRiverpod.notifier).initialize());
+      }
       unawaited(PushNotificationsService.instance.registerTokenIfPossible());
     } else if (state == AppLifecycleState.paused) {
       debugPrint('⏸️ App paused');
@@ -194,6 +197,17 @@ class AuthGate extends ConsumerWidget {
     }
     if (auth.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (auth.restorePending) {
+      return Scaffold(
+        body: Center(
+          child: TextButton(
+            onPressed: () => ref.read(authProviderRiverpod.notifier).initialize(),
+            child: const Text('تعذر التحقق من الجلسة. إعادة المحاولة'),
+          ),
+        ),
+      );
     }
 
     if (auth.isAuthenticated && !session.isExpired) {

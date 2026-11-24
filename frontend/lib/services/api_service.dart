@@ -73,7 +73,6 @@ class ApiService {
           data['refresh_token'].toString().isNotEmpty) {
         final refreshToken = data['refresh_token'].toString().trim();
         await SecureTokenStorage.setRefreshToken(refreshToken);
-        await prefs.setString('refresh_token', refreshToken);
       }
 
       // Persist expiry if available

@@ -162,12 +162,9 @@ class SessionManager extends ChangeNotifier {
       _isAuthenticated = true;
       _lastSessionCheck = DateTime.now();
 
-      // Store tokens in SharedPreferences using SecureTokenStorage
       await SecureTokenStorage.setAccessToken(_accessToken!);
-      final prefs = await SharedPreferences.getInstance();
       await SecureTokenStorage.setRefreshToken(refreshToken);
-      await prefs.setString('id_token', idToken);
-      await prefs.setString('refresh_token', refreshToken);
+      await SecureTokenStorage.setIdToken(idToken);
 
       // After storing tokens, fetch the user details using the new session.
       // This relies on AppAuthService.getAccessToken() picking up the new token.
@@ -176,6 +173,7 @@ class SessionManager extends ChangeNotifier {
           userResponse['success'] == true &&
           userResponse['user'] != null) {
         _currentUser = userResponse['user'];
+        final prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_data', jsonEncode(_currentUser));
       } else {
         _currentUser = null;

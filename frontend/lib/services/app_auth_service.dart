@@ -14,18 +14,33 @@ import '../providers/session_provider.dart';
 import '../config/app_config.dart';
 import './secure_token_storage.dart';
 import './token_refresh_service.dart';
+import 'merchant_session_restore.dart';
 import './session_manager.dart';
 import './push_notifications_service.dart';
 
 class AppAuthService {
   static bool _isInitialized = false;
+  static Future<void>? _initializing;
+  static Future<void> _tokenWrites = Future<void>.value();
+  static int _sessionRevision = 0;
+  static bool _signingOut = false;
   static ProviderContainer? _container;
   static CognitoAuthService? _cognitoService;
 
   // Cache user data to prevent repeated API calls
 
   /// Store authentication tokens in SecureStorage for better persistence across app restarts
-  static Future<void> _storeAuthTokens(Map<String, String?> tokens) async {
+  static Future<void> _storeAuthTokens(Map<String, String?> tokens) {
+    final revision = _sessionRevision;
+    final pending = _tokenWrites.then((_) async {
+      if (_signingOut || revision != _sessionRevision) return;
+      await _writeAuthTokens(tokens);
+    });
+    _tokenWrites = pending.catchError((Object _) {});
+    return pending;
+  }
+
+  static Future<void> _writeAuthTokens(Map<String, String?> tokens) async {
     try {
       AppLogger.info('💾 Storing authentication tokens securely...');
 
@@ -37,9 +52,6 @@ class AppAuthService {
         AppLogger.warning('⚠️ No tokens to store');
         return;
       }
-
-      // Persist selected tokens in SharedPreferences for any remaining simple fallback reads
-      final prefs = await SharedPreferences.getInstance();
 
       // Store in secure storage (preferred)
       if (accessToken != null) {
@@ -55,8 +67,6 @@ class AppAuthService {
       if (refreshToken != null) {
         await SecureTokenStorage.setRefreshToken(refreshToken);
         AppLogger.debug('✅ Refresh token stored securely');
-        await prefs.setString('refresh_token', refreshToken);
-        AppLogger.debug('✅ Refresh token persisted to SharedPreferences');
       }
 
       AppLogger.success('✅ All authentication tokens stored successfully');
@@ -94,14 +104,17 @@ class AppAuthService {
     _container = container;
   }
 
-  static Future<void> initialize() async {
-    if (_isInitialized) return;
+  static Future<void> initialize() {
+    if (_isInitialized) return Future.value();
+    return _initializing ??= _initialize().whenComplete(() => _initializing = null);
+  }
 
+  static Future<void> _initialize() async {
     if (AppConfig.isCognitoConfigured) {
-      _cognitoService = CognitoAuthService();
+      _cognitoService ??= CognitoAuthService();
       await _configureAmplify();
+      if (!amplify.Amplify.isConfigured) return;
     }
-
     _isInitialized = true;
   }
 
@@ -440,41 +453,63 @@ class AppAuthService {
     }
   }
 
-  /// Copies Amplify (Cognito) tokens into the app's secure storage used by API calls.
-  static Future<bool> _syncTokensFromAmplify({
-    bool forceRefresh = false,
+  static Future<Map<String, String?>?> _loadAmplifyTokens({
+    required bool forceRefresh,
   }) async {
+    final revision = _sessionRevision;
+    if (_signingOut) return null;
+    await initialize();
+    if (!amplify.Amplify.isConfigured) {
+      throw StateError('Cognito session storage is unavailable.');
+    }
     try {
       final session = await amplify.Amplify.Auth.fetchAuthSession(
         options: amplify.FetchAuthSessionOptions(forceRefresh: forceRefresh),
-      ) as CognitoAuthSession;
-      final tokens = session.userPoolTokensResult.valueOrNull;
-      if (tokens == null) return false;
-      await _storeAuthTokens({
+      ).timeout(const Duration(seconds: 15)) as CognitoAuthSession;
+      final tokens = session.userPoolTokensResult.value;
+      final saved = <String, String?>{
         'accessToken': tokens.accessToken.raw,
         'idToken': tokens.idToken.raw,
         'refreshToken': tokens.refreshToken,
-      });
-      return true;
+      };
+      if (revision != _sessionRevision) return null;
+      await _storeAuthTokens(saved);
+      return revision == _sessionRevision ? saved : null;
+    } on amplify.SignedOutException {
+      return null;
+    } on amplify.SessionExpiredException {
+      return null;
+    }
+  }
+
+  /// Synchronize the Cognito session after login before opening the app.
+  static Future<bool> _syncTokensFromAmplify() async {
+    try {
+      return await _loadAmplifyTokens(forceRefresh: false) != null;
     } catch (e) {
-      AppLogger.warning('Token sync from Amplify failed: $e');
+      AppLogger.warning('Token sync from Amplify failed: ${e.runtimeType}');
       return false;
     }
   }
 
-  /// Used by TokenRefreshService: silent refresh with the 365-day refresh token.
-  static Future<Map<String, String?>?> refreshViaAmplify() async {
-    final ok = await _syncTokensFromAmplify(forceRefresh: true);
-    if (!ok) return null;
-    return {
-      'accessToken': await SecureTokenStorage.getAccessToken(),
-      'idToken': await SecureTokenStorage.getIdToken(),
-      'refreshToken': await SecureTokenStorage.getRefreshToken(),
-    };
+  static Future<Map<String, String?>?> refreshViaAmplify() =>
+      _loadAmplifyTokens(forceRefresh: true);
+
+  static Future<Map<String, dynamic>?> restoreCurrentUser() async {
+    await initialize();
+    return restoreMerchantSession(
+        readAccessToken: SecureTokenStorage.getAccessToken,
+        restoreAccessToken: ({required forceRefresh}) async =>
+            (await _loadAmplifyTokens(forceRefresh: forceRefresh))?['accessToken'],
+        verifyUser: _verifyCurrentUser,
+      );
   }
 
   static Future<void> signOut() async {
+    ++_sessionRevision;
+    _signingOut = true;
     try {
+      await _tokenWrites;
       await PushNotificationsService.instance.unregisterSignedOutDevice();
       // Revoke the Cognito refresh token (EnableTokenRevocation) and clear Amplify's store.
       try {
@@ -518,55 +553,48 @@ class AppAuthService {
       } catch (fallbackError) {
         AppLogger.error('❌ Fallback cleanup also failed: $fallbackError');
       }
+    } finally {
+      _signingOut = false;
     }
   }
 
-  static Future<Map<String, dynamic>?> getCurrentUser(
-      {bool allowRefresh = true}) async {
-    await initialize();
-    final token = await SecureTokenStorage.getAccessToken();
-    if (token == null || token.isEmpty) return null;
+  static Future<Map<String, dynamic>?> getCurrentUser() async {
     try {
-      final response = await http
-          .post(
-            Uri.https(
-                'cognito-idp.${AppConfig.cognitoRegion}.amazonaws.com', '/'),
-            headers: {
-              'Content-Type': 'application/x-amz-json-1.1',
-              'X-Amz-Target': 'AWSCognitoIdentityProviderService.GetUser'
-            },
-            body: jsonEncode({'AccessToken': token}),
-          )
-          .timeout(const Duration(seconds: 15));
-      final data = jsonDecode(response.body) as Map;
-      if (response.statusCode != 200) {
-        final code = '${data['__type']}'.split('#').last;
-        if (code == 'NotAuthorizedException' ||
-            code == 'UserNotFoundException') {
-          if (allowRefresh &&
-              await _syncTokensFromAmplify(forceRefresh: true)) {
-            return getCurrentUser(allowRefresh: false);
-          }
-          await signOut();
-        }
-        return null;
-      }
-      final attributes = <String, dynamic>{
-        for (final a in data['UserAttributes'] as List)
-          a['Name'] as String: a['Value']
-      };
-      final sub = attributes['sub'];
-      if (sub is! String || sub.isEmpty) return null;
-      final user = <String, dynamic>{
-        ...attributes,
-        'userId': sub,
-        'sub': sub,
-        'email': attributes['email'] ?? ''
-      };
-      return user;
-    } catch (_) {
+      return await restoreCurrentUser();
+    } catch (error) {
+      AppLogger.warning('Cognito user lookup unavailable: ${error.runtimeType}');
       return null;
     }
+  }
+
+  static Future<Map<String, dynamic>?> _verifyCurrentUser(String token) async {
+    final response = await http
+        .post(
+          Uri.https('cognito-idp.${AppConfig.cognitoRegion}.amazonaws.com', '/'),
+          headers: {
+            'Content-Type': 'application/x-amz-json-1.1',
+            'X-Amz-Target': 'AWSCognitoIdentityProviderService.GetUser'
+          },
+          body: jsonEncode({'AccessToken': token}),
+        )
+        .timeout(const Duration(seconds: 15));
+    final data = jsonDecode(response.body) as Map;
+    if (response.statusCode != 200) {
+      final code = '${data['__type']}'.split('#').last;
+      if (code == 'NotAuthorizedException' || code == 'UserNotFoundException') {
+        return null;
+      }
+      throw StateError('Cognito user lookup unavailable.');
+    }
+    final attributes = <String, dynamic>{
+      for (final a in data['UserAttributes'] as List)
+        a['Name'] as String: a['Value']
+    };
+    final sub = attributes['sub'];
+    if (sub is! String || sub.isEmpty) {
+      throw StateError('Cognito user identity unavailable.');
+    }
+    return {...attributes, 'userId': sub, 'sub': sub, 'email': attributes['email'] ?? ''};
   }
 
   static Future<RegisterResult> registerWithBusiness({

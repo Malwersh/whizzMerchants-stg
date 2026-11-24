@@ -5,18 +5,21 @@ import '../services/cognito_auth_service.dart';
 import '../services/push_notifications_service.dart';
 import '../core/utils/app_logger.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
+import 'session_provider.dart';
 
 enum AuthStatus { authenticated, unauthenticated }
 
 class AuthState {
   final AuthStatus status;
   final bool isLoading;
+  final bool restorePending;
   final String? errorMessage;
   final Map<String, dynamic>? currentUser;
 
   const AuthState({
     this.status = AuthStatus.unauthenticated,
     this.isLoading = false,
+    this.restorePending = false,
     this.errorMessage,
     this.currentUser,
   });
@@ -24,11 +27,13 @@ class AuthState {
   AuthState copyWith({
     AuthStatus? status,
     bool? isLoading,
+    bool? restorePending,
     String? errorMessage,
     Map<String, dynamic>? currentUser,
   }) => AuthState(
     status: status ?? this.status,
     isLoading: isLoading ?? this.isLoading,
+    restorePending: restorePending ?? this.restorePending,
     errorMessage: errorMessage ?? this.errorMessage,
     currentUser: currentUser ?? this.currentUser,
   );
@@ -37,58 +42,61 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier({Future<void> Function()? signOutAction})
-      : _signOutAction = signOutAction ?? AppAuthService.signOut,
+  AuthNotifier({
+    Future<void> Function()? signOutAction,
+    Future<Map<String, dynamic>?> Function()? restoreUser,
+    Future<void> Function()? restoreBranch,
+  })  : _signOutAction = signOutAction ?? AppAuthService.signOut,
+        _restoreUser = restoreUser ?? AppAuthService.restoreCurrentUser,
+        _restoreBranch = restoreBranch,
         super(const AuthState());
 
   final Future<void> Function() _signOutAction;
-  
+  final Future<Map<String, dynamic>?> Function() _restoreUser;
+  final Future<void> Function()? _restoreBranch;
   final CognitoAuthService _cognitoService = CognitoAuthService();
+  int _authRevision = 0;
 
   Future<void> initialize() async {
+    final revision = ++_authRevision;
     MerchantFinancialSessionState.instance.clear();
-    state = state.copyWith(isLoading: true);
+    state = const AuthState(isLoading: true);
     try {
-      final signedIn = await AppAuthService.isSignedIn();
-      
-      // Get current user data if authenticated
-      Map<String, dynamic>? userData;
-      if (signedIn) {
-        userData = await AppAuthService.getCurrentUser();
-        
-        // Register only after live identity validation.
-        if (userData != null) {
+      final user = await _restoreUser();
+      if (!mounted || revision != _authRevision) return;
+      if (user != null) await _restoreBranch?.call();
+      if (!mounted || revision != _authRevision) return;
+
+      state = AuthState(
+        status: user == null ? AuthStatus.unauthenticated : AuthStatus.authenticated,
+        currentUser: user,
+      );
+      if (user != null) {
+        final businessId = user['custom:business_id'] ??
+            user['custom:businessId'] ??
+            user['businessId'];
         try {
-          final businessId = userData['custom:business_id'] ??
-                            userData['custom:businessId'] ??
-                            userData['businessId'];
           await PushNotificationsService.instance.registerTokenIfPossible(
             businessId: businessId is String ? businessId : null,
           );
-          AppLogger.success('✅ Push token registration triggered on init (existing session)');
-        } catch (e) {
-          AppLogger.warning('⚠️ Push token registration failed on init (non-critical): $e');
-        }
+        } catch (error) {
+          AppLogger.warning('Push registration skipped: ${error.runtimeType}');
         }
       }
-      
-      state = AuthState(
-        status: signedIn && userData != null
-            ? AuthStatus.authenticated
-            : AuthStatus.unauthenticated,
-        isLoading: false,
-        currentUser: userData,
-      );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+    } catch (error) {
+      if (!mounted || revision != _authRevision) return;
+      state = const AuthState(restorePending: true);
     }
   }
 
   void setAuthenticated() {
-    state = state.copyWith(status: AuthStatus.authenticated);
+    ++_authRevision;
+    state = state.copyWith(status: AuthStatus.authenticated,
+        isLoading: false, restorePending: false);
   }
-  
+
   Future<void> signOut() async {
+    ++_authRevision;
     MerchantFinancialSessionState.instance.clear();
     // Leave protected UI before clearing the branch/session it reads.
     state = const AuthState(
@@ -103,6 +111,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Sign in user with email and password
   Future<Map<String, dynamic>> signIn(String email, String password) async {
+    ++_authRevision;
     MerchantFinancialSessionState.instance.clear();
     state = state.copyWith(isLoading: true, errorMessage: null);
     
@@ -202,7 +211,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
 }
 
 final authProviderRiverpod = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  final notifier = AuthNotifier();
+  final notifier = AuthNotifier(
+    restoreBranch: () => ref.read(sessionProvider.notifier).restoreBusinessId(),
+  );
   // Fire minimal initialization
   notifier.initialize();
   return notifier;

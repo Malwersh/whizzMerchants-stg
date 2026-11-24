@@ -6,6 +6,11 @@
     
     <!-- Exclude sensitive authentication data -->
     <exclude domain="sharedpref" path="auth_tokens.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml"/>
+    <exclude domain="sharedpref" path="CognitoIdentityProviderCache.xml"/>
+    <exclude domain="sharedpref" path="com.amazonaws.android.auth.xml"/>
+    <exclude domain="sharedpref" path="com.amplify.awsCognitoAuthPlugin.xml"/>
+    <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
     <exclude domain="sharedpref" path="api_keys.xml"/>
-    <exclude domain="database" path="temp_cache.db"/>
 </full-backup-content>
