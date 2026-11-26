@@ -1,0 +1,24 @@
+{
+  "status": "IMPLEMENTED_TESTED_INSTALLED_SIMULATOR",
+  "merchantBuild": 347,
+  "reportedBehavior": "Create sheet remains open without visible feedback",
+  "findings": [
+    "Form validation returned silently while invalid fields could be outside visible viewport",
+    "Per-item unsupported terms used a page Snackbar beneath the modal",
+    "Image preparation exceptions had no outer sheet handler"
+  ],
+  "changes": [
+    "Inline live-region error next to submit actions",
+    "Scroll to first invalid field",
+    "Visible unsupported/per-item/image failure reasons",
+    "Prevent concurrent submit taps and reset upload state after failure"
+  ],
+  "tests": {
+    "existingDiscountTests": 13,
+    "analyzerErrors": 0,
+    "simulatorBuild": true
+  },
+  "pending": [
+    "User retry with original discount inputs to identify exact rejected field; no campaign created by agent"
+  ]
+}

@@ -51,7 +51,7 @@ class NotificationService extends ChangeNotifier {
       final businessId = session.businessId!;
       
       if (action == 'ACCEPT_ORDER') {
-        await orderService.acceptMerchantOrder(orderId);
+        await orderService.acceptMerchantOrder(orderId, businessId: businessId);
         success = true;
         statusString = 'confirmed';
       } else if (action == 'REJECT_ORDER') {

@@ -7,9 +7,15 @@ class Business {
   String? phone;
   String? ownerName;
   BusinessType businessType;
+  String? businessTypeId;
+  String? businessTypeLabelAr;
+  bool? isActive;
+  bool? acceptingOrders;
+  bool? platformSuspended;
   String? address;
   String? city;
   String? district;
+  String? regionName;
   String? street;
   String? country;
   double? latitude;
@@ -20,7 +26,7 @@ class Business {
   String status;
   DateTime? createdAt;
   DateTime? updatedAt;
-  
+
   // Region validation fields (Phase 6)
   String? regionId; // Most specific region (neighborhood/district/governorate)
   String? governorateId; // Province-level region ID
@@ -36,7 +42,7 @@ class Business {
     required this.businessType,
     this.address,
     this.city,
-    this.district,
+    this.district, this.regionName,
     this.street,
     this.country,
     this.latitude,
@@ -45,6 +51,7 @@ class Business {
     this.website,
     this.businessPhotoUrl,
     this.status = 'pending',
+    this.businessTypeId, this.businessTypeLabelAr, this.isActive, this.acceptingOrders, this.platformSuspended,
     this.createdAt,
     this.updatedAt,
     this.regionId,
@@ -56,7 +63,7 @@ class Business {
   factory Business.fromJson(Map<String, dynamic> json) {
     // Parse address components from the address field (fallback)
     final addressData = _parseAddressComponents(json['address']);
-    
+
     return Business(
       id: json['businessId'] ?? json['id'] ?? '',
       name: json['businessName'] ?? json['name'] ?? '',
@@ -71,14 +78,23 @@ class Business {
       // Prioritize individual fields from JSON, fallback to parsed address components
       city: json['city'] ?? addressData['city'],
       district: json['district'] ?? addressData['district'],
+      regionName: json['regionName'] ?? (json['address'] is Map ? json['address']['region'] : null),
       street: json['street'] ?? addressData['street'],
       country: json['country'] ?? addressData['country'],
-      latitude: json['latitude']?.toDouble(),
-      longitude: json['longitude']?.toDouble(),
+      latitude: double.tryParse((json['latitude'] ??
+              (json['address'] is Map ? json['address']['latitude'] : null))
+          .toString()),
+      longitude: double.tryParse((json['longitude'] ??
+              (json['address'] is Map ? json['address']['longitude'] : null))
+          .toString()),
       description: json['description'],
       website: json['website'],
       businessPhotoUrl: json['businessPhotoUrl'] ?? json['business_photo_url'],
       status: json['status'] ?? 'pending',
+      businessTypeId: json['businessTypeId'] ?? ({'restaurant':'RESTAURANT','grocery':'MARKET','store':'STORE'})[json['businessType']??json['business_type']], businessTypeLabelAr: json['businessTypeLabelAr'],
+      isActive: json['isActive'] is bool ? json['isActive'] : null,
+      acceptingOrders: json['acceptingOrders'] is bool ? json['acceptingOrders'] : null,
+      platformSuspended: json['platformSuspended'] is bool ? json['platformSuspended'] : null,
       createdAt:
           json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
       updatedAt:
@@ -100,6 +116,8 @@ class Business {
         return BusinessType.cloudKitchen;
       case 'pharmacy':
         return BusinessType.pharmacy;
+      case 'grocery':
+      case 'market':
       case 'store':
         return BusinessType.store;
       default:
@@ -115,13 +133,13 @@ class Business {
       'street': null as String?,
       'country': null as String?,
     };
-    
+
     if (address == null) return result;
-    
+
     // If it's already a string, parse it intelligently
     if (address is String) {
       result['fullAddress'] = address;
-      
+
       // Try to parse individual components from the string
       // Common format: "Street, District, City, Country"
       final parts = address.split(',').map((part) => part.trim()).toList();
@@ -138,10 +156,10 @@ class Business {
       if (parts.length >= 4) {
         result['country'] = parts[3].isNotEmpty ? parts[3] : null;
       }
-      
+
       return result;
     }
-    
+
     // If it's a complex object (like from DynamoDB), extract components
     if (address is Map<String, dynamic>) {
       // Handle DynamoDB format with nested maps like { "S": "value" }
@@ -171,7 +189,8 @@ class Business {
       if (city.isNotEmpty) parts.add(city);
       if (country.isNotEmpty) parts.add(country);
 
-      result['fullAddress'] = parts.isNotEmpty ? parts.join(', ') : null;
+      final detail = extractValue(address['fullAddress']);
+      result['fullAddress'] = detail.isNotEmpty ? detail : (parts.isNotEmpty ? parts.join(', ') : null);
       return result;
     }
 
@@ -191,6 +210,7 @@ class Business {
       'address': address,
       'city': city,
       'district': district,
+      'regionName': regionName,
       'street': street,
       'country': country,
       'latitude': latitude,
@@ -199,6 +219,11 @@ class Business {
       'website': website,
       'businessPhotoUrl': businessPhotoUrl,
       'status': status,
+      if(businessTypeId!=null)'businessTypeId':businessTypeId,
+      if(businessTypeLabelAr!=null)'businessTypeLabelAr':businessTypeLabelAr,
+      if(isActive!=null)'isActive':isActive,
+      if(acceptingOrders!=null)'acceptingOrders':acceptingOrders,
+      if(platformSuspended!=null)'platformSuspended':platformSuspended,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       // Region fields (Phase 6)

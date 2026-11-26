@@ -1,0 +1,18 @@
+{
+  "part": 332,
+  "environment": "staging",
+  "problem": "Multi-branch owner preparation and ready updates omitted businessId and received OWNER_REQUIRED, incorrectly rendered as expired authentication.",
+  "liveVerifiedFunction": "order-receiver-merchant-orders-staging-v1",
+  "fix": [
+    "Require nonempty selected businessId for status updates",
+    "Send branch scope with preparing and ready_for_pickup",
+    "Separate HTTP401 expired authentication from HTTP403 permissions"
+  ],
+  "tests": {
+    "flutterPassed": 4,
+    "analyzer": "No errors or warnings; informational style findings only"
+  },
+  "backendChanged": false,
+  "orderOrFinancialWrites": false,
+  "merchantSimulatorBuild": 230
+}

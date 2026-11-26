@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-02",
+  "status": "implemented_local_simulator",
+  "merchantBuild": 351,
+  "changes": [
+    "Inline branch menu category creation with immediate selection and stable retry request ID",
+    "Dedicated size editor accepts full prices; stores required single-select group using existing base-plus-extra pricing",
+    "Branch categories read through branch-scoped all-categories endpoint instead of legacy activity path",
+    "Unrelated add-on groups retained"
+  ],
+  "validation": {
+    "flutterTests": 22,
+    "result": "passed",
+    "analyzer": "no errors or warnings in changed production files"
+  },
+  "limits": [
+    "Central taxonomy loading error was observed by user; root cause not confirmed by this change",
+    "Menu publication remains required before customer sees new menu data"
+  ],
+  "manualChecks": [
+    "Create pizza section in product form",
+    "Set small 8000 medium 10000 large 12000, save and reopen",
+    "Publish menu and verify customer size selection and totals",
+    "Check taxonomy retry on actual signed-in branch"
+  ]
+}

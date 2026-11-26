@@ -1,0 +1,12 @@
+{
+  "status": "published_verified_staging",
+  "backendTests": 33,
+  "flutterTests": 7,
+  "merchantSimulatorBuild": 353,
+  "behavior": "Successful product create/update/delete automatically publishes branch menu through existing versioning service; saved mutation with publication failure is returned as pending and surfaced to user",
+  "security": "Actual device session guards included in publication pointer commit; manual standalone staff publication stays denied",
+  "initialProduct": "Removed first-published-menu prerequisite for product mutation; first publication can follow first product save",
+  "sha256": "WT3aQ6hNUzxUAaq57uxNKSy/4MvxwZgmkiaIfSXPYXQ=",
+  "uat": "Add or edit product, then reopen customer store without manual publish",
+  "note": "This uses the existing full-branch menu publication semantics"
+}

@@ -6,7 +6,7 @@ import '../core/design_system/design_system.dart';
 import '../core/adaptive/adaptive_widgets.dart';
 import '../widgets/language_switcher.dart';
 import '../screens/forgot_password_screen.dart';
-import '../screens/registration_form_screen.dart';
+import 'auth/person_registration_screen.dart';
 import '../screens/dashboards/business_dashboard.dart';
 import '../services/app_auth_service.dart';
 import '../providers/business_provider.dart';
@@ -276,7 +276,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const RegistrationFormScreen(),
+                builder: (context) => const PersonRegistrationScreen(),
               ),
             );
           },

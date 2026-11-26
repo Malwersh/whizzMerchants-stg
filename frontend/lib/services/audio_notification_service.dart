@@ -1,3 +1,9 @@
+import 'notification_sound_files.dart';
+import 'order_alert_cadence.dart';
+import 'dart:async';
+import 'notification_sound_policy.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,20 +15,26 @@ class AudioNotificationService {
   factory AudioNotificationService() => _instance;
   AudioNotificationService._internal();
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  late final AudioPlayer _audioPlayer = AudioPlayer();
   final SoundNotificationSettings _settings = SoundNotificationSettings();
 
   // Sound configuration - Use available sound files
-  static const String _newOrderSound = 'sounds/first_nitification_sound.wav'; // Main new order sound
-  static const String _notificationChime = 'sounds/notification_chime.aiff'; // Fallback sound
-  static const String _gentleReminderSound = 'sounds/first_nitification_sound.wav'; // Use new sound
-  static const String _urgentAlertSound = 'sounds/first_nitification_sound.wav'; // Use new sound
-  static const String _autoRejectSound = 'sounds/notification_chime.aiff'; // Use chime as fallback
+  static const String _newOrderSound =
+      'sounds/first_nitification_sound.wav'; // Main new order sound
+  static const String _notificationChime =
+      'sounds/notification_chime.aiff'; // Fallback sound
+  static const String _gentleReminderSound =
+      'sounds/first_nitification_sound.wav'; // Use new sound
+  static const String _urgentAlertSound =
+      'sounds/first_nitification_sound.wav'; // Use new sound
+  static const String _autoRejectSound =
+      'sounds/notification_chime.aiff'; // Use chime as fallback
 
   /// Initialize the audio service
   Future<void> initialize() async {
     try {
       await _settings.initialize();
+      unawaited(NotificationSoundPolicy.refresh());
       await _audioPlayer.setVolume(_settings.volume);
       debugPrint('🔊 AudioNotificationService initialized');
     } catch (e) {
@@ -30,46 +42,78 @@ class AudioNotificationService {
     }
   }
 
-  /// Play new order notification sound with IMMEDIATE priority
-  Future<void> playNewOrderSound() async {
-    if (!_settings.shouldPlaySound('new_order')) {
-      debugPrint('🔇 New order sound disabled in settings');
-      return;
-    }
+  final Map<String, DateTime> _announcedOrders = {};
+  final _orderCadence = OrderAlertCadence();
+  final Map<String,Future<void>> _newOrderInFlight={};
+  Future<void> _newOrderTail=Future<void>.value();
 
+  static const _soundHistoryKey = 'merchant_order_sound_history_v1';
+  static Future<bool> markOrderSoundAnnounced(String? orderId) async {
+    if (orderId == null || orderId.isEmpty) return false;
+    _instance._announcedOrders[orderId] = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    Map<String, dynamic> history = {};
     try {
-      debugPrint('🚨 IMMEDIATE new order sound starting');
-      
-      // Stop any currently playing sound IMMEDIATELY
-      await _audioPlayer.stop();
-      
-      // Set volume and play with highest priority
-      await _audioPlayer.setVolume(_settings.volume);
-      
-      // Play sound with IMMEDIATE execution
-      await _audioPlayer.play(AssetSource(_newOrderSound));
+      history = Map<String, dynamic>.from(
+          jsonDecode(prefs.getString(_soundHistoryKey) ?? '{}'));
+    } catch (_) {}
+    final now = DateTime.now().millisecondsSinceEpoch;
+    history.removeWhere((k, v) => v is! int || now - v > 3600000);
+    final seen = history.containsKey(orderId);
+    history[orderId] = now;
+    while (history.length > 200) {
+      history.remove(history.keys.first);
+    }
+    await prefs.setString(_soundHistoryKey, jsonEncode(history));
+    return seen;
+  }
 
-      // Add strong haptic feedback for enhanced notification
-      await HapticFeedback.heavyImpact();
+  Future<void> playNewOrderSoundOnce(String orderId) {
+    if(orderId.isEmpty||!_settings.shouldPlaySound('new_order'))return Future.value();
+    return _newOrderInFlight.putIfAbsent(orderId,(){
+      final task=_newOrderTail.then((_)async{
+        final now=DateTime.now();
+        _announcedOrders.removeWhere((_,time)=>now.difference(time).inHours>=1);
+        if(_announcedOrders.containsKey(orderId))return;
+        final prefs=await SharedPreferences.getInstance();await prefs.reload();
+        Map<String,dynamic> history={};
+        try{history=Map<String,dynamic>.from(jsonDecode(prefs.getString(_soundHistoryKey)??'{}'));}catch(_){}
+        if(history[orderId] is int&&now.millisecondsSinceEpoch-(history[orderId] as int)<3600000){_announcedOrders[orderId]=now;return;}
+        if(await _playNewOrderCue(respectCadence:false)){_orderCadence.reserve(Duration.zero);await markOrderSoundAnnounced(orderId);}
+      });
+      _newOrderTail=task.catchError((Object _){});
+      return task.whenComplete(() { _newOrderInFlight.remove(orderId); });
+    });
+  }
 
-      debugPrint('🚨 IMMEDIATE new order sound played successfully');
-    } catch (e) {
-      debugPrint('❌ CRITICAL Error playing new order sound: $e');
-      
-      // Try notification chime as fallback
-      try {
-        await _audioPlayer.play(AssetSource(_notificationChime));
-        await HapticFeedback.mediumImpact();
-        debugPrint('🔄 Fallback to notification chime played');
-      } catch (fallbackError) {
-        debugPrint('❌ All sounds failed: $fallbackError');
-        // At least try haptic feedback
-        try {
-          await HapticFeedback.heavyImpact();
-          await Future.delayed(const Duration(milliseconds: 100));
-          await HapticFeedback.mediumImpact();
-        } catch (_) {}
+  Future<void> playPendingOrderReminder() async {
+    final seconds = NotificationSoundPolicy.reminderSeconds.clamp(30, 300);
+    if (!_orderCadence.ready(Duration(seconds: seconds))) return;
+    await playNewOrderSound();
+  }
+
+  /// Play new order notification sound with IMMEDIATE priority
+  Future<void> playNewOrderSound() async { await _playNewOrderCue(); }
+
+  Future<bool> _playNewOrderCue({bool respectCadence=true})async{
+    if(!_settings.shouldPlaySound('new_order'))return true;
+    if(respectCadence&&!_orderCadence.reserve(const Duration(seconds:3)))return false;
+    try{
+      unawaited(NotificationSoundPolicy.refresh());
+      final file=NotificationSoundPolicy.file('merchantNewOrder');
+      if(file==null)return true; // Intentional central silence is handled.
+      if(!kIsWeb&&defaultTargetPlatform==TargetPlatform.iOS){
+        final result=await NotificationSoundFiles.bridge.invokeMapMethod<String,dynamic>('playOrderCue',{'file':file,'volume':_settings.volume});
+        return result?['playing']==true;
       }
+      await _audioPlayer.setAudioContext(AudioContext(android:const AudioContextAndroid(contentType:AndroidContentType.sonification,usageType:AndroidUsageType.notification,audioFocus:AndroidAudioFocus.gainTransientMayDuck)));
+      await _audioPlayer.stop();await _audioPlayer.setVolume(_settings.volume);
+      await _audioPlayer.play(NotificationSoundFiles.source(file));
+      unawaited(HapticFeedback.heavyImpact());return true;
+    }catch(error){
+      debugPrint('Merchant order cue failed: ${error.runtimeType}');
+      try{await _audioPlayer.play(AssetSource(_notificationChime));return true;}catch(_){return false;}
     }
   }
 
@@ -102,8 +146,11 @@ class AudioNotificationService {
       // 🔧 FIX: Play sound only once instead of 3 times to avoid repetition
       await _audioPlayer.stop();
       await _audioPlayer.setVolume(_settings.volume);
-      await _audioPlayer.play(AssetSource(_newOrderSound));
-      
+      unawaited(NotificationSoundPolicy.refresh());
+      final file=NotificationSoundPolicy.file('merchantNewOrder');
+      if(file==null)return;
+      await _audioPlayer.play(NotificationSoundFiles.source(file));
+
       // Enhanced haptic feedback for urgent orders (double impact)
       await HapticFeedback.heavyImpact();
       await Future.delayed(const Duration(milliseconds: 100));

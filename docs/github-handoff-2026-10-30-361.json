@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-30",
+  "part": 361,
+  "repo": "whizzMerchants-stg",
+  "sourceBranch": "feature/malwersh/bootstrap",
+  "mirrorBranch": "integration/team-sync-20261030",
+  "approvalTarget": "staging-main",
+  "state": "READY_FOR_COLLEAGUE_REVIEW_AFTER_PUSH",
+  "baseCommit": "0c7cd49da050e899c778a08583ec4245974e39ec",
+  "includesDesignSource": true,
+  "includesBackendAndTests": true,
+  "scope": [
+    "Explicit per-piece markdown option for selected meals; legacy order discounts unchanged",
+    "Per-piece constraints validated before writes; shared approved campaign terms remain locked",
+    "Overlapping campaigns are named alternatives instead of a legacy creation veto; only one goods promotion redeems per order"
+  ],
+  "tests": [
+    "29 merchant backend tests passed",
+    "14 merchant Flutter checks and later 8 overlap/model/shared-card checks passed",
+    "iOS simulator build passed; installed on iPhone 16"
+  ],
+  "deployment": "See item-markdown-publication-361.json and home-rules-publication-361.json in central repository; staging already updated, no need for blind full redeployment.",
+  "humanOrderAcceptance": "A new per-piece offer and complete order still need the agreed human acceptance test. No test campaign or financial records were fabricated.",
+  "pullInstructions": [
+    "Approve and merge the open PR into staging-main, then git pull --ff-only origin staging-main",
+    "For review before merge: fetch origin and use feature/malwersh/bootstrap; pulling staging-main before approval will not include these commits"
+  ],
+  "files": [
+    {
+      "path": "backend/functions/discounts/discount_management_handler.js",
+      "sha256": "36cc63800906feb6d6c429edc9bb698f399bfb8cf5f2ee1fa5b65da396d4cbea"
+    },
+    {
+      "path": "backend/functions/shared/discount-contract.js",
+      "sha256": "e5c98401bd6f9d379ce4d23c960e75ce9fd0724b4a1fa7c764bc9c371688325f"
+    },
+    {
+      "path": "backend/functions/shared/discount-engine.js",
+      "sha256": "8f1da0d2eac1878bc692067a68178f817b3c99533fdeca65e9434ed601598a13"
+    },
+    {
+      "path": "backend/test/discount-owner-create.test.cjs",
+      "sha256": "d0820f517d3cf7203ac1faa3db783234e3f61e31a06f97ed1f5a384ca19788f4"
+    },
+    {
+      "path": "frontend/lib/models/discount.dart",
+      "sha256": "bcb9df7467253ed64a91aca37950e6bee3575d219ac3b7a70a37fe09a82cf1aa"
+    },
+    {
+      "path": "frontend/lib/screens/discount_management_page.dart",
+      "sha256": "eb6cb15097d0faf618877b547c7aec65b96c339600b181cb45a514fedbd45cf6"
+    },
+    {
+      "path": "docs/item-discount-overlap-fix-361.json",
+      "sha256": "a8bd6308d18f40e9763ce70b35887675d7f541b630d8dcab23d572e1976a48af"
+    },
+    {
+      "path": "docs/item-markdown-implementation-361.json",
+      "sha256": "ed2a3d5bee4d8305eb3808abdf791d4d3110ff4953a197af59067ae1e1153f61"
+    },
+    {
+      "path": "frontend/lib/models/discount_overlap.dart",
+      "sha256": "994e370dfc8e06313c99611626877e346780f5e27c2d08358f5ad31af0494396"
+    },
+    {
+      "path": "frontend/test/discount_overlap_test.dart",
+      "sha256": "db5ac2faab3d36f69d9db2e96e70ff72fdf5e26b5074e5a04d53df87c88f61f4"
+    }
+  ]
+}

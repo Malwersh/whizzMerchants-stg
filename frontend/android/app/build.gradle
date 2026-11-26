@@ -5,6 +5,10 @@ plugins {
     id "com.google.gms.google-services"
 }
 
+def mapsEnv = new Properties()
+def mapsEnvFile = rootProject.file('../.env')
+if (mapsEnvFile.exists()) mapsEnvFile.withInputStream { mapsEnv.load(it) }
+
 android {
     namespace "com.whizz.merchant"
     compileSdk 36
@@ -22,10 +26,11 @@ android {
 
     defaultConfig {
         applicationId "com.whizz.merchant"
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: mapsEnv.getProperty("GOOGLE_MAPS_API_KEY", "")]
         minSdk 24
         targetSdk 36
-        versionCode 1
-        versionName "1.0.0"
+        versionCode flutter.versionCode
+        versionName flutter.versionName
         
         multiDexEnabled true
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

@@ -106,7 +106,6 @@ class _FloatingSupportChatState extends ConsumerState<FloatingSupportChat>
         .length;
 
     final hasUnreadMessages = unreadCount > 0;
-    final isConnected = _chatService.isConnected;
 
     return Positioned(
       left: _position.dx,
@@ -172,24 +171,6 @@ class _FloatingSupportChatState extends ConsumerState<FloatingSupportChat>
                       ),
                     ),
 
-                    // Connection status indicator
-                    Positioned(
-                      bottom: 4,
-                      right: 4,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: isConnected ? Colors.green : Colors.red,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: theme.colorScheme.onPrimary,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-
                     // Unread messages badge
                     if (hasUnreadMessages)
                       Positioned(
@@ -215,7 +196,7 @@ class _FloatingSupportChatState extends ConsumerState<FloatingSupportChat>
                           child: Text(
                             unreadCount > 99 ? '99+' : unreadCount.toString(),
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: Colors.black,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),

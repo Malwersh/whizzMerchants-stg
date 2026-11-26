@@ -13,13 +13,16 @@ class OrderCacheService {
   static Future<bool> cacheOrder(Order order) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       final cachedData = {
         'orderId': order.id,
         'status': order.status.name,
         'driverId': order.driverId,
         'driverName': order.driverName,
         'driverPhone': order.driverPhone,
+        'exceptionCancellation': order.exceptionCancellation,
+        'driverReplacementSearch': order.driverReplacementSearch,
+        'driverSearchUnavailable': order.driverSearchUnavailable,
         'vehicleType': order.vehicleType,
         'vehiclePlate': order.vehiclePlate,
         'driverAssignedAt': order.driverAssignedAt?.toIso8601String(),
@@ -33,9 +36,10 @@ class OrderCacheService {
 
       final cacheKey = '$_cachePrefix${order.id}';
       final jsonString = json.encode(cachedData);
-      
+
       await prefs.setString(cacheKey, jsonString);
-      AppLogger.debug('💾 Order cached: ${order.id} - status: ${order.status.name}');
+      AppLogger.debug(
+          '💾 Order cached: ${order.id} - status: ${order.status.name}');
       return true;
     } catch (e) {
       AppLogger.error('❌ Error caching order: $e');
@@ -48,7 +52,7 @@ class OrderCacheService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final cacheKey = '$_cachePrefix$orderId';
-      
+
       final jsonString = prefs.getString(cacheKey);
       if (jsonString == null) {
         AppLogger.debug('🔍 No cache found for order: $orderId');
@@ -59,7 +63,8 @@ class OrderCacheService {
       final expiresAt = cachedData['expiresAt'] as int?;
 
       // فحص الصلاحية
-      if (expiresAt == null || DateTime.now().millisecondsSinceEpoch > expiresAt) {
+      if (expiresAt == null ||
+          DateTime.now().millisecondsSinceEpoch > expiresAt) {
         AppLogger.debug('⏰ Cache expired for order: $orderId');
         await clearCachedOrder(orderId);
         return null;
@@ -79,11 +84,12 @@ class OrderCacheService {
     AppLogger.info('   New order status: ${newOrder.status.name}');
     AppLogger.info('   New order driver: ${newOrder.driverId}');
     AppLogger.info('   New order updatedAt: ${newOrder.updatedAt}');
-    
+
     final cached = await getCachedOrder(newOrder.id);
     if (cached == null) {
       // لا يوجد كاش - هذا تغيير (أول مرة نرى هذا الطلب)
-      AppLogger.info('✅ No cache found - treating as NEW order (will cache now)');
+      AppLogger.info(
+          '✅ No cache found - treating as NEW order (will cache now)');
       return true;
     }
 
@@ -97,9 +103,23 @@ class OrderCacheService {
     final driverChanged = cached['driverId'] != newOrder.driverId;
     final driverNameChanged = cached['driverName'] != newOrder.driverName;
     final vehicleChanged = cached['vehicleType'] != newOrder.vehicleType;
-    final updatedAtChanged = cached['updatedAt'] != newOrder.updatedAt?.toIso8601String();
+    final updatedAtChanged =
+        cached['updatedAt'] != newOrder.updatedAt?.toIso8601String();
 
-    final hasChanged = statusChanged || driverChanged || driverNameChanged || vehicleChanged || updatedAtChanged;
+    final searchChanged = (cached['driverSearchUnavailable'] == true) !=
+        newOrder.driverSearchUnavailable;
+    final replacementChanged = (cached['driverReplacementSearch'] == true) !=
+        newOrder.driverReplacementSearch;
+    final cancellationChanged = jsonEncode(cached['exceptionCancellation']) !=
+        jsonEncode(newOrder.exceptionCancellation);
+    final hasChanged = cancellationChanged ||
+        replacementChanged ||
+        searchChanged ||
+        statusChanged ||
+        driverChanged ||
+        driverNameChanged ||
+        vehicleChanged ||
+        updatedAtChanged;
 
     AppLogger.info('🔍 Comparison results:');
     AppLogger.info('   Status changed? $statusChanged');
@@ -107,15 +127,26 @@ class OrderCacheService {
     AppLogger.info('   Driver name changed? $driverNameChanged');
     AppLogger.info('   Vehicle changed? $vehicleChanged');
     AppLogger.info('   UpdatedAt changed? $updatedAtChanged');
-    AppLogger.info('   === OVERALL: ${hasChanged ? "CHANGED ✅" : "UNCHANGED ⏭️"} ===');
+    AppLogger.info(
+        '   === OVERALL: ${hasChanged ? "CHANGED ✅" : "UNCHANGED ⏭️"} ===');
 
     if (hasChanged) {
       AppLogger.info('🔄 Order ${newOrder.id} HAS CHANGES:');
-      if (statusChanged) AppLogger.info('  - Status: ${cached['status']} → ${newOrder.status.name}');
-      if (driverChanged) AppLogger.info('  - Driver: ${cached['driverId']} → ${newOrder.driverId}');
-      if (driverNameChanged) AppLogger.info('  - Driver name: ${cached['driverName']} → ${newOrder.driverName}');
-      if (vehicleChanged) AppLogger.info('  - Vehicle: ${cached['vehicleType']} → ${newOrder.vehicleType}');
-      if (updatedAtChanged) AppLogger.info('  - UpdatedAt: ${cached['updatedAt']} → ${newOrder.updatedAt?.toIso8601String()}');
+      if (statusChanged)
+        AppLogger.info(
+            '  - Status: ${cached['status']} → ${newOrder.status.name}');
+      if (driverChanged)
+        AppLogger.info(
+            '  - Driver: ${cached['driverId']} → ${newOrder.driverId}');
+      if (driverNameChanged)
+        AppLogger.info(
+            '  - Driver name: ${cached['driverName']} → ${newOrder.driverName}');
+      if (vehicleChanged)
+        AppLogger.info(
+            '  - Vehicle: ${cached['vehicleType']} → ${newOrder.vehicleType}');
+      if (updatedAtChanged)
+        AppLogger.info(
+            '  - UpdatedAt: ${cached['updatedAt']} → ${newOrder.updatedAt?.toIso8601String()}');
     }
 
     return hasChanged;
@@ -138,13 +169,14 @@ class OrderCacheService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys();
-      
-      final orderCacheKeys = keys.where((key) => key.startsWith(_cachePrefix)).toList();
-      
+
+      final orderCacheKeys =
+          keys.where((key) => key.startsWith(_cachePrefix)).toList();
+
       for (final key in orderCacheKeys) {
         await prefs.remove(key);
       }
-      
+
       AppLogger.info('🧹 All order cache cleared');
     } catch (e) {
       AppLogger.error('❌ Error clearing all order cache: $e');

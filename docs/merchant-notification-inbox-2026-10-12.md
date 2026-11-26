@@ -1,0 +1,7 @@
+# Merchant notification inbox — Staging
+
+Added a bell beside the wallet in the restaurant app bar. The inbox is a single list with All, Unread and Mark all read; no category tabs. Uses neutral surfaces and the existing primary yellow/secondary blue colors. Tapping an order opens that specific order; financial notifications open the existing wallet screen and retain its server-enforced access rules.
+
+Actual order creation history is loaded through the authenticated merchant order API and filtered to the selected restaurant. Historical entries begin read and are labelled as order creation records, not fabricated received-push events. Incoming push and WebSocket new-order events are persisted and deduplicated by event identity. Background, notification-open and cold-start push paths also record available received events. Storage is keyed by Cognito subject and restaurant; at most 200 entries are kept. Read state is local to this device. This is not a cross-device server notification archive, and historical financial notifications from before this implementation are not backfilled.
+
+Validation: 3 Flutter tests passed for account/restaurant isolation, read persistence and screen All/Unread/Mark all read behavior. iOS simulator build succeeded. User confirmed the new screen and historical orders appeared on the restaurant simulator. The old restaurant process on the customer simulator remained stopped to avoid duplicate device sounds.

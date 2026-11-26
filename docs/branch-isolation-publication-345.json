@@ -1,0 +1,177 @@
+{
+  "part": 345,
+  "status": "PUBLISHED_HASHES_AND_DENIAL_PROBES_VERIFIED_NATIVE_ACCEPTANCE_QUEUED",
+  "functions": [
+    {
+      "name": "order-receiver-regional-staging-product-management-v4-sam",
+      "codeSha256": "S9C46G1IqedT11eGyqc0fScep0F202xH9ZH5yJ2y+Xw=",
+      "changedEntries": [
+        "product_management_handler.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-websocket-staging-connection-manager-v1-sam",
+      "codeSha256": "Bpk+uoLG9INAKCqZ5c2bGJVl0v2QaQL1YZCYaZJLkdg=",
+      "changedEntries": [
+        "websocket_connection_manager.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "retiredEntryIsDependencyFree": true,
+      "denialSmokeStatus": 410
+    },
+    {
+      "name": "order-receiver-regional-staging-pos-settings-v1-sam",
+      "codeSha256": "+5VCXrlAqkBV3lyzeOquYeeAQd7Y07cgikFxl1QT0uo=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-regional-staging-business-details-v1-sam",
+      "codeSha256": "sH1TjizyrUzDCTHzvUz9R/4M/YpLqirBJ2ZHpWPCs4o=",
+      "changedEntries": [
+        "business_details_handler.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-regional-staging-location-settings-v1-sam",
+      "codeSha256": "Z+GAkHcSS+hViXiCMExzfYRoMPI4mMEURMGCf43p8/o=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-regional-staging-image-upload-v1-sam",
+      "codeSha256": "MuDj/3scCZaAwQqF/cK6po3Vqh+vKgXyhXSulO3BIDY=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-regional-staging-unified-auth-v4-sam",
+      "codeSha256": "J8ex31krM4GZvM5T36hynpLBGRKpptYaYyz6whBfW9I=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-websocket-staging-handler-v1-sam",
+      "codeSha256": "ZTPL8boB/j1xbSaANUNcn/wGhrD8Vpo/5Ni9QIfI7YU=",
+      "changedEntries": [
+        "websocket_handler.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 410
+    },
+    {
+      "name": "order-receiver-regional-staging-business-profile-v4-sam",
+      "codeSha256": "eBH+Ebhaw0TI7GiBhjVSoureCmif4QLpSVFsac0hLRM=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-merchant-orders-staging-v1",
+      "codeSha256": "4TQy9qiDnwyXiUyI1Tte0OAJJPhRG+V6CX+1UM5TeNw=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-business-staging-status-v1-sam",
+      "codeSha256": "+7VPWhQ5Xs7NmEx4jmwvN4Go587ay09BUGcDfA7rkzo=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "order-receiver-regional-staging-discount-management-v1-sam",
+      "codeSha256": "bqWHmec8cq2DMvFnOerrpAoIg/EydlZPa5Ia7cb/aXM=",
+      "changedEntries": [
+        "shared/merchant-lifecycle.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "WizzUser-WebSocketConnect-staging",
+      "codeSha256": "MOuT8OqyKe9ujACThqcph1udptztk4ipm0IyCZM1qK8=",
+      "changedEntries": [
+        "functions/websocket-connect/index.js",
+        "universal_websocket_manager.js",
+        "merchant-realtime-scope-345.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    },
+    {
+      "name": "WizzUser-WebSocketDefault-staging",
+      "codeSha256": "zAFd73pC37hqVLg2kS7Cqzu/ApMHrJRIxJEEJi7Lttk=",
+      "changedEntries": [
+        "functions/websocket-default/index.js",
+        "merchant-realtime-scope-345.js"
+      ],
+      "unrelatedEntriesPreserved": true,
+      "denialSmokeStatus": 401
+    }
+  ],
+  "businessDataWrites": 0,
+  "financialWrites": 0,
+  "newTables": false,
+  "configurationChanges": false,
+  "iamRolesChanged": [
+    {
+      "roleName": "WizzUser-backend-staging-WebSocketConnectFunctionRo-6czjiGP8lCf9",
+      "policyName": "MerchantRealtimeScope345",
+      "scope": "Read and transaction condition checks only; no new write actions"
+    },
+    {
+      "roleName": "WizzUser-backend-staging-WebSocketDefaultFunctionRo-rm0k6GxotFKW",
+      "policyName": "MerchantRealtimeScope345",
+      "scope": "Read and transaction condition checks only; no new write actions"
+    }
+  ],
+  "rawEventAndMessageCredentialLoggingRemoved": true,
+  "nativeApp": {
+    "application": "MERCHANT",
+    "build": 345,
+    "device": "iPhone16 simulator",
+    "installed": true,
+    "launched": true
+  },
+  "legacyMerchantSocketCutover": {
+    "status": "COMPLETED_VERIFIED",
+    "explicitUserApproval": true,
+    "captured": 30,
+    "closedSockets": 0,
+    "alreadyGoneSockets": 30,
+    "virtualSessionRows": 0,
+    "alreadyAbsentRows": 0,
+    "skippedVerified": 0,
+    "skippedChangedScope": 0,
+    "legacyRowsRemoved": 30,
+    "conditionalConflicts": 0,
+    "failures": 0,
+    "businessProfilesOrdersAndMoneyUntouched": true,
+    "remainingCapturedUnverifiedRows": 0,
+    "completedAtUtc": "2026-10-29T02:03:02.814265+00:00"
+  }
+}

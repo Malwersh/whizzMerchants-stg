@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/responsive_helper.dart';
 import '../models/business.dart';
 import '../models/order.dart';
+import '../providers/product_provider_riverpod.dart';
 import '../core/design_system/design_system.dart';
 
 class AnalyticsPage extends ConsumerStatefulWidget {
@@ -25,6 +27,17 @@ class AnalyticsPage extends ConsumerStatefulWidget {
 }
 
 class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final productState = ref.read(productProviderRiverpod);
+      if (productState.products.isEmpty && !productState.isLoading) {
+        ref.read(productProviderRiverpod.notifier).loadProducts();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
@@ -49,6 +62,29 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
 
   Widget _buildStatsGrid(BuildContext context, AppLocalizations loc) {
     final isMobile = ResponsiveHelper.isMobile(context);
+
+    final orders = widget.orders ?? const <Order>[];
+    final products = ref.watch(productsProvider);
+
+    final countableOrders = orders
+        .where((o) =>
+            o.status != OrderStatus.cancelled &&
+            o.status != OrderStatus.expired &&
+            o.status != OrderStatus.returned)
+        .toList();
+    final totalOrders = orders.length;
+    final revenue = countableOrders.fold<double>(
+        0, (sum, o) => sum + o.totalAmount);
+    final activeProducts = products.where((p) => p.isAvailable).length;
+    final customers = orders
+        .map((o) => o.customerId)
+        .where((id) => id.isNotEmpty && id != 'unknown')
+        .toSet()
+        .length;
+
+    final numberFormat = NumberFormat('#,##0');
+    final revenueText =
+        '${loc.currencyPrefix}${numberFormat.format(revenue)}';
 
     return Container(
       padding: EdgeInsets.all(
@@ -93,22 +129,22 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
             children: [
               _buildStatCard(
                 title: loc.totalOrders,
-                value: '1,234',
+                value: numberFormat.format(totalOrders),
                 icon: Icons.shopping_cart_rounded,
               ),
               _buildStatCard(
                 title: loc.revenueLabel,
-                value: '\$12,345',
+                value: revenueText,
                 icon: Icons.attach_money_rounded,
               ),
               _buildStatCard(
                 title: loc.activeProducts,
-                value: '89',
+                value: numberFormat.format(activeProducts),
                 icon: Icons.inventory_2_rounded,
               ),
               _buildStatCard(
                 title: loc.customers,
-                value: '567',
+                value: numberFormat.format(customers),
                 icon: Icons.people_rounded,
               ),
             ],

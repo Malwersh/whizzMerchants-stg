@@ -5,15 +5,42 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:whizz_merchants/config/app_config.dart';
 import '../core/utils/app_logger.dart';
+import '../utils/token_validator.dart';
 import 'app_auth_service.dart';
+import 'merchant_branch_scope.dart';
+import 'secure_token_storage.dart';
+import 'token_refresh_service.dart';
+
+import 'auth_header_builder.dart';
+import 'product_service.dart';
 
 class ImageUploadService {
   static String get baseUrl => AppConfig.baseUrl;
   static const uuid = Uuid();
 
+  /// Returns a valid Cognito ACCESS token. The upload endpoint verifies the
+  /// token via Cognito GetUser, which rejects ID tokens, so the shared
+  /// AppAuthService.getAccessToken() (ID-token-first) cannot be used here.
+  static Future<String?> _getCognitoAccessToken() async {
+    var accessToken = await SecureTokenStorage.getAccessToken();
+    if (accessToken != null &&
+        accessToken.isNotEmpty &&
+        !TokenValidator.isTokenExpired(accessToken)) {
+      return accessToken;
+    }
+    await TokenRefreshService.refreshTokens();
+    accessToken = await SecureTokenStorage.getAccessToken();
+    if (accessToken != null &&
+        accessToken.isNotEmpty &&
+        !TokenValidator.isTokenExpired(accessToken)) {
+      return accessToken;
+    }
+    return null;
+  }
+
   /// Upload business photo and return the URL
-  static Future<Map<String, dynamic>> uploadBusinessPhoto(
-      File imageFile, {bool isRegistration = false}) async {
+  static Future<Map<String, dynamic>> uploadBusinessPhoto(File imageFile,
+      {bool isRegistration = false, String? businessId}) async {
     try {
       String? token;
       Map<String, String> headers = {
@@ -25,10 +52,9 @@ class ImageUploadService {
         headers['X-Registration-Upload'] = 'true';
         AppLogger.info(
             '🔓 Uploading business photo for registration (no auth required)');
-
       } else {
         // For regular uploads, require authentication
-        token = await AppAuthService.getAccessToken();
+        token = await _getCognitoAccessToken();
         if (token == null) {
           return {
             'success': false,
@@ -37,7 +63,6 @@ class ImageUploadService {
         }
         headers['Authorization'] = 'Bearer $token';
         AppLogger.info('🔐 Uploading business photo with authentication');
-
       }
 
       // Read image file as bytes
@@ -54,6 +79,7 @@ class ImageUploadService {
       // Create JSON request body
       final requestBody = {
         'image': base64Image,
+        if (businessId != null) 'businessId': businessId,
         'filename': fileName,
       };
 
@@ -64,10 +90,10 @@ class ImageUploadService {
         body: json.encode(requestBody),
       );
 
-      AppLogger.api('Business photo upload response status: ${response.statusCode}');
+      AppLogger.api(
+          'Business photo upload response status: ${response.statusCode}');
 
       AppLogger.api('Business photo upload response body: ${response.body}');
-
 
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
@@ -111,6 +137,12 @@ class ImageUploadService {
   /// Upload image file and return the URL
   static Future<Map<String, dynamic>> uploadProductImage(File imageFile) async {
     try {
+      if (AppConfig.isProduction) {
+        return uploadProductImageFromBytes(
+          imageBytes: await imageFile.readAsBytes(),
+          fileName: imageFile.path,
+        );
+      }
       final token = await AppAuthService.getAccessToken();
       if (token == null) {
         return {
@@ -146,10 +178,10 @@ class ImageUploadService {
         body: json.encode(requestBody),
       );
 
-      AppLogger.api('Product image upload response status: ${response.statusCode}');
+      AppLogger.api(
+          'Product image upload response status: ${response.statusCode}');
 
       AppLogger.api('Product image upload response body: ${response.body}');
-
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -189,14 +221,34 @@ class ImageUploadService {
     }
   }
 
+  /// Campaign artwork keeps animated GIF bytes and uses the verified branch upload.
+  static Future<Map<String, dynamic>> uploadDiscountImage(File file,
+      {required String businessId}) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 3 * 1024 * 1024)
+      return {
+        'success': false,
+        'message': 'يجب أن يكون حجم الصورة أو GIF أقل من 3 MB.'
+      };
+    return uploadProductImageFromBytes(
+        imageBytes: bytes,
+        fileName: file.path,
+        businessId: businessId,
+        purpose: 'discount');
+  }
+
   /// Upload image from bytes (for web compatibility)
   static Future<Map<String, dynamic>> uploadProductImageFromBytes({
     required Uint8List imageBytes,
     required String fileName,
+    String? businessId,
+    String purpose = 'product',
   }) async {
     try {
-      final token = await AppAuthService.getAccessToken();
-      if (token == null) {
+      final scope = await MerchantBranchScope.capture(businessId: businessId);
+      await scope.assertCurrent();
+      final token = AppConfig.isProduction ? null : await _getCognitoAccessToken();
+      if (!AppConfig.isProduction && token == null) {
         return {
           'success': false,
           'message': 'No access token found',
@@ -208,31 +260,46 @@ class ImageUploadService {
 
       // Determine file extension from file name
       final fileNameLower = fileName.toLowerCase();
-      final fileExtension = fileNameLower.endsWith('.png') ? 'png' : 'jpg';
+      final isGif = purpose == 'discount' &&
+          imageBytes.length >= 6 &&
+          ['GIF87a', 'GIF89a'].contains(
+              ascii.decode(imageBytes.take(6).toList(), allowInvalid: true));
+      final fileExtension = isGif
+          ? 'gif'
+          : fileNameLower.endsWith('.png')
+              ? 'png'
+              : 'jpg';
       final uniqueFileName = '${uuid.v4()}.$fileExtension';
 
       // Create JSON request body
       final requestBody = {
-        'image': base64Image,
+        'image':
+            'data:image/${isGif ? "gif" : fileExtension == "png" ? "png" : "jpeg"};base64,$base64Image',
+        'businessId': scope.businessId,
+        if (purpose == 'discount') 'purpose': 'discount',
         'filename': uniqueFileName,
       };
 
       // Make HTTP POST request with JSON body
-      final response = await http.post(
-        Uri.parse('$baseUrl/upload/product-image'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode(requestBody),
-      );
+      final response = await http
+          .post(
+            scope.uri('${ProductService.baseUrl}/upload/product-image'),
+            headers: AppConfig.isProduction
+                ? await AuthHeaderBuilder.build()
+                : {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer $token',
+                  },
+            body: json.encode(requestBody),
+          )
+          .timeout(const Duration(seconds: 30));
 
       AppLogger.api(
           'Product image upload response status: ${response.statusCode}');
 
       AppLogger.api('Product image upload response body: ${response.body}');
 
-
+      await scope.assertCurrent();
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {

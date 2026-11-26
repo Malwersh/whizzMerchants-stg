@@ -6,6 +6,7 @@ import 'dart:math' as math;
 class CircularOrderTimer extends StatefulWidget {
   final String orderId;
   final DateTime createdAt;
+  final DateTime? deadlineAt;
   final int totalMinutes; // Total timeout duration in minutes
   final double size; // Size of the circular timer
   final VoidCallback? onTimeUp; // Callback when timer reaches zero
@@ -18,7 +19,8 @@ class CircularOrderTimer extends StatefulWidget {
     super.key,
     required this.orderId,
     required this.createdAt,
-    this.totalMinutes = 10, // Default 10 minutes
+    this.deadlineAt,
+    this.totalMinutes = 5, // Fallback for orders without a server deadline
     this.size = 60.0,
     this.onTimeUp,
     this.onAutoReject,
@@ -49,7 +51,7 @@ class _CircularOrderTimerState extends State<CircularOrderTimer>
     
     // Initialize animation controller
     _animationController = AnimationController(
-      duration: Duration(seconds: _remainingSeconds.toInt()),
+      duration: Duration(seconds: math.max(1, _remainingSeconds.toInt())),
       vsync: this,
     );
     
@@ -63,8 +65,9 @@ class _CircularOrderTimerState extends State<CircularOrderTimer>
   }
 
   void _calculateRemainingTime() {
-    final elapsed = DateTime.now().difference(widget.createdAt);
-    _remainingSeconds = _totalSeconds - elapsed.inSeconds;
+    final deadline = widget.deadlineAt ?? widget.createdAt.add(Duration(minutes: widget.totalMinutes));
+    _totalSeconds = math.max(1, deadline.difference(widget.createdAt).inMilliseconds / 1000);
+    _remainingSeconds = deadline.difference(DateTime.now()).inMilliseconds / 1000;
     
     if (_remainingSeconds <= 0) {
       _remainingSeconds = 0;
@@ -83,13 +86,23 @@ class _CircularOrderTimerState extends State<CircularOrderTimer>
           _animationController.stop();
           
           // Execute auto-reject callback if provided
-          widget.onAutoReject?.call(widget.orderId);
+          // Never mutate order state from a display timer.
           
           // Also call onTimeUp for backward compatibility
           widget.onTimeUp?.call();
         }
       });
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant CircularOrderTimer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.deadlineAt != widget.deadlineAt || oldWidget.createdAt != widget.createdAt || oldWidget.orderId != widget.orderId) {
+      _isTimeUp = false;
+      _calculateRemainingTime();
+      _startTimer();
+    }
   }
 
   /// Get color based on remaining time percentage

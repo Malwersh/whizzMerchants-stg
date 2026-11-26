@@ -27,6 +27,8 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
   bool _testMode = false;
   bool _autoSendOrders = false;
   bool _autoAcceptOrders = true;
+  bool _apiKeyConfigured = false;
+  String _configuredEndpoint = '';
   String _systemType = 'genericApi';
   int _timeoutSeconds = 30;
 
@@ -37,7 +39,7 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
         {'value': 'clover', 'label': loc.clover},
         {'value': 'shopify', 'label': loc.shopify},
         {'value': 'woocommerce', 'label': loc.woocommerce},
-  ];
+      ];
 
   @override
   void initState() {
@@ -61,11 +63,13 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
     try {
       final apiService = ApiService();
       final settings = await apiService.getPosSettings(widget.business.id);
-      
+
       if (mounted) {
         setState(() {
           _apiEndpointController.text = settings['apiEndpoint'] ?? '';
           _apiKeyController.text = settings['apiKey'] ?? '';
+          _apiKeyConfigured = settings['apiKeyConfigured'] == true;
+          _configuredEndpoint = settings['apiEndpoint'] ?? '';
           _locationIdController.text = settings['locationId'] ?? '';
           _isEnabled = settings['enabled'] ?? false;
           _testMode = settings['testMode'] ?? false;
@@ -77,12 +81,19 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
       }
     } catch (e) {
       if (mounted) {
-        final loc = AppLocalizations.of(context)!;
-        showAdaptiveSnackBar(
-          context: context,
-          message: '${loc.failedToLoadPosSettings}: $e',
-          type: AdaptiveSnackBarType.error,
-        );
+        // Fall back to defaults so the form is usable even if the endpoint
+        // is missing or the backend is not yet deployed.
+        setState(() {
+          _apiEndpointController.text = '';
+          _apiKeyController.text = '';
+          _locationIdController.text = '';
+          _isEnabled = false;
+          _testMode = false;
+          _autoSendOrders = false;
+          _autoAcceptOrders = true;
+          _systemType = 'genericApi';
+          _timeoutSeconds = 30;
+        });
       }
     } finally {
       if (mounted) {
@@ -116,8 +127,16 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
         'timeoutSeconds': _timeoutSeconds,
       };
 
-      await apiService.updatePosSettings(widget.business.id, settings);
-      
+      final response = await apiService.updatePosSettings(widget.business.id, settings);
+      final saved = response['settings'];
+      if (mounted && saved is Map && saved['apiKeyConfigured'] == true) {
+        setState(() {
+          _apiKeyConfigured = true;
+          _configuredEndpoint = saved['apiEndpoint'] ?? '';
+          _apiKeyController.clear();
+        });
+      }
+
       if (mounted) {
         final loc = AppLocalizations.of(context)!;
         showAdaptiveSnackBar(
@@ -164,7 +183,7 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
 
       final result =
           await apiService.testPosConnection(widget.business.id, testConfig);
-      
+
       if (mounted) {
         final loc = AppLocalizations.of(context)!;
         final isSuccess = result['success'] ?? false;
@@ -226,7 +245,9 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Kitchen printers / display: works without POS integration
-                    const KitchenOutputSection(),
+                    KitchenOutputSection(
+                        businessId: widget.business.id,
+                        businessName: widget.business.name),
                     SizedBox(height: AppSpacing.md),
 
                     // Enable POS Integration
@@ -270,8 +291,8 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                               prefixIcon: Icon(Icons.computer,
                                   color: WhizzColors.secondary),
                               border: OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius.circular(AppDimensions.borderRadiusMD),
+                                borderRadius: BorderRadius.circular(
+                                    AppDimensions.borderRadiusMD),
                               ),
                             ),
                             items: _getSystemTypes(loc).map((type) {
@@ -324,7 +345,10 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                                 ),
                                 validator: (value) {
                                   if (_isEnabled &&
-                                      (value == null || value.isEmpty)) {
+                                      (value == null || value.isEmpty) &&
+                                      !(_apiKeyConfigured &&
+                                          _apiEndpointController.text.trim() ==
+                                              _configuredEndpoint)) {
                                     return loc.apiEndpointRequired;
                                   }
                                   return null;
@@ -338,8 +362,7 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                                 decoration: InputDecoration(
                                   labelText: loc.apiKeyLabel,
                                   hintText: loc.apiKeyHint,
-                                  prefixIcon:
-                                      Icon(Icons.key,
+                                  prefixIcon: Icon(Icons.key,
                                       color: WhizzColors.secondary),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(
@@ -349,7 +372,10 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                                 obscureText: true,
                                 validator: (value) {
                                   if (_isEnabled &&
-                                      (value == null || value.isEmpty)) {
+                                      (value == null || value.isEmpty) &&
+                                      !(_apiKeyConfigured &&
+                                          _apiEndpointController.text.trim() ==
+                                              _configuredEndpoint)) {
                                     return loc.apiKeyRequired;
                                   }
                                   return null;

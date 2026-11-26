@@ -1,0 +1,40 @@
+{
+  "part": 339,
+  "scope": "One merchant product editor for create and update",
+  "entryPoints": [
+    "AddProductScreen",
+    "EditProductScreen",
+    "ProductsManagementScreen edit menu"
+  ],
+  "implementation": "ProductFormScreen shared by all entry points; old inline drawer and duplicate forms removed",
+  "fields": [
+    "Current/replacement branch-owned image",
+    "Name",
+    "Optional description",
+    "Whole IQD price",
+    "Branch category",
+    "Optional barcode",
+    "Immediate availability",
+    "Existing and edited option groups"
+  ],
+  "inventory": "Quantity remains in its audited inventory screen; product copy/update responses preserve stock metadata.",
+  "behavior": [
+    "Only edited fields are sent on update",
+    "Form and current image remain after failed save",
+    "Duplicate taps blocked; create retries keep same request id for same payload",
+    "Upload failures retain selected image and form input",
+    "Successful image upload reused on retry",
+    "Existing options deep copied so canceled editing never mutates source",
+    "Category selection validated against available categories",
+    "Content needs publish; availability applies to new orders immediately"
+  ],
+  "catalogSuggestions": "Add mode preserves name/description catalog suggestions and global reference; image is explicitly selected and uploaded for the branch instead of resending a foreign image URL.",
+  "validation": {
+    "flutterTestsPassed": 21,
+    "flutterTestsFailed": 0,
+    "analyzerErrors": 0,
+    "merchantSimulator": "iPhone 16 normal app updated and launched"
+  },
+  "backendChanges": false,
+  "humanAcceptance": "Retest shared create/edit UI, photo picker and publication from merchant app; not marked as human PASS."
+}

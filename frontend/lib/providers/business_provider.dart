@@ -4,6 +4,10 @@ import '../models/business.dart';
 import '../services/api_service.dart';
 import 'session_provider.dart';
 
+final businessListLoaderProvider =
+    Provider<Future<List<Map<String, dynamic>>> Function()>(
+        (ref) => ApiService().getUserBusinesses);
+
 final businessProvider = FutureProvider<Business?>((ref) async {
   final session = ref.watch(sessionProvider);
   debugPrint(
@@ -11,15 +15,41 @@ final businessProvider = FutureProvider<Business?>((ref) async {
   );
   debugPrint(
       '🏢 BusinessProvider: has businessData = ${session.businessData != null}');
-  
+
   if (!session.isAuthenticated || session.businessId == null) {
     debugPrint(
         '🏢 BusinessProvider: returning null - not authenticated or no businessId');
     return null;
   }
-  
-  // ⚠️ Following wizzuser: ALWAYS use cached data if present (don't depend on API)
-  if (session.businessData != null) {
+
+  // Try the API first so profile edits and photo uploads show up immediately.
+  // Fall back to cached session data when the API is unavailable (offline resilience).
+  debugPrint('🏢 BusinessProvider: fetching from API...');
+  try {
+    final businesses = await ref.read(businessListLoaderProvider)();
+    debugPrint(
+        '🏢 BusinessProvider: API returned ${businesses.length} businesses');
+
+    final matches = businesses
+        .where((b) =>
+            (b['businessId'] ?? b['id']) == session.businessId &&
+            b['deletionRequestId'] == null)
+        .toList();
+    if (matches.isNotEmpty) return Business.fromJson(matches.first);
+    // A successful server response is authoritative: do not restore a
+    // removed business from cached data or synthesize a placeholder for it.
+    await ref
+        .read(sessionProvider.notifier)
+        .clearBusinessSelection(expected: session);
+    return null;
+  } catch (e) {
+    debugPrint('🏢 BusinessProvider: API error, falling back to cache: $e');
+  }
+
+  // Cached data fallback (also keeps offline behavior)
+  if (session.businessData != null &&
+      (session.businessData!['businessId'] ?? session.businessData!['id']) ==
+          session.businessId) {
     debugPrint('🏢 BusinessProvider: trying to parse cached businessData');
     try {
       final business = Business.fromJson(session.businessData!);
@@ -28,45 +58,23 @@ final businessProvider = FutureProvider<Business?>((ref) async {
       return business;
     } catch (e) {
       debugPrint('🏢 BusinessProvider: failed to parse cached data: $e');
-      // Continue to API if cache parse fails
     }
   }
-  
-  debugPrint('🏢 BusinessProvider: fetching from API...');
-  try {
-    final api = ApiService();
-    final businesses = await api.getUserBusinesses();
+
+  // Last resort: minimal Business from session
+  if (session.businessId != null) {
     debugPrint(
-        '🏢 BusinessProvider: API returned ${businesses.length} businesses');
-    
-    if (businesses.isEmpty) {
-      debugPrint('🏢 BusinessProvider: no businesses found from API');
-      return null;
-    }
-    
-    final match = businesses.firstWhere(
-      (b) => (b['businessId'] ?? b['id']) == session.businessId,
-      orElse: () => businesses.first,
+        '🏢 BusinessProvider: Creating minimal business from session businessId');
+    return Business(
+      id: session.businessId!,
+      name: 'Business', // Placeholder - will be updated when API works
+      email: '',
+      phone: '',
+      address: '',
+      businessType: BusinessType.restaurant, // Default type
     );
-    debugPrint(
-        '🏢 BusinessProvider: matched business: ${match['businessName'] ?? match['name']}');
-    return Business.fromJson(match);
-  } catch (e) {
-    debugPrint('🏢 BusinessProvider: API error: $e');
-    // ⚠️ Following wizzuser: If API fails, create minimal Business from session
-    if (session.businessId != null) {
-      debugPrint('🏢 BusinessProvider: Creating minimal business from session businessId');
-      return Business(
-        id: session.businessId!,
-        name: 'Business', // Placeholder - will be updated when API works
-        email: '',
-        phone: '',
-        address: '',
-        businessType: BusinessType.restaurant, // Default type
-      );
-    }
-    return null;
   }
+  return null;
 });
 
 final enhancedBusinessProvider = FutureProvider<Business?>((ref) async {

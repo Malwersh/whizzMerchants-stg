@@ -3,12 +3,13 @@ description: WhizzMerchant - Complete business management solution for restauran
 
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+346
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
+  crypto: ^3.0.3
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -44,7 +45,11 @@ dependencies:
   flutter_dotenv: ^5.1.0
   jwt_decode: ^0.3.1
   jwt_decoder: ^2.0.1
-
+  google_maps_flutter: ^2.18.1
+  file_picker: ^11.0.3
+  image: ^4.5.4
+  archive: ^4.5.2
+  xml: ^6.6.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -60,6 +65,8 @@ flutter:
   assets:
     - assets/sounds/
     - assets/images/
+    - assets/images/wizz-wordmark-blue.png
+    - assets/images/wizz-company-primary.png
     - .env
 
 # App Icon Configuration

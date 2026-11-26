@@ -1,0 +1,13 @@
+{
+  "status": "published_verified_staging",
+  "cause": "Handler fabricated deviceGuards=[] for verified owner, falsely triggering staff classification restriction",
+  "fix": "Preserve actual actor.deviceGuards only; retain owner context and actual employee fences",
+  "tests": 22,
+  "publishedHandlerContextTests": 3,
+  "sha256": "Z4bd/USCp/f6XEmQ8/4MPHNCJEWz3+PnEPsoUwCbtr0=",
+  "changedFiles": [
+    "product_management_handler.js"
+  ],
+  "clientUpdateRequired": false,
+  "uat": "Retry save on Fattoush; no products modified by agent"
+}

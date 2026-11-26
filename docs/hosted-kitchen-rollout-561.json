@@ -1,0 +1,88 @@
+{
+  "status": "DEPLOYED_STAGING_PENDING_OWNER_PAIRING_ACCEPTANCE",
+  "scope": "staging only; hosted Arabic KDS, owner pairing and revocation, canonical preparation/ready actions",
+  "template": "backend/kitchen-display/template.yaml",
+  "newInfrastructure": [
+    "private S3 hosting bucket",
+    "CloudFront HTTPS distribution with security headers",
+    "REST API for pairing/snapshot/canonical action proxy",
+    "dedicated WebSocket API",
+    "three Lambda functions and their scoped IAM roles",
+    "additional consumer on existing WizzOrders stream"
+  ],
+  "tables": {
+    "staging-MerchantPlatform": "Kitchen pairing, rate limit, revocable connection and branch order-key records only; no customer or financial order snapshots",
+    "WhizzMerchants_Businesses": "Read and conditional lifecycle/ownership fence",
+    "staging-AccountDeletion": "Read and conditional lifecycle fence",
+    "WizzOrders": "Read canonical orders and condition-check projection; no new direct order writer"
+  },
+  "existingRoleAdditions": {
+    "Wizz-Merchants-staging-UnifiedAuthFunctionRole-5TqBUPbFZ9wo": {
+      "actions": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:Query"
+      ],
+      "table": "staging-MerchantPlatform",
+      "leadingKeys": [
+        "KITCHEN_PAIR#*",
+        "KITCHEN_RATE#*",
+        "BRANCH#*"
+      ],
+      "purpose": "Owner approves, configures and revokes kitchen screens with audit"
+    },
+    "Wizz-Merchants-staging-MerchantOrderFunctionRole-AZ12ipBY0zyt": {
+      "actions": [
+        "dynamodb:GetItem",
+        "dynamodb:ConditionCheckItem"
+      ],
+      "table": "staging-MerchantPlatform",
+      "leadingKeys": [
+        "KITCHEN_PAIR#*"
+      ],
+      "purpose": "Validate live screen approval in same transaction as existing canonical order transition"
+    }
+  },
+  "oneTimeBootstrap": "Read-only scan of WizzOrders; write order-key membership and readiness marker in staging-MerchantPlatform after stream consumer is running. No source order or balance edits.",
+  "existingCodePatch": "Minimal changes prepared atop current downloaded Lambda ZIPs, preserving all unrelated entries and finance rollout configuration. Recheck Lambda RevisionId before publish.",
+  "existingApiChange": "Authenticated POST /auth/kitchen-screens to existing verified owner handler",
+  "existingEnvironmentChange": "Enable KITCHEN_DISPLAY_ENABLED only after health checks; add KITCHEN_DISPLAY_URL to owner handler",
+  "financialChanges": "None. Existing canonical order writer and cancellation fences reused; no wallet/settlement/payout writes added.",
+  "releaseOrder": [
+    "Approval",
+    "Deploy isolated stack disabled",
+    "Publish minimal existing-service patches disabled",
+    "Register authenticated owner route",
+    "Enable stream consumer and bootstrap kitchen order-key index",
+    "Upload web assets/config and validate HTTPS",
+    "Enable owner and canonical action handlers",
+    "Install merchant app and test pairing, states, cancellation, revoke and reconnect"
+  ],
+  "rollback": "Disable kitchen feature in all three new functions and two existing handlers; leave original merchant orders/printing active. Revert only reviewed code patches if needed; retain audit records.",
+  "pendingAcceptance": [
+    "Owner pairing through merchant app and actual branch snapshot",
+    "Real staging two-screen end-to-end, cancellation and revocation",
+    "physical Samsung remote/browser",
+    "stream lag monitoring and alert verification",
+    "TV latency target measurement; not yet asserted"
+  ],
+  "deployed": {
+    "stack": "staging-wizz-hosted-kitchen",
+    "region": "us-east-1",
+    "displayUrl": "https://d3ozj1vp60o5bp.cloudfront.net",
+    "featureEnabled": true,
+    "bootstrapSourceCount": 86,
+    "merchantSimulatorBuild": 347,
+    "smoke": "PASS HTTPS, anonymous snapshot/action/owner denial, malformed secret rejection, pending pairing/status and pending websocket denial",
+    "financialOrOrderWritesDuringSmoke": false,
+    "dependencyAudit": "0 vulnerabilities in isolated SDK bundle"
+  },
+  "ownerSessionPolicy": "Existing authenticated active owner session; no five-minute auth_time requirement for kitchen-screen approval. Pairing code still expires after five minutes; ownership/lifecycle and revocation fences unchanged.",
+  "validationAfterSessionChange": {
+    "backendTestsPassed": 83,
+    "oldOwnerSessionApproval": "PASS",
+    "nonOwnerDenial": "PASS",
+    "pairingExpiryAndSingleUse": "PASS"
+  }
+}

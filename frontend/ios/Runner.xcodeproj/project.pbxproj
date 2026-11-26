@@ -8,15 +8,21 @@
 
 /* Begin PBXBuildFile section */
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
+		28B4CFF86D6C4142D95FC87A /* soft_chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = 189471A18713C79541FC7688 /* soft_chime.wav */; };
+		29AF7F25CAE1506C115FDA09 /* online_chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = 1354007402AEA63B9E981D1E /* online_chime.wav */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		4C32E2B1973260762BCC5B0A /* merchant_bell.wav in Resources */ = {isa = PBXBuildFile; fileRef = 068124EE55914B8125E6A003 /* merchant_bell.wav */; };
+		69AF0C432C614BEEBF3BED13 /* driver_offer.wav in Resources */ = {isa = PBXBuildFile; fileRef = 96E183570E1F854B40DF5E2E /* driver_offer.wav */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		89BF2308417D2DDC6FF2B6E6 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 80DB0963A64B153FC91F03B9 /* Pods_Runner.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		ABE6D6DA19802BB4CC8F5762 /* first_nitification_sound.wav in Resources */ = {isa = PBXBuildFile; fileRef = BE417ADD47CC70C08AD8569A /* first_nitification_sound.wav */; };
 		B7523474287541D68A58EC2F /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 5172CA6AC7F546A4A13B1ABB /* GoogleService-Info.plist */; };
+		BCC7CA31548E4590C6091E05 /* driver_original.wav in Resources */ = {isa = PBXBuildFile; fileRef = 0FBA82F8CC25602FD5E7ECE0 /* driver_original.wav */; };
 		CED90FF4783FC17D19D93643 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA7735A02FF737A0D1475246 /* Pods_RunnerTests.framework */; };
 /* End PBXBuildFile section */
 
@@ -44,10 +50,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		068124EE55914B8125E6A003 /* merchant_bell.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = merchant_bell.wav; sourceTree = "<group>"; };
 		078C60195ED8B91DBE9EBD17 /* RunnerDebug.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = RunnerDebug.entitlements; path = Runner/RunnerDebug.entitlements; sourceTree = "<group>"; };
+		0FBA82F8CC25602FD5E7ECE0 /* driver_original.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = driver_original.wav; sourceTree = "<group>"; };
+		1354007402AEA63B9E981D1E /* online_chime.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = online_chime.wav; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		15BDFBD7CCB1990BA02B7C2D /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		189471A18713C79541FC7688 /* soft_chime.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = soft_chime.wav; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
@@ -59,6 +69,7 @@
 		79BAD9F602C909BE5459087A /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		80DB0963A64B153FC91F03B9 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		96E183570E1F854B40DF5E2E /* driver_offer.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = driver_offer.wav; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -69,6 +80,7 @@
 		AA7735A02FF737A0D1475246 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AD3A711CF27392D5AC2232BD /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		B87F3C6842968E696E2EBF86 /* Runner.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = Runner.entitlements; path = Runner/Runner.entitlements; sourceTree = "<group>"; };
+		BE417ADD47CC70C08AD8569A /* first_nitification_sound.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = first_nitification_sound.wav; sourceTree = "<group>"; };
 		DAAFFE15BE243AF9BE28CD4A /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		E7F2A4B1C9D3E5F7A1B2C3D4 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		F1F218BCBF556D03A9E21DD9 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
@@ -160,6 +172,7 @@
 				E7F2A4B1C9D3E5F7A1B2C3D4 /* Runner.entitlements */,
 				B87F3C6842968E696E2EBF86 /* Runner.entitlements */,
 				078C60195ED8B91DBE9EBD17 /* RunnerDebug.entitlements */,
+				AB54956CAD692119249C7C54 /* NotificationSounds */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -175,6 +188,20 @@
 				79BAD9F602C909BE5459087A /* Pods-RunnerTests.profile.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		AB54956CAD692119249C7C54 /* NotificationSounds */ = {
+			isa = PBXGroup;
+			children = (
+				068124EE55914B8125E6A003 /* merchant_bell.wav */,
+				96E183570E1F854B40DF5E2E /* driver_offer.wav */,
+				1354007402AEA63B9E981D1E /* online_chime.wav */,
+				189471A18713C79541FC7688 /* soft_chime.wav */,
+				BE417ADD47CC70C08AD8569A /* first_nitification_sound.wav */,
+				0FBA82F8CC25602FD5E7ECE0 /* driver_original.wav */,
+			);
+			name = NotificationSounds;
+			path = NotificationSounds;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -287,6 +314,12 @@
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				B7523474287541D68A58EC2F /* GoogleService-Info.plist in Resources */,
+				4C32E2B1973260762BCC5B0A /* merchant_bell.wav in Resources */,
+				69AF0C432C614BEEBF3BED13 /* driver_offer.wav in Resources */,
+				29AF7F25CAE1506C115FDA09 /* online_chime.wav in Resources */,
+				28B4CFF86D6C4142D95FC87A /* soft_chime.wav in Resources */,
+				ABE6D6DA19802BB4CC8F5762 /* first_nitification_sound.wav in Resources */,
+				BCC7CA31548E4590C6091E05 /* driver_original.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

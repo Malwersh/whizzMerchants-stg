@@ -1,17 +1,17 @@
+import 'auth_surface.dart';
+import '../delete_account_screen.dart';
+import '../../services/account_deletion_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../registration_form_screen.dart';
-import '../merchant_status_screen.dart';
+import 'person_registration_screen.dart';
+import '../../providers/login_intent_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/language_provider_riverpod.dart';
 import '../../providers/auth_provider_riverpod.dart';
-import '../../providers/session_provider.dart';
-import '../../providers/business_provider.dart';
 import '../../services/app_auth_service.dart';
-import '../../models/business.dart';
 import '../../core/design_system/design_system.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
@@ -55,8 +55,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: WhizzColors.backgroundPrimary,
+    return AuthSurface(
+        child: Scaffold(
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
@@ -65,6 +66,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
             // Tab bar
             _buildModernTabBar(),
+            FutureBuilder<bool>(
+              future: AccountDeletionService.hasSavedAccountReceipt(),
+              builder: (context, snapshot) => snapshot.data == true
+                  ? TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  const DeleteAccountScreen(scope: 'ACCOUNT'))),
+                      child: const Text('متابعة طلب حذف الحساب'))
+                  : const SizedBox.shrink(),
+            ),
 
             // Tab views
             Expanded(
@@ -76,28 +88,23 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildModernHeader() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.xxl,
-        AppSpacing.xl,
-        AppSpacing.lg,
-      ),
-      decoration: BoxDecoration(
-        color: WhizzColors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: WhizzColors.shadow.withValues(alpha: 0.04),
-            blurRadius: AppSpacing.sm,
-            offset: Offset(0, AppSpacing.xxs),
-          ),
-        ],
-      ),
-      child: Column(children: [SizedBox(height: AppSpacing.md)]),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+      child: Column(children: [
+        Icon(Icons.storefront_outlined, size: 40, color: WhizzColors.secondary),
+        const SizedBox(height: 12),
+        Text('مرحبًا بك في Whizz',
+            style: AppTypography.headlineSmall.copyWith(
+                color: WhizzColors.secondary, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('ادخل إلى حسابك أو ابدأ تسجيل نشاطك',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.black87)),
+      ]),
     );
   }
 
@@ -122,12 +129,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
       child: TabBar(
         controller: _tabController,
         indicator: BoxDecoration(
-          color: WhizzColors.secondary,
+          color: WhizzColors.primary,
           borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
           boxShadow: WhizzColors.elevation(2),
         ),
-        labelColor: WhizzColors.primaryDark,
-        unselectedLabelColor: WhizzColors.primaryDark,
+        labelColor: WhizzColors.secondary,
+        unselectedLabelColor: WhizzColors.secondary,
         labelStyle: AppTypography.labelLarge.copyWith(
           fontWeight: FontWeight.bold,
           fontSize: 16.0, // Increased for better readability
@@ -146,7 +153,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           ),
           Tab(
             height: 56.0, // Material Design recommended height for tabs
-            text: localizations.signUp,
+            text: 'إنشاء حساب',
           ),
         ],
       ),
@@ -165,6 +172,46 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            SegmentedButton<LoginIntent>(
+              segments: const [
+                ButtonSegment(
+                    value: LoginIntent.owner,
+                    label: Text('مالك النشاط'),
+                    icon: Icon(Icons.storefront_outlined)),
+                ButtonSegment(
+                    value: LoginIntent.employee,
+                    label: Text('موظف'),
+                    icon: Icon(Icons.badge_outlined)),
+              ],
+              selected: {ref.watch(loginIntentProvider) ?? LoginIntent.owner},
+              onSelectionChanged: _isBusy || _codeSent
+                  ? null
+                  : (values) => selectLoginIntent(ref, values.single),
+              style: ButtonStyle(
+                foregroundColor: WidgetStatePropertyAll(WhizzColors.secondary),
+                backgroundColor: WidgetStateProperty.resolveWith((states) =>
+                    states.contains(WidgetState.selected)
+                        ? WhizzColors.primary
+                        : Colors.white),
+              ),
+            ),
+            if (ref.watch(loginIntentProvider) == LoginIntent.employee) ...[
+              const SizedBox(height: 16),
+              const Text(
+                  'تحقق من هاتفك للوصول إلى دعواتك وعضوياتك. لن تحتاج إلى إنشاء نشاط.',
+                  style: TextStyle(color: Colors.black87)),
+              TextButton(
+                onPressed: _isBusy || _codeSent
+                    ? null
+                    : () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const PersonRegistrationScreen())),
+                style: TextButton.styleFrom(
+                    foregroundColor: WhizzColors.secondary),
+                child: const Text('أول مرة؟ إنشاء حساب موظف'),
+              ),
+            ],
             SizedBox(height: AppSpacing.lg),
 
             if (!_codeSent) ...[
@@ -215,10 +262,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                     onPressed: _isBusy
                         ? null
                         : () => setState(() {
-                            _codeSent = false;
-                            _otpController.clear();
-                            _resendTimer?.cancel();
-                          }),
+                              _codeSent = false;
+                              _otpController.clear();
+                              _resendTimer?.cancel();
+                            }),
                     child: Text(localizations.changeNumber),
                   ),
                   TextButton(
@@ -240,7 +287,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
             Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: WhizzColors.primary,
+                color: WhizzColors.secondary,
                 borderRadius: BorderRadius.circular(
                   AppDimensions.borderRadiusLG,
                 ),
@@ -266,13 +313,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                             height: AppSpacing.lg,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: WhizzColors.secondary,
+                              color: WhizzColors.primary,
                             ),
                           )
                         else
                           Icon(
                             _codeSent ? Icons.verified_user : Icons.sms,
-                            color: WhizzColors.secondary,
+                            color: WhizzColors.primary,
                             size: AppSpacing.lg,
                           ),
                         SizedBox(width: AppSpacing.sm),
@@ -281,7 +328,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                               ? localizations.verifyAndSignIn
                               : localizations.sendCode,
                           style: AppTypography.titleMedium.copyWith(
-                            color: WhizzColors.secondary,
+                            color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -324,9 +371,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                             color: isEnglish
                                 ? WhizzColors.secondary
                                 : WhizzColors.textSecondary,
-                            fontWeight: isEnglish
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                            fontWeight:
+                                isEnglish ? FontWeight.bold : FontWeight.normal,
                           ),
                         ),
                       ),
@@ -375,7 +421,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: TextStyle(color: WhizzColors.secondary)),
+        content: Text(message, style: TextStyle(color: Colors.white)),
         backgroundColor: Theme.of(context).colorScheme.error,
         duration: const Duration(seconds: 4),
       ),
@@ -444,46 +490,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
       if (response.success) {
         _resendTimer?.cancel();
+        await selectLoginIntent(
+            ref, ref.read(loginIntentProvider) ?? LoginIntent.owner);
+        if (!mounted) return;
         ref.read(authProviderRiverpod.notifier).setAuthenticated();
-        if (response.businesses.isNotEmpty) {
-          final business = response.businesses.first;
-          final businessId = business['businessId'];
-          if (businessId != null) {
-            ref
-                .read(sessionProvider.notifier)
-                .setSessionWithBusinessData(businessId, business);
-            ref.invalidate(businessProvider);
-          }
-        }
-        return;
-      }
-
-      if (response.accountStatus == 'pending') {
-        final Map<String, dynamic> b = response.businesses.isNotEmpty
-            ? response.businesses.first
-            : {};
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => MerchantStatusScreen(
-              status: 'pending',
-              business: Business(
-                id: b['businessId']?.toString() ?? 'pending_business',
-                name: b['businessName']?.toString() ?? '',
-                email: b['email']?.toString() ?? '',
-                status: 'pending',
-                businessType: BusinessType.restaurant,
-                address: '',
-                phone: _phoneE164 ?? '',
-                city: '',
-                district: '',
-                country: '',
-                createdAt: DateTime.now(),
-                updatedAt: DateTime.now(),
-              ),
-            ),
-          ),
-          (route) => false,
-        );
         return;
       }
 
@@ -514,6 +524,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           SizedBox(height: AppSpacing.md),
 
           // Features list - Compact version
+          const Text(
+              'سجّل حسابك الشخصي أولًا، ثم أضف نشاطك وفرعك وتابع مراجعته.',
+              style: TextStyle(color: Colors.black87)),
+          const SizedBox(height: 16),
           _buildCompactFeaturesList(),
 
           SizedBox(height: AppSpacing.md),
@@ -522,7 +536,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           Container(
             width: double.infinity,
             decoration: BoxDecoration(
-              color: WhizzColors.primary,
+              color: WhizzColors.secondary,
               borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLG),
               boxShadow: WhizzColors.elevation(3),
             ),
@@ -530,10 +544,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
+                  selectLoginIntent(ref, LoginIntent.owner);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const RegistrationFormScreen(),
+                      builder: (context) => const PersonRegistrationScreen(),
                     ),
                   );
                 },
@@ -547,14 +562,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                     children: [
                       Icon(
                         Icons.business_center,
-                        color: WhizzColors.secondary,
+                        color: Colors.white,
                         size: AppSpacing.lg,
                       ),
                       SizedBox(width: AppSpacing.sm),
                       Text(
-                        localizations.startBusinessRegistration,
+                        'إنشاء حساب وتسجيل نشاط جديد',
                         style: AppTypography.titleMedium.copyWith(
-                          color: WhizzColors.secondary,
+                          color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -574,7 +589,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
               color: WhizzColors.surface,
               borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
               border: Border.all(
-                color: WhizzColors.primary.withValues(alpha: 0.1),
+                color: WhizzColors.secondary.withValues(alpha: 0.1),
                 width: 1,
               ),
             ),
@@ -609,7 +624,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
       decoration: BoxDecoration(
         color: WhizzColors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLG),
-        border: Border.all(color: WhizzColors.secondary, width: 1),
+        border: Border.all(color: WhizzColors.borderPrimary, width: 1),
         boxShadow: [
           BoxShadow(
             color: WhizzColors.shadow.withValues(alpha: 0.04),
@@ -631,7 +646,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
             margin: EdgeInsets.all(AppSpacing.sm),
             padding: EdgeInsets.all(AppSpacing.xs),
             decoration: BoxDecoration(
-              color: WhizzColors.secondary.withValues(alpha: 0.1),
+              color: WhizzColors.secondary.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
             ),
             child: Icon(
@@ -688,7 +703,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         color: WhizzColors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLG),
         border: Border.all(
-          color: WhizzColors.primary.withValues(alpha: 0.1),
+          color: WhizzColors.secondary.withValues(alpha: 0.1),
           width: 1,
         ),
       ),
@@ -697,7 +712,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           _buildCompactFeatureItem(
             Icons.store,
             localizations.completeBusinessRegistration,
-            WhizzColors.primary,
+            WhizzColors.secondary,
           ),
           SizedBox(height: AppSpacing.xs),
           _buildCompactFeatureItem(
@@ -709,7 +724,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           _buildCompactFeatureItem(
             Icons.dashboard,
             localizations.fullDashboardAccess,
-            WhizzColors.success,
+            WhizzColors.secondary,
           ),
         ],
       ),
@@ -732,7 +747,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           child: Text(
             title,
             style: AppTypography.bodyMedium.copyWith(
-              color: WhizzColors.primaryDark,
+              color: WhizzColors.primary,
               fontWeight: FontWeight.w600,
             ),
           ),

@@ -1,0 +1,11 @@
+{
+  "batch": 557,
+  "status": "INSTALLED_IOS_SIMULATOR",
+  "changes": [
+    "Arabic Indic digits for generated receipt amounts, quantities and Baghdad date/time",
+    "Arabic thousands and decimal separators",
+    "Order identifiers and free text preserved verbatim"
+  ],
+  "testsPassed": 16,
+  "financialValuesChanged": false
+}

@@ -1,3 +1,4 @@
+import '../utils/readable_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/business.dart';
@@ -223,7 +224,8 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                 padding: EdgeInsets.all(AppSpacing.xs),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                  borderRadius:
+                      BorderRadius.circular(AppDimensions.borderRadiusSM),
                 ),
                 child: Icon(
                   Icons.gps_fixed_rounded,
@@ -247,7 +249,8 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                     Text(
                       'Manage your business GPS coordinates',
                       style: AppTypography.bodyMedium.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -282,19 +285,22 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                     color: theme.colorScheme.primary,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                     borderSide: BorderSide(
                       color: theme.colorScheme.outline.withValues(alpha: 0.5),
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                     borderSide: BorderSide(
                       color: theme.colorScheme.outline.withValues(alpha: 0.5),
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                     borderSide: BorderSide(
                       color: theme.colorScheme.primary,
                       width: 2,
@@ -331,19 +337,22 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                     color: theme.colorScheme.primary,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                     borderSide: BorderSide(
                       color: theme.colorScheme.outline.withValues(alpha: 0.5),
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                     borderSide: BorderSide(
                       color: theme.colorScheme.outline.withValues(alpha: 0.5),
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusSM),
                     borderSide: BorderSide(
                       color: theme.colorScheme.primary,
                       width: 2,
@@ -366,29 +375,32 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                       width: 16,
                       height: 16,
                       child: AdaptiveLoadingIndicator(
-                        color: theme.colorScheme.onPrimary,
+                        color: theme.colorScheme.onSecondary,
                         size: 20,
                       ),
                     )
                   : Icon(
                       Icons.my_location_rounded,
-                      color: theme.colorScheme.onPrimary,
+                      color: theme.colorScheme.onSecondary,
                     ),
               label: Text(
                 'Use Current Location',
                 style: AppTypography.labelLarge.copyWith(
-                  color: theme.colorScheme.onPrimary,
+                  color: theme.colorScheme.onSecondary,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               style: ElevatedButton.styleFrom(
+                foregroundColor:
+                    readableForeground(theme.colorScheme.secondary),
                 backgroundColor: theme.colorScheme.secondary,
                 padding: EdgeInsets.symmetric(
                   horizontal: AppSpacing.lg,
                   vertical: AppSpacing.md,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                  borderRadius:
+                      BorderRadius.circular(AppDimensions.borderRadiusSM),
                 ),
               ),
             ),
@@ -402,7 +414,8 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
               padding: EdgeInsets.all(AppSpacing.sm),
               decoration: BoxDecoration(
                 color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSM),
+                borderRadius:
+                    BorderRadius.circular(AppDimensions.borderRadiusSM),
                 border: Border.all(
                   color: theme.colorScheme.primary.withValues(alpha: 0.2),
                 ),
@@ -496,7 +509,8 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                 Container(
                   decoration: BoxDecoration(
                     color: theme.colorScheme.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMD),
+                    borderRadius:
+                        BorderRadius.circular(AppDimensions.borderRadiusMD),
                     border: Border.all(
                       color: theme.colorScheme.secondary.withValues(alpha: 0.2),
                     ),
@@ -514,7 +528,8 @@ class _GpsSettingsPageState extends ConsumerState<GpsSettingsPage> {
                         child: Text(
                           'GPS coordinates help customers find your business and improve delivery accuracy.',
                           style: AppTypography.bodySmall.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.8),
                           ),
                         ),
                       ),

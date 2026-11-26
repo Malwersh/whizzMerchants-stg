@@ -1,0 +1,3 @@
+
+# Generated Lambda bundles retain upstream SDK string whitespace verbatim.
+backend/functions/auth/region-coverage-runtime-312.js -whitespace

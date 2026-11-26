@@ -44,3 +44,12 @@
 -dontwarn retrofit2.**
 -keepattributes Signature
 -keepattributes *Annotation*
+
+# The window extension providers are optional APIs supplied by device vendors.
+-dontwarn androidx.window.extensions.**
+-dontwarn androidx.window.sidecar.**
+
+# This app bundles its Flutter code and uses no Play deferred components.
+-dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
+-dontwarn com.google.android.play.core.splitinstall.**
+-dontwarn com.google.android.play.core.tasks.**

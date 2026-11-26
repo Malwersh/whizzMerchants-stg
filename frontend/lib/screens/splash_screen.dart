@@ -291,7 +291,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             child: Center(
               child: Container(
                 constraints: const BoxConstraints(minHeight: 38),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                 decoration: BoxDecoration(
                   color: WhizzColors.secondary, // ✅ الأزرق (Secondary)
                   borderRadius: BorderRadius.circular(999),
@@ -299,7 +300,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 child: Text(
                   'Business',
                   style: AppTypography.bodyMedium.copyWith(
-                    color: WhizzColors.primary, // ✅ الأصفر (Primary)
+                    color: Colors.white, // ✅ الأصفر (Primary)
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0.3,
                   ),

@@ -1,0 +1,15 @@
+{
+  "status": "IMPLEMENTED_LOCAL_TESTED_NOT_INSTALLED",
+  "changes": [
+    "Item discount mode at top of editor",
+    "Optional internal title generated at submission; custom titles preserved",
+    "Optional name and image in collapsible section",
+    "Hide inapplicable minimum, customer usage and discount cap fields for per-item mode; optional total usage retained in advanced section"
+  ],
+  "validation": {
+    "targetedTestsPassed": 14,
+    "analyzerErrors": 0
+  },
+  "pricingRulesChanged": false,
+  "next": "Review updated merchant editor on simulator; financial closure work remains paused for this UI request."
+}

@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-24",
+  "repository": "whizzMerchants-stg",
+  "branch": "feature/malwersh/bootstrap",
+  "scope": "Four staging repositories only; no legacy non-stg worktree included",
+  "purpose": "جميع تحديثات الجلسة وتسليم ملف المنتجات والاستيراد للزميل",
+  "changes": [
+    "زر دائم لإثبات التسليم الفعلي للسائق في الطلب المسند، تأكيد صريح، وحفظ الدليل في النموذج.",
+    "Proxy موثق لمصنع العهدة الخادمي وإظهار merchantHandover في قراءات الطلب.",
+    "منع إلغاء ما قبل الاستلام بعد إثبات تسليم المطعم مع بقاء مسارات الإرجاع.",
+    "ملف تسليم كامل للمنتجات والاستيراد، مع الموجود والفجوات والاختبارات ومراجع الخطة؛ مسؤول التنفيذ الزميل."
+  ],
+  "delegation": {
+    "status": "DELEGATED_TO_COLLEAGUE",
+    "scope": "منتج منفرد + CSV/Excel/XLSX مع كامل متعلقات القائمة/الصور/الخيارات/المخزون والفروع والطلبات",
+    "fullHandoff": "docs/merchant-products-import-colleague-handoff-2026-10-24.txt",
+    "masterPlan": "https://github.com/Malwersh/whizzCentralPlatform-stg/blob/feature/malwersh/bootstrap/docs/finance-pricing-settlements-returns-unified-plan.md",
+    "doNotRebuildExistingScopeOrOptionPricing": true,
+    "bulkImportNotClaimedComplete": true
+  },
+  "pull": [
+    "git fetch origin",
+    "git checkout feature/malwersh/bootstrap",
+    "git pull --ff-only origin feature/malwersh/bootstrap"
+  ],
+  "validation": {
+    "whizzCentralPlatform-stg": 368,
+    "merchant-node": 23,
+    "central-wallet": 50,
+    "whizzMerchants-stg-flutter": 17,
+    "whizzDrivers-stg-flutter": 20,
+    "wizzuser-stg-flutter": 25
+  },
+  "operationalNotes": [
+    "GitHub upload does not invoke Lambda deployment, grants, refunds, handovers, or settlements.",
+    "Preserve colleague branches; no force push or automatic merge to integration/staging-main.",
+    "COD-first launch and pending case acceptance remain as recorded in the main plan."
+  ],
+  "excludedLocalChanges": []
+}
