@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
+import '../config/merchant_auth_routes.dart';
 
 class BranchDeviceException implements Exception {
   final String code;
@@ -33,6 +34,13 @@ class BranchDeviceException implements Exception {
         'INVALID_PRICE': 'أدخل سعرًا صحيحًا موجبًا بالدينار.',
         'INVALID_MENU_CREATE': 'راجع اسم المنتج وقسمه وبياناته.',
         'PERMISSION_REQUIRED': 'ليس لديك إذن لتنفيذ هذا الإجراء.',
+        'ORDER_NOT_FOUND': 'تعذر العثور على الطلب في هذا الفرع.',
+        'ORDER_CHANGED': 'تغيّرت حالة الطلب. حدّث القائمة وأعد المحاولة.',
+        'MERCHANT_RESPONSE_EXPIRED': 'انتهت مهلة قبول الطلب.',
+        'DISPATCH_ORDER_UNAVAILABLE': 'تعذّر بدء البحث عن سائق لهذا الطلب.',
+        'ORDER_LIST_UNAVAILABLE': 'تعذر تحميل طلبات الفرع. أعد المحاولة.',
+        'INVALID_WORKING_HOURS': 'تحقق من أوقات الفتح والإغلاق لكل يوم.',
+        'WORKING_HOURS_CHANGED': 'تغيّرت ساعات العمل. حدّث الأسبوع ثم أعد التعديل.',
         'PAYOUT_PERMISSION_REQUIRED': 'ليس لديك تفويض بهذا الإجراء المالي.',
         'PAYOUT_EXPLICIT_STAFF_GRANT_REQUIRED':
             'يلزم أن يحدّث المالك منحك المالية الصريحة. لقب المدير وحده لا يمنح صلاحية الصرف.',
@@ -57,7 +65,29 @@ class BranchDeviceService {
   BranchDeviceService({http.Client? client}) : client = client ?? http.Client();
   Future<Map<String, dynamic>> operation(String token, String path,
       {String? session, Map<String, dynamic>? body, String? method}) async {
-    final uri = Uri.parse('${AppConfig.baseUrl}/branch-device/$path');
+    var base = AppConfig.baseUrl;
+    if (AppConfig.isProduction) {
+      final isOrderOperation = RegExp(
+        r'^merchant/(orders/[A-Za-z0-9_.:-]{1,150}|order/[A-Za-z0-9_.:-]{1,150}/(confirm|reject|status))$',
+      ).hasMatch(path);
+      final requested = Uri.tryParse(path);
+      final isCatalogOrHours = requested != null &&
+          !requested.hasScheme &&
+          !requested.hasAuthority &&
+          !requested.hasFragment &&
+          RegExp(
+            r'^(?:categories|products(?:/[A-Za-z0-9_-]{1,150})?|businesses/[A-Za-z0-9_-]{1,150}/working-hours)$',
+          ).hasMatch(requested.path) &&
+          requested.queryParameters.keys.every((key) => key == 'businessId');
+      if (!isOrderOperation && !isCatalogOrHours) {
+        throw BranchDeviceException('UNAVAILABLE');
+      }
+      base = isOrderOperation
+          ? MerchantAuthRoutes.branchOrdersBase
+          : MerchantAuthRoutes.branchOperationsBase;
+      MerchantAuthRoutes.validateProductionEndpoint(base);
+    }
+    final uri = Uri.parse('$base/branch-device/$path');
     final headers = {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer $token',
@@ -78,8 +108,22 @@ class BranchDeviceService {
 
   Future<Map<String, dynamic>> call(String token, Map<String, dynamic> body,
       {String? session}) async {
+    final isPush = AppConfig.isProduction && body['action'] == 'register_push';
+    final base = isPush
+        ? MerchantAuthRoutes.branchOrderPushBase
+        : AppConfig.isProduction
+            ? MerchantAuthRoutes.branchFinanceBase
+            : AppConfig.baseUrl;
+    if (AppConfig.isProduction) {
+      MerchantAuthRoutes.validateProductionEndpoint(base);
+    }
+    final path = isPush
+        ? '/branch-device/push'
+        : AppConfig.isProduction && body['action'] == 'settlements'
+            ? '/branch-device/settlements'
+            : '/branch-device';
     final response = await client
-        .post(Uri.parse('${AppConfig.baseUrl}/branch-device'),
+        .post(Uri.parse('$base$path'),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',

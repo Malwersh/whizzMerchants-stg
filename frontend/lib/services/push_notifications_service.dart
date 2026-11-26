@@ -17,6 +17,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
+import '../providers/branch_device_provider.dart';
 import '../core/utils/app_logger.dart';
 import 'token_refresh_service.dart';
 import 'audio_notification_service.dart';
@@ -266,7 +267,7 @@ class PushNotificationsService {
         await http
             .post(
                 Uri.parse(
-                    '${AppConfig.pushNotificationsUrl}/push/tokens/unregister'),
+                    '${AppConfig.pushDeviceRegistryBaseUrl}/push/tokens/unregister'),
                 headers: {
                   'Content-Type': 'application/json',
                   'Authorization': 'Bearer $auth'
@@ -283,7 +284,7 @@ class PushNotificationsService {
   }
 
   Future<void> registerTokenIfPossible(
-      {String? forcedToken, String? businessId}) async {
+      {String? forcedToken, String? businessId, bool clearSelectedBranch = false}) async {
     if (!_initialized) {
       try {
         await initialize();
@@ -294,7 +295,9 @@ class PushNotificationsService {
     }
 
     final requestedBusiness = businessId?.trim();
-    if (requestedBusiness != null && requestedBusiness.isNotEmpty) {
+    if (clearSelectedBranch) {
+      _lastKnownBusinessId = null;
+    } else if (requestedBusiness != null && requestedBusiness.isNotEmpty) {
       _lastKnownBusinessId = requestedBusiness;
     }
     if (_isRegistering) {
@@ -328,12 +331,14 @@ class PushNotificationsService {
       }
 
       final paired = await const FlutterSecureStorage()
-          .read(key: 'merchant_paired_branch_device_v1');
+          .read(key: BranchDeviceNotifier.key);
       if (paired != null) {
         final device = Map<String, dynamic>.from(jsonDecode(paired));
+        await NotificationSoundPolicy.prepareChannels();
         final pushResult =
             await BranchDeviceService().call(device['deviceToken'], {
           'action': 'register_push',
+          if (AppConfig.isProduction) 'businessId': device['businessId'],
           'pushToken': token,
           'soundEnabled':
               SoundNotificationSettings().shouldPlaySound('new_order'),
@@ -346,6 +351,7 @@ class PushNotificationsService {
         if (beforeReady != NotificationSoundPolicy.ready.join(',')) {
           await BranchDeviceService().call(device['deviceToken'], {
             'action': 'register_push',
+            if (AppConfig.isProduction) 'businessId': device['businessId'],
             'pushToken': token,
             'platform': Platform.isIOS ? 'ios' : 'android',
             'soundReady': NotificationSoundPolicy.ready,
@@ -398,7 +404,7 @@ class PushNotificationsService {
       final pkg = await PackageInfo.fromPlatform();
 
       final url =
-          Uri.parse('${AppConfig.pushNotificationsUrl}/push/tokens/register');
+          Uri.parse('${AppConfig.pushDeviceRegistryBaseUrl}/push/tokens/register');
 
       final body = {
         'token': token,

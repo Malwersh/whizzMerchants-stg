@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/utils/app_logger.dart';
@@ -15,9 +16,53 @@ import '../utils/token_validator.dart';
 
 class ApiService {
   final String baseUrl = AppConfig.baseUrl;
+  String get _discountsBaseUrl =>
+      AppConfig.isProduction ? MerchantAuthRoutes.productCatalogBase : baseUrl;
+
+  static const _calendarDays = [
+    'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+  ];
+
+  Future<Map<String, dynamic>> _productionBranchSetup(
+      String businessId, {Map<String, dynamic>? mutation}) async {
+    final headers = await AuthHeaderBuilder.build();
+    final uri = MerchantAuthRoutes.resolve(
+      environment: AppConfig.environment, baseUrl: baseUrl, path: 'branch-setup',
+    ).replace(queryParameters: {
+      'businessId': businessId,
+      if (mutation == null) 'view': 'readiness',
+    });
+    final response = await (mutation == null
+            ? http.get(uri, headers: headers)
+            : http.post(uri, headers: headers, body: jsonEncode({
+                ...mutation, 'businessId': businessId, 'requestId': const Uuid().v4(),
+              })))
+        .timeout(const Duration(seconds: 25));
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      throw Exception(data['code'] == 'MENU_CHANGED'
+          ? 'تغيّرت بيانات الفرع. حدّث الصفحة وأعد المحاولة.'
+          : 'تعذر حفظ أو تحميل تجهيز الفرع. أعد المحاولة.');
+    }
+    return data;
+  }
 
   Future<Map<String, dynamic>> branchReadiness(String businessId,
       {bool activate = false}) async {
+    if (AppConfig.isProduction) {
+      final current = await _productionBranchSetup(businessId);
+      final status = current['status'] as Map<String, dynamic>;
+      if (!activate) {
+        return {
+          'alreadyActivated': status['active'] == true,
+          'missing': status['missing'],
+        };
+      }
+      return _productionBranchSetup(businessId, mutation: {
+        'action': 'activate',
+        'version': current['branchVersion'],
+      });
+    }
     final headers = await AuthHeaderBuilder.build();
     final url = Uri.parse(
         '$baseUrl/businesses/$businessId/status${activate ? '' : '?includeReadiness=true'}');
@@ -207,7 +252,7 @@ class ApiService {
     final token = headers['Authorization']!.substring(7);
 
     final response = await http.get(
-      Uri.parse('$baseUrl/discounts')
+      Uri.parse('$_discountsBaseUrl/discounts')
           .replace(queryParameters: {'businessId': businessId}),
       headers: {
         'Content-Type': 'application/json',
@@ -401,7 +446,7 @@ class ApiService {
     final headers = await AuthHeaderBuilder.build();
     final token = headers['Authorization']!.substring(7);
     final response = await http.post(
-      Uri.parse('$baseUrl/discounts')
+      Uri.parse('$_discountsBaseUrl/discounts')
           .replace(queryParameters: {'businessId': businessId}),
       headers: {
         'Content-Type': 'application/json',
@@ -430,7 +475,7 @@ class ApiService {
     final headers = await AuthHeaderBuilder.build();
     final token = headers['Authorization']!.substring(7);
     final response = await http.put(
-      Uri.parse('$baseUrl/discounts/$discountId').replace(queryParameters: {
+      Uri.parse('$_discountsBaseUrl/discounts/$discountId').replace(queryParameters: {
         'businessId': businessId,
         if (baseRevision != null) 'baseRevision': baseRevision
       }),
@@ -460,7 +505,7 @@ class ApiService {
     final headers = await AuthHeaderBuilder.build();
     final token = headers['Authorization']!.substring(7);
     final response = await http.delete(
-      Uri.parse('$baseUrl/discounts/$discountId').replace(queryParameters: {
+      Uri.parse('$_discountsBaseUrl/discounts/$discountId').replace(queryParameters: {
         'businessId': businessId,
         if (baseRevision != null) 'baseRevision': baseRevision
       }),
@@ -485,7 +530,7 @@ class ApiService {
     final headers = await AuthHeaderBuilder.build();
     final token = headers['Authorization']!.substring(7);
     final response = await http.patch(
-      Uri.parse('$baseUrl/discounts/$discountId/toggle-status').replace(
+      Uri.parse('$_discountsBaseUrl/discounts/$discountId/toggle-status').replace(
           queryParameters: {
             'businessId': businessId,
             if (baseRevision != null) 'baseRevision': baseRevision
@@ -508,93 +553,63 @@ class ApiService {
 
   // POS Settings API Methods
 
-  /// Update POS settings for a business
+  Uri _posUri(String businessId, [String suffix = '']) {
+    if (!RegExp(r'^[\w-]{1,150}$').hasMatch(businessId)) {
+      throw ArgumentError('Invalid branch identifier');
+    }
+    const production = String.fromEnvironment('MERCHANT_POS_PRODUCTION_URL');
+    final endpoint = AppConfig.isProduction ? production : baseUrl;
+    if (AppConfig.isProduction) {
+      MerchantAuthRoutes.validateProductionEndpoint(endpoint);
+    }
+    return Uri.parse('$endpoint/businesses/$businessId/pos-settings$suffix');
+  }
+
+  Future<Map<String, String>> _posHeaders() async {
+    if (AppConfig.isProduction) return AuthHeaderBuilder.build();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${await _getValidToken()}',
+    };
+  }
+
   Future<Map<String, dynamic>> updatePosSettings(
       String businessId, Map<String, dynamic> settings) async {
-    // Unified token retrieval
-    final token = await _getValidToken();
-    final response = await http.put(
-      Uri.parse('$baseUrl/businesses/$businessId/pos-settings'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(settings),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data;
-    } else {
-      final data = jsonDecode(response.body);
-      throw Exception(
-          'Failed to update POS settings: ${data['message'] ?? response.body}');
-    }
+    final uri = _posUri(businessId);
+    final response = await http.put(uri,
+        headers: await _posHeaders(), body: jsonEncode(settings));
+    return _posResponse(response);
   }
 
-  /// Test POS connection with the provided configuration
   Future<Map<String, dynamic>> testPosConnection(
       String businessId, Map<String, dynamic> testConfig) async {
-    final token = await _getValidToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/businesses/$businessId/pos-settings/test-connection'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(testConfig),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data;
-    } else {
-      final data = jsonDecode(response.body);
-      throw Exception(
-          'Failed to test POS connection: ${data['message'] ?? response.body}');
-    }
+    final uri = _posUri(businessId, '/test-connection');
+    final response = await http.post(uri,
+        headers: await _posHeaders(), body: jsonEncode(testConfig));
+    return _posResponse(response);
   }
 
-  /// Get POS sync logs for a business
   Future<List<dynamic>> getPosSyncLogs(String businessId) async {
-    final token = await _getValidToken();
-    final response = await http.get(
-      Uri.parse('$baseUrl/businesses/$businessId/pos-settings/sync-logs'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['logs'] ?? [];
-    } else {
-      final data = jsonDecode(response.body);
-      throw Exception(
-          'Failed to get POS sync logs: ${data['message'] ?? response.body}');
+    if (AppConfig.isProduction) {
+      throw StateError('سجل إرسال الطلبات إلى نقطة البيع غير متاح حاليًا.');
     }
+    final uri = _posUri(businessId, '/sync-logs');
+    final response = await http.get(uri, headers: await _posHeaders());
+    return _posResponse(response)['logs'] ?? [];
   }
 
-  /// Get POS settings for a business
   Future<Map<String, dynamic>> getPosSettings(String businessId) async {
-    final token = await _getValidToken();
-    final response = await http.get(
-      Uri.parse('$baseUrl/businesses/$businessId/pos-settings'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
+    final uri = _posUri(businessId);
+    final response = await http.get(uri, headers: await _posHeaders());
+    return _posResponse(response);
+  }
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data;
-    } else {
-      final data = jsonDecode(response.body);
-      throw Exception(
-          'Failed to get POS settings: ${data['message'] ?? response.body}');
+  Map<String, dynamic> _posResponse(http.Response response) {
+    final data = Map<String, dynamic>.from(jsonDecode(response.body));
+    if (response.statusCode != 200) {
+      throw Exception(data['message'] ?? data['code'] ?? 'POS_UNAVAILABLE');
     }
+    return data;
   }
 
   /// Update business location settings
@@ -648,6 +663,22 @@ class ApiService {
   /// Get business working hours
   Future<Map<String, dynamic>> getBusinessWorkingHours(
       String businessId) async {
+    if (AppConfig.isProduction) {
+      final data = await _productionBranchSetup(businessId);
+      final days = List<Map<String, dynamic>>.from(data['hours'] ?? []);
+      return {
+        'workingHours': {
+          for (final day in days)
+            _calendarDays[day['day'] as int]: {
+              'isClosed': day['closed'] == true,
+              if (day['closed'] != true && (day['periods'] as List).isNotEmpty) ...{
+                'openTime': day['periods'].first['open'],
+                'closeTime': day['periods'].first['close'],
+              },
+            },
+        },
+      };
+    }
     final headers = await AuthHeaderBuilder.build();
 
     final response = await http.get(
@@ -668,6 +699,26 @@ class ApiService {
   /// Update business working hours
   Future<Map<String, dynamic>> updateBusinessWorkingHours(
       String businessId, Map<String, dynamic> workingHours) async {
+    if (AppConfig.isProduction) {
+      final current = await _productionBranchSetup(businessId);
+      final hours = workingHours['workingHours'] as Map;
+      final days = _calendarDays.asMap().entries.map((entry) {
+        final row = hours[entry.value] as Map;
+        final closed = row['isClosed'] == true;
+        return {
+          'day': entry.key,
+          'closed': closed,
+          'periods': [
+            if (!closed) {'open': row['openTime'], 'close': row['closeTime']},
+          ],
+        };
+      }).toList();
+      return _productionBranchSetup(businessId, mutation: {
+        'action': 'hours',
+        'version': current['branchVersion'],
+        'data': days,
+      });
+    }
     final headers = await AuthHeaderBuilder.build();
 
     final response = await http.put(

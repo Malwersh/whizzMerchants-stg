@@ -432,8 +432,8 @@ class RealtimeOrderService with WidgetsBindingObserver {
         'deviceId': deviceId,
       };
 
-      // Add token if available
-      if (token.isNotEmpty) {
+      final useAuthHeader = AppConfig.isProduction && !kIsWeb;
+      if (!useAuthHeader) {
         queryParams['token'] = token;
       }
 
@@ -463,7 +463,10 @@ class RealtimeOrderService with WidgetsBindingObserver {
           _channel = WebSocketChannel.connect(wsUri);
         } else {
           // iOS/Android - Use IOWebSocketChannel to preserve wss:// scheme
-          _channel = IOWebSocketChannel.connect(wsUri);
+          _channel = IOWebSocketChannel.connect(
+            wsUri,
+            headers: useAuthHeader ? {'Authorization': 'Bearer $token'} : null,
+          );
         }
 
         debugPrint('✅ WebSocket channel created successfully');
@@ -721,6 +724,7 @@ class RealtimeOrderService with WidgetsBindingObserver {
         case 'HEARTBEAT_ACK':
           debugPrint('💓 Received HEARTBEAT_ACK');
           break;
+        case 'heartbeat_response':
         case 'heartbeat_ack':
           debugPrint('💓 Received heartbeat_ack');
           break;

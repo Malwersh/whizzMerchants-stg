@@ -1,4 +1,5 @@
 import '../widgets/merchant_financial_gate.dart';
+import '../config/app_config.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -129,10 +130,11 @@ class _AgreementsState extends State<_UnlockedCommercialAgreementsScreen> {
   }
 
   String _date(dynamic value) {
-    final date = DateTime.tryParse(value?.toString() ?? '')?.toUtc();
-    if (date == null) return 'غير محدد';
+    final utc = DateTime.tryParse(value?.toString() ?? '')?.toUtc();
+    if (utc == null) return 'غير محدد';
+    final date = AppConfig.isProduction ? utc.add(const Duration(hours: 3)) : utc;
     String two(int value) => value.toString().padLeft(2, '0');
-    return '${two(date.day)}/${two(date.month)}/${date.year} • ${two(date.hour)}:${two(date.minute)} (UTC)';
+    return '${two(date.day)}/${two(date.month)}/${date.year} • ${two(date.hour)}:${two(date.minute)} (${AppConfig.isProduction ? 'بغداد' : 'UTC'})';
   }
 
   String _branch(dynamic id) =>
@@ -192,8 +194,9 @@ class _AgreementsState extends State<_UnlockedCommercialAgreementsScreen> {
               values['effectiveTo'] == null
                   ? 'دون تاريخ انتهاء محدد'
                   : _date(values['effectiveTo'])),
-          const Text('الأوقات معروضة بالتوقيت العالمي UTC.',
-              style: TextStyle(fontSize: 12)),
+          if (!AppConfig.isProduction)
+            const Text('الأوقات معروضة بالتوقيت العالمي UTC.',
+                style: TextStyle(fontSize: 12)),
         ]),
         if (policies.isNotEmpty)
           _section('إفصاح تاريخي عن مشاركة الخصومات', Icons.history, [
@@ -485,6 +488,8 @@ class CommercialAgreementsScreen extends StatelessWidget {
  @override
  Widget build(BuildContext context){
   final child=_UnlockedCommercialAgreementsScreen(businessId:businessId,focusSharingId:focusSharingId,focusRequestKind:focusRequestKind,businessName:businessName,branchNames:branchNames,service:service);
-  return merchantFinancialLockEnabled?MerchantFinancialGate(branchId:businessId,child:child):child;
+  return !AppConfig.isProduction && merchantFinancialLockEnabled
+      ? MerchantFinancialGate(branchId: businessId, child: child)
+      : child;
  }
 }

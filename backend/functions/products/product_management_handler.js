@@ -513,7 +513,11 @@ module.exports.handler = async (event) => {
         }
         if(actor&&['POST','PUT','DELETE'].includes(httpMethod)&&path.startsWith('/categories')){
             if(actor.deviceGuards)return createResponse(403,{success:false,code:'CATEGORY_PERMISSION_REQUIRED'});
-            await requirePublishedMenu(actor.businessId);
+            // Newly approved production branches can create their first category
+            // before the first product publishes the initial menu.
+            if (!(actor.preparingFirstMenu === true && httpMethod === 'POST')) {
+                await requirePublishedMenu(actor.businessId);
+            }
             const categories=require('./branch_categories').createBranchCategoryService(docClient,{actor:()=>actor});
             const category=await categories.mutate(actor.businessId,event);return createResponse(httpMethod==='POST'?201:200,{success:true,category});
         }
@@ -527,7 +531,10 @@ module.exports.handler = async (event) => {
             const productImports=require('./product_import').createProductImportService(docClient,{actor:()=>require('../shared/merchant-lifecycle').merchantRequestContext.getStore()});
             const jobId=event.pathParameters?.importJobId||path.split('/')[3];
             if(httpMethod==='GET')return createResponse(200,{success:true,job:await productImports.get(businessId,jobId)});
-            if(httpMethod==='POST'&&path.endsWith('/commit')){await requirePublishedMenu(businessId);return createResponse(200,{success:true,job:await productImports.commit(businessId,jobId,JSON.parse(event.body||'{}'))});}
+            if(httpMethod==='POST'&&path.endsWith('/commit')){
+                if(actor.preparingFirstMenu !== true) await requirePublishedMenu(businessId);
+                return createResponse(200,{success:true,job:await productImports.commit(businessId,jobId,JSON.parse(event.body||'{}'))});
+            }
         }
         if (path.startsWith('/products/global-search')) {
             return handleGlobalSearch(event);
@@ -561,6 +568,7 @@ module.exports.handler = async (event) => {
     }
 };
 
+module.exports.authorizedHandler = module.exports.handler;
 const protectedProductHandler = merchantHandler(module.exports.handler,{db:lifecycleRawDb,deviceMenu:true});
 module.exports.handler = (event, context) => {
     // Reference reads still verify the caller and the explicitly selected branch.

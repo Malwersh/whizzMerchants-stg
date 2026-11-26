@@ -9,6 +9,7 @@ import '../core/exceptions/auth_exceptions.dart';
 import 'secure_token_storage.dart';
 import 'token_refresh_service.dart';
 import 'merchant_branch_scope.dart';
+import '../config/merchant_auth_routes.dart';
 
 class ProductService {
   static final publicationChanges = ValueNotifier<int>(0);
@@ -59,7 +60,9 @@ class ProductService {
         _safeDecode(response.body)['classifications'] ?? []);
   }
 
-  static String get baseUrl => AppConfig.baseUrl;
+  static String get baseUrl => AppConfig.isProduction
+      ? MerchantAuthRoutes.productCatalogBase
+      : AppConfig.baseUrl;
 
   static Future<String?> _getPreferredIdToken() async {
     final id = await SecureTokenStorage.getIdToken();

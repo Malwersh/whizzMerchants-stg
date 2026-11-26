@@ -50938,6 +50938,79 @@ var init_roadRouting = __esm({
   }
 });
 
+// backend/wallet-service/src/walletBindings.ts
+function isFinancialOrderProduction(env) {
+  const stages = [env.ENVIRONMENT, env.PLATFORM_ENVIRONMENT, env.STAGE].filter(Boolean);
+  const production = stages.some((stage) => stage === "production" || stage === "prod");
+  if (production && stages.some((stage) => stage !== "production" && stage !== "prod")) {
+    throw new Error("WALLET_BINDING_NOT_CONFIGURED: ENVIRONMENT_CONFLICT");
+  }
+  return production;
+}
+var init_walletBindings = __esm({
+  "backend/wallet-service/src/walletBindings.ts"() {
+    "use strict";
+    __name(isFinancialOrderProduction, "isFinancialOrderProduction");
+  }
+});
+
+// backend/wallet-service/src/checkoutTables.ts
+function checkoutTables(env = process.env) {
+  const production = isFinancialOrderProduction(env);
+  if (production && env.AWS_REGION !== "us-east-1") throw Error("CHECKOUT_BINDINGS_NOT_CONFIGURED");
+  return { ...production ? productionTables : stagingTables };
+}
+var productionTables, stagingTables;
+var init_checkoutTables = __esm({
+  "backend/wallet-service/src/checkoutTables.ts"() {
+    "use strict";
+    init_walletBindings();
+    productionTables = {
+      quotes: "wizz-production-DeliveryQuotes",
+      customers: "wizz-production-Customers",
+      orders: "wizz-production-Orders",
+      branches: "wizz-production-Merchants",
+      addresses: "wizz-production-Addresses",
+      policy: "wizz-production-PlatformStaff",
+      platform: "wizz-production-MerchantPlatform",
+      deletion: "wizz-production-AccountDeletion",
+      regions: "wizz-production-Regions",
+      derived: "wizz-production-RegionsDerived",
+      index: "wizz-production-RegionIndex",
+      lifecycle: "wizz-production-WalletLifecycle",
+      holds: "wizz-production-Holds",
+      ledger: "wizz-production-LedgerEntries",
+      wallets: "wizz-production-Wallets",
+      audit: "wizz-production-AuditLog",
+      journey: "wizz-production-OfferJourney",
+      products: "wizz-production-Products",
+      categories: "wizz-production-MenuCategories"
+    };
+    stagingTables = {
+      quotes: "staging-DeliveryQuotes",
+      customers: "WizzUser_users_staging",
+      orders: "WizzOrders",
+      branches: "WhizzMerchants_Businesses",
+      addresses: "WizzUser_addresses_staging",
+      policy: "staging-PlatformStaff",
+      platform: "staging-MerchantPlatform",
+      deletion: "staging-AccountDeletion",
+      regions: "WizzCentral_Regions",
+      derived: "WizzCentral_RegionsDerived_staging",
+      index: "WizzCentral_RegionIndex_staging",
+      lifecycle: "staging-WalletLifecycle",
+      holds: "staging-Holds",
+      ledger: "staging-LedgerEntries",
+      wallets: "staging-Wallets",
+      audit: "staging-AuditLog",
+      journey: "staging-WizzOfferJourney",
+      products: "WhizzMerchants_Products",
+      categories: "WhizzMerchants_Categories"
+    };
+    __name(checkoutTables, "checkoutTables");
+  }
+});
+
 // backend/wallet-service/src/regionCoverage.ts
 var regionCoverage_exports = {};
 __export(regionCoverage_exports, {
@@ -51029,6 +51102,7 @@ function createDynamoRegionCoverage(options) {
                 ExpressionAttributeNames: { "#version": "version" }
               }))
             ]);
+            if (!a4.Item && !b4.Item) return null;
             if (!a4.Item || !b4.Item || a4.Item.regionId !== regionId || b4.Item.regionId !== regionId) return refError();
             return { base: a4.Item, derived: b4.Item };
           })();
@@ -51039,6 +51113,7 @@ function createDynamoRegionCoverage(options) {
       const matches = [];
       for (const candidate of [...candidates].sort()) {
         const leaf = await get2(candidate);
+        if (!leaf) continue;
         const level = Number(leaf.base.level);
         if (!Number.isInteger(level) || level < 0 || level > 3) return refError();
         if (level !== 3) continue;
@@ -51051,7 +51126,7 @@ function createDynamoRegionCoverage(options) {
           const parentId = id(chain2[chain2.length - 1].base.parent_id);
           if (chain2.some((r4) => r4.base.regionId === parentId)) return refError();
           const parent = await get2(parentId);
-          if (Number(parent.base.level) !== expected) return refError();
+          if (!parent || Number(parent.base.level) !== expected) return refError();
           if (!enabled(parent.base.is_active) || !enabled(parent.derived.effective_is_active)) active = false;
           chain2.push(parent);
         }
@@ -51092,11 +51167,7 @@ function createDynamoRegionCoverage(options) {
   };
 }
 function createStagingDeliveryRouting(options) {
-  const resolveCoverage = createDynamoRegionCoverage({ db: options.db, tables: {
-    regions: "WizzCentral_Regions",
-    derived: "WizzCentral_RegionsDerived_staging",
-    index: "WizzCentral_RegionIndex_staging"
-  } });
+  const resolveCoverage = createDynamoRegionCoverage({ db: options.db, tables: checkoutTables() });
   return createCoveredDeliveryRouter({ resolveCoverage, router: createMapboxRoadRouter(options) });
 }
 var import_lib_dynamodb, import_node_crypto5, import_h3_js, refError, id, enabled;
@@ -51108,6 +51179,7 @@ var init_regionCoverage = __esm({
     import_h3_js = __toESM(require_h3_js());
     init_esm3();
     init_roadRouting();
+    init_checkoutTables();
     refError = /* @__PURE__ */ __name(() => {
       throw new RoutingError("REGION_REFERENCE_UNAVAILABLE");
     }, "refError");

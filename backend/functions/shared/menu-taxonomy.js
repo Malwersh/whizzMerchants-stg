@@ -1,7 +1,7 @@
 'use strict';
 const {resolve}=require('./business-activity');
 const {GetCommand}=require('@aws-sdk/lib-dynamodb');
-const TABLE='staging-PlatformStaff',KEY={pk:'HOME_DISCOVERY',sk:'CATALOG'};
+const TABLE=process.env.DISCOVERY_TABLE||'staging-PlatformStaff',KEY={pk:'HOME_DISCOVERY',sk:'CATALOG'};
 const fail=()=>{throw Object.assign(Error('INVALID_MENU_CLASSIFICATION'),{status:400});};
 function ids(value){if(!Array.isArray(value)||value.length>12||new Set(value).size!==value.length||value.some(id=>typeof id!=='string'||!/^[-\w]{1,128}$/.test(id)||['__proto__','constructor','prototype'].includes(id)))fail();return [...value].sort();}
 function eligible(rows,activityId){return (rows||[]).filter(r=>!(r.activityIds||[]).length||activityId&&(r.activityIds||[]).includes(activityId));}

@@ -28,6 +28,19 @@ test('only the accepted recipient can request settlement phone verification',asy
  assert.equal(f.calls.length,0);
 });
 
+test('opening the request reads the masked phone without sending a code or writing',async()=>{
+ const f=fixture(),input={request,subjectId:'recipient',phone};
+ assert.deepEqual(await f.run({...input,action:'READ_DESTINATION'}),
+  {status:'VERIFICATION_REQUIRED',destination:'••••0000'});
+ assert.equal(f.code(),undefined);
+ assert.ok(f.calls.every(command=>command instanceof Get));
+ const sent=await f.run({...input,action:'START_DESTINATION'});
+ assert.deepEqual(await f.run({...input,action:'READ_DESTINATION'}),sent);
+ await f.run({...input,action:'VERIFY_DESTINATION',challengeId:sent.challengeId,code:f.code()});
+ assert.deepEqual(await f.run({...input,action:'READ_DESTINATION'}),
+  {status:'VERIFIED',destination:'••••0000'});
+});
+
 test('a sent code is rate-limited and bound to the request and current recipient profile',async()=>{
  const f=fixture(),input={request,subjectId:'recipient',phone};
  const started=await f.run({...input,action:'START_DESTINATION'});

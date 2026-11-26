@@ -148,7 +148,7 @@ void main() {
       'status': 'pending',
       'items': [],
       'totalAmount': 3500,
-      'createdAt': '2026-10-15T00:00:00Z'
+      'createdAt': DateTime.now().toUtc().toIso8601String()
     });
     await t.pumpWidget(ProviderScope(
         child: MaterialApp(
@@ -162,10 +162,10 @@ void main() {
                         canUpdateStatus: (s) =>
                             s == OrderStatus.confirmed ||
                             s == OrderStatus.cancelled))))));
-    expect(find.text('Reject'), findsOneWidget);
-    expect(find.text('Accept'), findsOneWidget);
-    await t.ensureVisible(find.text('Accept'));
-    await t.tap(find.text('Accept'));
+    expect(find.text('رفض'), findsOneWidget);
+    expect(find.text('قبول'), findsOneWidget);
+    await t.ensureVisible(find.text('قبول'));
+    await t.tap(find.text('قبول'));
     expect(updates, [OrderStatus.confirmed]);
     await t.pumpWidget(const SizedBox());
   });

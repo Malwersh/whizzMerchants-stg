@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/branch_device_provider.dart';
+import '../config/app_config.dart';
 import '../services/branch_device_service.dart';
 import 'branch_device_pin_setup_screen.dart';
 import 'auth/auth_surface.dart';
@@ -32,6 +33,8 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
   bool refreshing = false, foreground = true, touching = false;
   DateTime? lastTouch;
   bool firstSync = true;
+  bool get orderReceptionEnabled =>
+      !AppConfig.isProduction || reception?['ordersEnabled'] == true;
   List<Map<String, dynamic>> orders = [];
   DateTime? lastSync;
   @override
@@ -70,8 +73,7 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
 
   Future<void> startReception() async {
     await AppAuthService.signOut();
-    await PushNotificationsService.instance.initialize();
-    await PushNotificationsService.instance.registerTokenIfPossible();
+    unawaited(PushNotificationsService.instance.registerTokenIfPossible());
     if (mounted) await refresh();
   }
 
@@ -80,21 +82,26 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
     refreshing = true;
     try {
       final r = await api.call(token, {'action': 'reception'});
-      if (widget.service == null && r['pushRegistered'] != true)
+      if (widget.service == null &&
+          r['pushRegistered'] != true &&
+          (!AppConfig.isProduction || r['ordersEnabled'] == true)) {
         unawaited(PushNotificationsService.instance.registerTokenIfPossible());
-      final list = await api.operation(
-          token, 'merchant/orders/${widget.device['businessId']}');
-      orders = List<Map<String, dynamic>>.from(list['orders'] ?? []);
-      for (final order in orders.where((o) => o['status'] == 'pending')) {
-        if (firstSync || !foreground) {
-          await AudioNotificationService.markOrderSoundAnnounced(
-              order['orderId']);
-        } else {
-          await AudioNotificationService()
-              .playNewOrderSoundOnce(order['orderId']);
-        }
       }
-      firstSync = false;
+      if (!AppConfig.isProduction || r['ordersEnabled'] == true) {
+        final list = await api.operation(
+            token, 'merchant/orders/${widget.device['businessId']}');
+        orders = List<Map<String, dynamic>>.from(list['orders'] ?? []);
+        for (final order in orders.where((o) => o['status'] == 'pending')) {
+          if (firstSync || !foreground) {
+            await AudioNotificationService.markOrderSoundAnnounced(
+                order['orderId']);
+          } else {
+            await AudioNotificationService()
+                .playNewOrderSoundOnce(order['orderId']);
+          }
+        }
+        firstSync = false;
+      }
       if (mounted)
         setState(() {
           reception = r;
@@ -239,8 +246,9 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
         context: context,
         builder: (c) => AlertDialog(
                 title: const Text('الخروج من وضع جهاز الفرع؟'),
-                content: const Text(
-                    'يتوقف الاستقبال على هذا الجهاز. يمكن للمالك إلغاء اعتماده من أجهزة الفرع.'),
+                content: Text(AppConfig.isProduction
+                    ? 'يلزم ربط الجهاز من جديد للوصول إلى مهام الفرع.'
+                    : 'يتوقف الاستقبال على هذا الجهاز. يمكن للمالك إلغاء اعتماده من أجهزة الفرع.'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(c, false),
@@ -318,7 +326,9 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
                                               Text(
                                                   reception?['device']
                                                           ?['name'] ??
-                                                      'جهاز استقبال الطلبات',
+                                                      (orderReceptionEnabled
+                                                          ? 'جهاز استقبال الطلبات'
+                                                          : 'جهاز الفرع'),
                                                   style: const TextStyle(
                                                       color: Colors.white)),
                                               const SizedBox(height: 12),
@@ -333,7 +343,7 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
                                                   style: const TextStyle(
                                                       color: Colors.white)),
                                             ]))),
-                                Padding(
+                                if (orderReceptionEnabled) Padding(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 8, vertical: 8),
                                     child: Text(
@@ -352,7 +362,7 @@ class _DeviceHomeState extends ConsumerState<BranchDeviceHomeScreen>
                                               style: const TextStyle(
                                                   color: Color(0xFF9B1C1C))))),
                                 const SizedBox(height: 12),
-                                Card(
+                                if (orderReceptionEnabled) Card(
                                     child: Padding(
                                         padding: const EdgeInsets.all(16),
                                         child: Row(children: [

@@ -2,13 +2,18 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import '../lib/config/app_config.dart';
+import '../lib/config/merchant_auth_routes.dart';
 import '../lib/services/order_service.dart';
 import '../lib/core/exceptions/auth_exceptions.dart';
 
 void main() {
   test('preparation and ready updates carry the selected branch', () async {
     final requests = <http.Request>[];
-    final service = OrderService(tokenProvider: () async => 'test-token');
+    final service = OrderService(
+      tokenProvider: () async => 'test-access-token',
+      orderTokenProvider: () async => 'test-id-token',
+    );
     await http.runWithClient(() async {
       for (final branch in ['first', 'second']) {
         for (final status in ['preparing', 'readyForPickup']) {
@@ -21,6 +26,18 @@ void main() {
               requests.add(r);
               return http.Response('{}', 200);
             }));
+    final expectedBase = AppConfig.isProduction
+        ? MerchantAuthRoutes.merchantOrdersBase
+        : AppConfig.baseUrl;
+    for (final request in requests) {
+      expect(
+          request.url.toString(), '$expectedBase/merchant/order/order/status');
+      expect(
+          request.headers['authorization'],
+          AppConfig.isProduction
+              ? 'Bearer test-id-token'
+              : 'Bearer test-access-token');
+    }
     expect(requests.map((r) => jsonDecode(r.body)), [
       {'status': 'preparing', 'businessId': 'first'},
       {'status': 'ready_for_pickup', 'businessId': 'first'},
@@ -36,7 +53,10 @@ void main() {
         throwsArgumentError);
   });
   test('permission denial is not reported as expired authentication', () async {
-    final service = OrderService(tokenProvider: () async => 'test-token');
+    final service = OrderService(
+      tokenProvider: () async => 'test-access-token',
+      orderTokenProvider: () async => 'test-id-token',
+    );
     for (final code in [401, 403]) {
       await http.runWithClient(() async {
         await expectLater(

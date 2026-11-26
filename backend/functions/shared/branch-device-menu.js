@@ -3,13 +3,13 @@ const {menuDraftVersion}=require('./menu-draft-version');
 const {GetCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
 const {createHash,randomUUID}=require('node:crypto');
 const {readBranchProductOptions}=require('./branch-product-options');
-const TABLE='staging-MerchantPlatform';
+const TABLE=process.env.MERCHANT_PLATFORM_TABLE||'staging-MerchantPlatform';
+const { ownedProductImage }=require('./product-image-url');
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 const get=async(db,TableName,Key)=>(await db.send(new GetCommand({TableName,Key,ConsistentRead:true}))).Item;
 const fields=['productId','businessId','name','description','price','categoryId','isAvailable','imageUrl','barcode','globalProductId','cuisineIds','optionGroups','createdAt','updatedAt'];
 const view=p=>Object.fromEntries(fields.filter(k=>p[k]!==undefined).map(k=>[k,p[k]]));
 const auditView=p=>{const safe=view(p);delete safe.imageUrl;return safe;};
-const ownedImage=(value,businessId)=>typeof value==='string'&&new RegExp('^https://wizz-merchants-staging-businessphotosbucket-up3j1qega8m5\\.s3\\.amazonaws\\.com/merchants/'+businessId.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/product-images/[A-Za-z0-9_-]+\\.(?:jpg|jpeg|png|webp)$','i').test(value);
 function audit(actor,action,productId,before,after){
  const now=new Date().toISOString(),id=randomUUID();
  return {Put:{TableName:TABLE,Item:{pk:'BRANCH#'+actor.businessId,sk:'STAFF_AUDIT#OPERATIONS#'+now+'#'+id,businessId:actor.businessId,ownerId:actor.ownerId,actorId:actor.sub,actorName:actor.actorName||'',roleName:actor.roleName||'',sessionId:actor.sessionId||'',deviceId:actor.deviceId,action,entityId:productId,result:'SUCCEEDED',createdAt:now,permissionVersion:actor.permissionVersion,policyVersion:actor.policyVersion,before:before?auditView(before):null,after:after?auditView(after):null},ConditionExpression:'attribute_not_exists(pk)'}};
@@ -25,7 +25,7 @@ async function mutate(db,actor,event){
   if(typeof body.name!=='string'||!body.name.trim()||body.name.length>150||typeof body.categoryId!=='string'||!body.categoryId.trim()||body.categoryId.length>150)fail('INVALID_MENU_CREATE');
   if(!Number.isSafeInteger(body.price)||body.price<=0||body.price>1000000000)fail('INVALID_PRICE');
   if(body.description!==undefined&&(typeof body.description!=='string'||body.description.length>2000)||body.isAvailable!==undefined&&typeof body.isAvailable!=='boolean')fail('INVALID_MENU_CREATE');
-  if(body.imageUrl!==undefined&&!ownedImage(body.imageUrl,actor.businessId))fail('INVALID_MENU_CREATE');
+  if(body.imageUrl!==undefined&&!ownedProductImage(body.imageUrl,actor.businessId))fail('INVALID_MENU_CREATE');
   if(body.barcode!==undefined&&(typeof body.barcode!=='string'||!/^[0-9A-Za-z._-]{1,100}$/.test(body.barcode)))fail('INVALID_MENU_CREATE');
   if(body.globalProductId!==undefined&&(typeof body.globalProductId!=='string'||!/^[-\w]{1,150}$/.test(body.globalProductId)))fail('INVALID_MENU_CREATE');
   const taxonomy=body.cuisineIds===undefined?{guards:[]}:await require('./menu-taxonomy').validate(db,actor.businessId,body.cuisineIds);
@@ -64,7 +64,7 @@ async function mutate(db,actor,event){
   if(changes.price!==undefined&&(!Number.isSafeInteger(changes.price)||changes.price<=0||changes.price>1000000000))fail('INVALID_PRICE');
   if(changes.isAvailable!==undefined&&typeof changes.isAvailable!=='boolean')fail('INVALID_MENU_UPDATE');
   if(changes.categoryId!==undefined&&(typeof changes.categoryId!=='string'||!changes.categoryId.trim()||changes.categoryId.length>150))fail('INVALID_MENU_UPDATE');
-  if(changes.imageUrl!==undefined&&!ownedImage(changes.imageUrl,actor.businessId))fail('INVALID_MENU_UPDATE');
+  if(changes.imageUrl!==undefined&&!ownedProductImage(changes.imageUrl,actor.businessId))fail('INVALID_MENU_UPDATE');
   if(changes.barcode!==undefined&&(typeof changes.barcode!=='string'||!/^[0-9A-Za-z._-]{1,100}$/.test(changes.barcode)))fail('INVALID_MENU_UPDATE');
   for(const [k,max] of [['name',150],['description',2000]])if(changes[k]!==undefined&&(typeof changes[k]!=='string'||changes[k].length>max||k==='name'&&!changes[k].trim()))fail('INVALID_MENU_UPDATE');
   const fingerprint=createHash('sha256').update(JSON.stringify({productId,changes})).digest('hex');

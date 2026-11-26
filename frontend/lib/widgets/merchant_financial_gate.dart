@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import '../config/app_config.dart';
 import '../core/theme/whizz_colors.dart';
 import '../providers/auth_provider_riverpod.dart';
 import '../services/merchant_financial_session_state.dart';
@@ -11,6 +12,9 @@ import '../services/person_onboarding_service.dart';
 /// Enable only alongside server enforcement on every financial entry point.
 const merchantFinancialLockEnabled =
     bool.fromEnvironment('MERCHANT_FINANCIAL_LOCK_ENABLED');
+
+bool get merchantPayoutNoticesEnabled =>
+    AppConfig.isProduction || merchantFinancialLockEnabled;
 
 class MerchantFinancialGate extends ConsumerStatefulWidget {
   final String branchId;

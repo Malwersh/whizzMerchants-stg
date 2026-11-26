@@ -21,7 +21,6 @@ class OwnershipTransferScreen extends StatefulWidget {
 class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
   final _api = PersonOnboardingService();
   final _recipient = TextEditingController();
-  final _reference = TextEditingController();
   final _destinationCode = TextEditingController();
   final _newRequestId = const Uuid().v4();
   Map<String, dynamic>? _request;
@@ -29,6 +28,7 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
   bool _busy = false, _consent = false;
   String? _error, _destinationChallengeId, _maskedDestination;
   bool _destinationVerified = false;
+  bool _destinationProfileRequired = false;
   List<String>? _previewBlockers;
   List<Map<String, dynamic>>? _invitations;
 
@@ -59,7 +59,6 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
   void dispose() {
     _api.client.close();
     _recipient.dispose();
-    _reference.dispose();
     _destinationCode.dispose();
     super.dispose();
   }
@@ -128,7 +127,7 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
       _request = next;
       _agreement = data['agreement'] as Map<String, dynamic>?;
       _consent = false;
-      _reference.text = '$organizationId/$requestId';
+      _setDestination(data['destination'] as Map<String, dynamic>?);
     });
   }
 
@@ -221,14 +220,6 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
     await _load(organizationId, _newRequestId);
   }
 
-  Future<void> _open() async {
-    final parts = _reference.text.trim().split('/');
-    if (parts.length != 2 || parts.any((part) => part.isEmpty)) {
-      throw Exception('أدخل المرجع الذي شاركه معك الطرف الآخر.');
-    }
-    await _load(parts[0], parts[1]);
-  }
-
   Future<void> _decide(String action) async {
     final request = _request!;
     await _api.call('ownership-transfer', body: {
@@ -246,23 +237,70 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
 
   Future<void> _verifyDestination(bool submitCode) async {
     final request = _request!;
+    final code = _destinationCode.text.trim();
+    if (submitCode && code.length != 6) {
+      throw Exception('أدخل رمز التحقق المكوّن من ستة أرقام.');
+    }
     final data = await _api.call('ownership-transfer', body: {
       'action': submitCode ? 'VERIFY_DESTINATION' : 'START_DESTINATION',
       'organizationId': request['organizationId'],
       'requestId': request['requestId'],
       if (submitCode) ...{
         'challengeId': _destinationChallengeId,
-        'code': _destinationCode.text.trim(),
+        'code': code,
       },
     });
     if (!mounted) return;
-    final destination = data['destination'] as Map<String, dynamic>;
-    setState(() {
-      _destinationVerified = destination['status'] == 'VERIFIED';
-      _destinationChallengeId = destination['challengeId'] as String?;
-      _maskedDestination = destination['destination'] as String?;
-      _destinationCode.clear();
-    });
+    setState(
+        () => _setDestination(data['destination'] as Map<String, dynamic>?));
+  }
+
+  void _setDestination(Map<String, dynamic>? destination) {
+    _destinationVerified = destination?['status'] == 'VERIFIED';
+    _destinationProfileRequired = destination?['status'] == 'PROFILE_REQUIRED';
+    final challenge = destination?['challengeId'] as String?;
+    if (_destinationChallengeId != challenge) _destinationCode.clear();
+    _destinationChallengeId = challenge;
+    _maskedDestination = destination?['destination'] as String?;
+  }
+
+  Widget _invitationCard(Map<String, dynamic> invitation) {
+    final theme = Theme.of(context);
+    final names =
+        (invitation['branchNames'] as List).whereType<String>().join('، ');
+    final accepted = invitation['status'] == 'AWAITING_REVIEW';
+    final needsPhone =
+        accepted && invitation['destinationStatus'] != 'VERIFIED';
+    return Card.outlined(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading:
+                  const CircleAvatar(child: Icon(Icons.storefront_outlined)),
+              title: Text(names.isEmpty ? 'نشاط تجاري' : names,
+                  style: theme.textTheme.titleMedium),
+              subtitle: Text(
+                  accepted ? 'بانتظار مراجعة الإدارة' : 'دعوة بانتظار ردّك'),
+            ),
+            FilledButton.tonal(
+              onPressed: _busy
+                  ? null
+                  : () => _run(() => _load(
+                        invitation['organizationId'] as String,
+                        invitation['requestId'] as String,
+                      )),
+              child: Text(
+                  needsPhone ? 'تأكيد هاتف التسويات' : 'عرض تفاصيل طلب النقل'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _preview() async {
@@ -418,53 +456,29 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
                         const SizedBox(height: 20),
                       ],
                       if (request == null && widget.businessId == null) ...[
-                        Text('الدعوات الواردة',
-                            style: Theme.of(context).textTheme.titleLarge),
-                        if (_invitations?.isEmpty == true)
-                          const Text('لا توجد دعوات نقل ملكية حاليًا.'),
-                        for (final invitation in _invitations ?? [])
-                          ListTile(
-                            leading: const Icon(Icons.storefront_outlined),
-                            title: Text((invitation['branchNames'] as List)
-                                    .whereType<String>()
-                                    .join('، ')
-                                    .isEmpty
-                                ? 'نشاط تجاري'
-                                : (invitation['branchNames'] as List)
-                                    .whereType<String>()
-                                    .join('، ')),
-                            subtitle: Text(
-                                invitation['status'] == 'AWAITING_REVIEW'
-                                    ? 'بانتظار مراجعة الإدارة'
-                                    : 'بانتظار قبولك'),
-                            onTap: _busy
-                                ? null
-                                : () => _run(() => _load(
-                                      invitation['organizationId'] as String,
-                                      invitation['requestId'] as String,
-                                    )),
-                          ),
-                        OutlinedButton(
-                          onPressed:
-                              _busy ? null : () => _run(_loadInvitations),
-                          child: const Text('تحديث الدعوات'),
-                        ),
-                        ExpansionTile(
-                          title: const Text('فتح دعوة سابقة بواسطة المرجع'),
+                        Row(
                           children: [
-                            TextField(
-                              controller: _reference,
-                              enabled: !_busy,
-                              textDirection: TextDirection.ltr,
-                              decoration: const InputDecoration(
-                                  labelText: 'مرجع الدعوة السابقة'),
-                            ),
-                            OutlinedButton(
-                              onPressed: _busy ? null : () => _run(_open),
-                              child: const Text('فتح الطلب'),
+                            Expanded(
+                                child: Text('الدعوات الواردة',
+                                    style: theme.textTheme.titleLarge)),
+                            IconButton(
+                              tooltip: 'تحديث الدعوات',
+                              onPressed:
+                                  _busy ? null : () => _run(_loadInvitations),
+                              icon: const Icon(Icons.refresh_rounded),
                             ),
                           ],
                         ),
+                        const SizedBox(height: 8),
+                        if (_invitations?.isEmpty == true)
+                          const Card.filled(
+                            child: ListTile(
+                              leading: Icon(Icons.inbox_outlined),
+                              title: Text('لا توجد دعوات نقل ملكية حاليًا.'),
+                            ),
+                          ),
+                        for (final invitation in _invitations ?? [])
+                          _invitationCard(invitation),
                       ],
                       if (request != null) ...[
                         Card.filled(
@@ -559,7 +573,8 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
                               onPressed: _busy
                                   ? null
                                   : () => _copy(
-                                      _reference.text, 'نُسخ مرجع الطلب.'),
+                                      "${request['organizationId']}/${request['requestId']}",
+                                      'نُسخ مرجع الطلب.'),
                               icon: const Icon(Icons.copy_rounded),
                               label: const Text('نسخ مرجع الطلب للإدارة'),
                             ),
@@ -582,7 +597,6 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
                                     setState(() {
                                       _request = null;
                                       _agreement = null;
-                                      _reference.clear();
                                     });
                                     _run(_loadInvitations);
                                   },
@@ -631,40 +645,81 @@ class _OwnershipTransferScreenState extends State<OwnershipTransferScreen> {
                           status == 'AWAITING_REVIEW' &&
                           request?['participant'] == 'RECIPIENT') ...[
                         const SizedBox(height: 12),
-                        const Text('التحقق من هاتف التسويات'),
-                        if (_destinationVerified)
-                          Text('تم التحقق من الهاتف $_maskedDestination')
-                        else ...[
-                          if (_maskedDestination != null)
-                            Text('أُرسل الرمز إلى $_maskedDestination'),
-                          OutlinedButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _run(() => _verifyDestination(false)),
-                            child: Text(_destinationChallengeId == null
-                                ? 'إرسال رمز التحقق'
-                                : 'إعادة إرسال الرمز'),
-                          ),
-                          if (_destinationChallengeId != null) ...[
-                            TextField(
-                              controller: _destinationCode,
-                              enabled: !_busy,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(6)
+                        Card.filled(
+                          margin: EdgeInsets.zero,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: CircleAvatar(
+                                    child: Icon(_destinationVerified
+                                        ? Icons.verified_outlined
+                                        : Icons.phone_android_rounded),
+                                  ),
+                                  title: Text('هاتف التسويات',
+                                      style: theme.textTheme.titleMedium),
+                                  subtitle: Text(_destinationVerified
+                                      ? 'تم تأكيد الهاتف. تراجع الإدارة وجهة التسويات.'
+                                      : 'أكّد هاتفك المسجّل حتى تراجع الإدارة وجهة التسويات.'),
+                                ),
+                                if (_maskedDestination != null)
+                                  Text(_maskedDestination!,
+                                      textDirection: TextDirection.ltr,
+                                      textAlign: TextAlign.right),
+                                if (_destinationProfileRequired)
+                                  const Text(
+                                      'راجع رقم هاتفك في «بياناتي الشخصية» وتأكد من مطابقته لهاتف تسجيل الدخول.')
+                                else if (!_destinationVerified) ...[
+                                  if (_destinationChallengeId == null)
+                                    FilledButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _run(
+                                              () => _verifyDestination(false)),
+                                      icon: const Icon(Icons.sms_outlined),
+                                      label: const Text('إرسال رمز إلى هاتفي'),
+                                    )
+                                  else ...[
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: _destinationCode,
+                                      enabled: !_busy,
+                                      keyboardType: TextInputType.number,
+                                      textDirection: TextDirection.ltr,
+                                      autofillHints: const [
+                                        AutofillHints.oneTimeCode
+                                      ],
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.digitsOnly,
+                                        LengthLimitingTextInputFormatter(6)
+                                      ],
+                                      decoration: const InputDecoration(
+                                          labelText: 'رمز التحقق من ستة أرقام'),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    FilledButton(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _run(
+                                              () => _verifyDestination(true)),
+                                      child: const Text('تأكيد هاتف التسويات'),
+                                    ),
+                                    TextButton(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _run(
+                                              () => _verifyDestination(false)),
+                                      child: const Text('إعادة إرسال الرمز'),
+                                    ),
+                                  ],
+                                ],
                               ],
-                              decoration: const InputDecoration(
-                                  labelText: 'رمز التحقق'),
                             ),
-                            FilledButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _run(() => _verifyDestination(true)),
-                              child: const Text('تأكيد الهاتف'),
-                            ),
-                          ],
-                        ],
+                          ),
+                        ),
                       ],
                       if (_error != null) Text(_error!),
                       if (_busy) const LinearProgressIndicator(),

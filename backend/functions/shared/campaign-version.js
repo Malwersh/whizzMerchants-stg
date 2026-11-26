@@ -41,7 +41,7 @@ function applySet(row,op){
 }
 /** Called inside the existing verified merchant lifecycle wrapper. The surrounding transaction supplies deletion/ownership guards. */
 async function ownerOperation(raw,item,businessId,sdk){
- const op=item.Put||item.Update||item.Delete;if(!op||op.TableName!=='WhizzMerchants_Discounts')return item;
+ const op=item.Put||item.Update||item.Delete;if(!op||op.TableName!==(sdk.discountsTable||'WhizzMerchants_Discounts'))return item;
  if(item.Put){if(op.Item.businessId!==businessId)fail('CAMPAIGN_SCOPE_INVALID');if(['version','fundingPolicyId','fundingPolicyVersion'].some(k=>op.Item[k]!==undefined))fail('CAMPAIGN_WRITE_FORBIDDEN');return {Put:{TableName:op.TableName,Item:versioned(null,op.Item),...appendCondition({ConditionExpression:'attribute_not_exists(discountId)'},op)}};}
  const row=(await raw.send(new sdk.GetCommand({TableName:op.TableName,Key:op.Key,ConsistentRead:true}))).Item;if(!row||row.businessId!==businessId)fail('CAMPAIGN_UNAVAILABLE');validVersion(row);if(sdk.expectedRevision!==undefined&&sdk.expectedRevision!==revision(row))fail('VERSION_OR_STATE_CONFLICT');
  if(row.legalHold===true||row.retentionHold===true)fail('CAMPAIGN_RETENTION_HOLD');

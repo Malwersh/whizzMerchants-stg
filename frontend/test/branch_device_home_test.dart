@@ -1,5 +1,7 @@
 import 'dart:async';
 import '../lib/l10n/app_localizations.dart';
+import '../lib/config/app_config.dart';
+import '../lib/screens/merchant_payouts_screen.dart';
 import '../lib/screens/orders_page.dart';
 import '../lib/screens/dashboards/business_dashboard.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +13,8 @@ import '../lib/services/branch_device_service.dart';
 class DeviceApi extends BranchDeviceService {
   final calls = <String>[];
   bool revoked = false;
+  bool operational = false;
+  final orderSessions = <String?>[];
   Completer<Map<String, dynamic>>? pendingProfile;
   int unlockCount = 0;
   String role = 'MANAGER';
@@ -23,6 +27,7 @@ class DeviceApi extends BranchDeviceService {
       case 'reception':
         return {
           'businessName': 'فتوش',
+          if (operational) 'ordersEnabled': true,
           'device': {'name': 'جهاز المطبخ'},
           'staff': [
             {
@@ -40,6 +45,20 @@ class DeviceApi extends BranchDeviceService {
         };
       case 'profile':
         if (pendingProfile != null) return pendingProfile!.future;
+        if (AppConfig.isProduction) {
+          return {
+            'staff': {
+              'displayName': 'أحمد',
+              'role': operational ? 'OPERATIONAL_EMPLOYEE' : 'FINANCIAL_EMPLOYEE',
+              'permissions': operational ? ['orders.read', 'orders.accept'] : [],
+              'permissionSchema': 2,
+            },
+            'business': {'businessName': 'فتوش'},
+            'capabilities': operational
+                ? {'readOrders': true}
+                : {'readSettlements': true},
+          };
+        }
         return {
           'staff': {'displayName': 'أحمد', 'role': role},
           'business': {'description': 'الوصف التشغيلي'},
@@ -50,6 +69,17 @@ class DeviceApi extends BranchDeviceService {
         };
       case 'lock':
         return {'success': true};
+      case 'settlements':
+        expect(session, 'individual-1');
+        expect((body['input'] as Map)['branchId'], 'b');
+        return switch ((body['input'] as Map)['view']) {
+          'payout-context' => {
+              'actor': {'name': 'أحمد', 'roleLabel': 'موظف مالي'},
+              'can': {'request': true, 'receive': true},
+              'methods': ['CASH'],
+            },
+          _ => {'items': []},
+        };
     }
     throw StateError('Unexpected action');
   }
@@ -58,6 +88,7 @@ class DeviceApi extends BranchDeviceService {
   Future<Map<String, dynamic>> operation(String token, String path,
       {String? session, Map<String, dynamic>? body, String? method}) async {
     calls.add(path);
+    if (path.startsWith('merchant/orders/')) orderSessions.add(session);
     return {'orders': [], 'products': []};
   }
 }
@@ -87,6 +118,31 @@ Future<void> unlock(WidgetTester t, {bool settle = true}) async {
 }
 
 void main() {
+  testWidgets('production paired reception opens scoped order tasks after PIN', (t) async {
+    final api = DeviceApi()..operational = true;
+    await open(t, api);
+    expect(find.text('طلبات جديدة: 0'), findsOneWidget);
+    expect(api.orderSessions, [null]);
+    await unlock(t);
+    expect(find.byType(OrdersPage), findsOneWidget);
+    expect(api.orderSessions, contains('individual-1'));
+    expect(find.byType(MerchantPayoutsScreen), findsNothing);
+    await t.pumpWidget(const SizedBox());
+    await t.pump(const Duration(seconds: 1));
+  }, skip: !AppConfig.isProduction);
+
+  testWidgets('production opens employee settlements on the paired device', (t) async {
+    final api = DeviceApi();
+    await open(t, api);
+    await unlock(t);
+    expect(find.byType(MerchantPayoutsScreen), findsOneWidget);
+    expect(find.text('طلبات الصرف'), findsOneWidget);
+    expect(api.calls, contains('settlements'));
+    expect(api.calls.any((call) => call.startsWith('merchant/orders/')), false);
+    await t.pumpWidget(const SizedBox());
+    await t.pump(const Duration(seconds: 1));
+  }, skip: !AppConfig.isProduction);
+
   testWidgets('old profile cannot unlock a later employee session', (t) async {
     final api = DeviceApi()..pendingProfile = Completer();
     await open(t, api);

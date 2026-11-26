@@ -1,13 +1,16 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../config/app_config.dart';
 
 final branchDeviceProvider = StateNotifierProvider<BranchDeviceNotifier,
     AsyncValue<Map<String, dynamic>?>>((ref) => BranchDeviceNotifier());
 
 class BranchDeviceNotifier
     extends StateNotifier<AsyncValue<Map<String, dynamic>?>> {
-  static const key = 'merchant_paired_branch_device_v1';
+  static String get key => AppConfig.isProduction
+      ? 'merchant_paired_branch_device_production_v1'
+      : 'merchant_paired_branch_device_v1';
   final FlutterSecureStorage storage;
   BranchDeviceNotifier({this.storage = const FlutterSecureStorage()})
       : super(const AsyncLoading()) {

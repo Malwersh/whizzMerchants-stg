@@ -163,6 +163,39 @@ async function getBusinessInfoForUser(dynamodb, userInfo) {
     return (await dynamodb.send(new GetCommand({TableName:BUSINESSES_TABLE,Key:{businessId:verified.businessId},ConsistentRead:true}))).Item;
 }
 
+// The production catalog has verified the owner and branch before entering this scope.
+exports.authorizedHandler = async (raw, event) => {
+    const actor = merchantRequestContext.getStore();
+    if (!actor?.sub || actor.ownerId !== actor.sub || !actor.businessId) {
+        return createResponse(403, {success:false, message:'OWNER_REQUIRED'});
+    }
+    const db = merchantLifecycleClient(raw);
+    const {httpMethod:method, path, pathParameters:{discountId} = {}, queryStringParameters:query} = event;
+    const branch = actor.businessId;
+    if (path === '/discounts') {
+        if (method === 'GET') return handleGetDiscounts(db, branch);
+        if (method === 'POST') {
+            const data = JSON.parse(event.body || '{}');
+            if (data.type === 'freeDelivery') return createResponse(409, {success:false, message:'OFFER_DELIVERY_POLICY_REQUIRED'});
+            return handleCreateDiscount(db, branch, data);
+        }
+    }
+    if (discountId) {
+        if (method === 'GET') return handleGetDiscount(db, branch, discountId);
+        if (!/^[a-f0-9]{64}$/.test(query?.baseRevision ?? '')) {
+            return createResponse(409, {success:false, message:'VERSION_OR_STATE_CONFLICT'});
+        }
+        if (method === 'PUT') {
+            const data = JSON.parse(event.body || '{}');
+            if (data.type === 'freeDelivery') return createResponse(409, {success:false, message:'OFFER_DELIVERY_POLICY_REQUIRED'});
+            return handleUpdateDiscount(db, branch, discountId, data);
+        }
+        if (method === 'PATCH') return handleToggleDiscountStatus(db, branch, discountId);
+        if (method === 'DELETE') return handleDeleteDiscount(db, branch, discountId);
+    }
+    return createResponse(404, {success:false, message:'Endpoint not found'});
+};
+
 // Both views read the same branch index and must never report a partial page as complete.
 async function readBusinessDiscounts(dynamodb, businessId) {
     const discounts = [];
@@ -332,6 +365,7 @@ async function handleGetDiscount(dynamodb, businessId, discountId) {
     try {
         const params = {
             TableName: DISCOUNTS_TABLE,
+            ConsistentRead: true,
             Key: {
                 discountId: discountId
             }
@@ -527,6 +561,7 @@ async function handleDeleteDiscount(dynamodb, businessId, discountId) {
         // First get the discount to verify ownership
         const getParams = {
             TableName: DISCOUNTS_TABLE,
+            ConsistentRead: true,
             Key: {
                 discountId: discountId
             }
@@ -571,6 +606,7 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
         // Get current discount
         const getParams = {
             TableName: DISCOUNTS_TABLE,
+            ConsistentRead: true,
             Key: {
                 discountId: discountId
             }
@@ -588,6 +624,9 @@ async function handleToggleDiscountStatus(dynamodb, businessId, discountId) {
 
         const currentStatus = result.Item.status;
         const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+        if (process.env.ENVIRONMENT === 'production' && result.Item.type === 'freeDelivery' && newStatus === 'active') {
+            return createResponse(409, {success:false, message:'OFFER_DELIVERY_POLICY_REQUIRED'});
+        }
 
         const updateParams = {
             TableName: DISCOUNTS_TABLE,

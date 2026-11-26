@@ -7,15 +7,15 @@ const fields=['opening','closing','isClosed'];
 const view=(day,row)=>({weekday:day,...Object.fromEntries(fields.filter(k=>row?.[k]!==undefined).map(k=>[k,row[k]]))});
 // The existing handler still builds the seven day writes. Guard and audit them
 // as one schedule, without copying arbitrary persisted fields into the event.
-async function prepare(raw,actor,items){
- const writes=items.filter(x=>(x.Put||x.Update||x.Delete||x.ConditionCheck)?.TableName===TABLE);
+async function prepare(raw,actor,items,{hoursTable=TABLE,auditTable='staging-MerchantPlatform'}={}){
+ const writes=items.filter(x=>(x.Put||x.Update||x.Delete||x.ConditionCheck)?.TableName===hoursTable);
  if(!writes.length)return [];
  if(writes.length!==7||new Set(writes.map(x=>x.Put?.Item.weekday)).size!==7||writes.some(x=>!x.Put||x.Put.Item.businessId!==actor.businessId||!DAYS.includes(x.Put.Item.weekday)))throw Error('DEVICE_HOURS_WRITE_INVALID');
  for(const {Put:{Item:r}} of writes){
   const time=/^([01]?\d|2[0-3]):[0-5]\d$/;
   if(typeof r.isClosed!=='boolean'||(r.isClosed?r.opening!=='closed'||r.closing!=='closed':!time.test(r.opening)||!time.test(r.closing)))throw Error('DEVICE_HOURS_WRITE_INVALID');
  }
- const previous=await Promise.all(writes.map(async({Put})=>(await raw.send(new GetCommand({TableName:TABLE,Key:{businessId:actor.businessId,weekday:Put.Item.weekday},ConsistentRead:true}))).Item));
+ const previous=await Promise.all(writes.map(async({Put})=>(await raw.send(new GetCommand({TableName:hoursTable,Key:{businessId:actor.businessId,weekday:Put.Item.weekday},ConsistentRead:true}))).Item));
  const before=[],after=[];
  writes.forEach(({Put},i)=>{
   const row=previous[i],day=Put.Item.weekday;
@@ -33,6 +33,6 @@ async function prepare(raw,actor,items){
  });
  if(JSON.stringify(before)===JSON.stringify(after))return [];
  const now=new Date().toISOString(),id=randomUUID();
- return [{Put:{TableName:'staging-MerchantPlatform',Item:{pk:'BRANCH#'+actor.businessId,sk:'STAFF_AUDIT#OPERATIONS#'+now+'#'+id,ownerId:actor.ownerId,businessId:actor.businessId,actorId:actor.sub,actorName:actor.actorName||'',roleName:actor.roleName||'',deviceId:actor.deviceId,sessionId:actor.sessionId,permissionVersion:actor.permissionVersion,policyVersion:actor.policyVersion||0,action:'BRANCH_HOURS_CHANGED',entityId:actor.businessId,result:'SUCCEEDED',createdAt:now,before:{days:before},after:{days:after}},ConditionExpression:'attribute_not_exists(pk)'}}];
+ return [{Put:{TableName:auditTable,Item:{pk:'BRANCH#'+actor.businessId,sk:'STAFF_AUDIT#OPERATIONS#'+now+'#'+id,ownerId:actor.ownerId,businessId:actor.businessId,actorId:actor.sub,actorName:actor.actorName||'',roleName:actor.roleName||'',deviceId:actor.deviceId,sessionId:actor.sessionId,permissionVersion:actor.permissionVersion,policyVersion:actor.policyVersion||0,action:'BRANCH_HOURS_CHANGED',entityId:actor.businessId,result:'SUCCEEDED',createdAt:now,before:{days:before},after:{days:after}},ConditionExpression:'attribute_not_exists(pk)'}}];
 }
 module.exports={prepare};

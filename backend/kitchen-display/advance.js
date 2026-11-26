@@ -1,7 +1,8 @@
 'use strict';
+const {kitchenTables}=require('./tables');
 const {GetCommand}=require('@aws-sdk/lib-dynamodb');
 const fail=(code,status)=>{throw Object.assign(Error(code),{status});};
-async function prepare({db,service,token,input,table=process.env.ORDERS_TABLE}){
+async function prepare({db,service,token,input,table=kitchenTables().orders}){
  if(!input||Object.keys(input).some(k=>!['action','orderId','target','revision'].includes(k))||input.action!=='advance'||!/^[-\w]{1,150}$/.test(input.orderId||'')||!['preparing','ready_for_pickup'].includes(input.target)||!(input.revision===null||Number.isSafeInteger(input.revision)&&input.revision>=0))fail('INVALID_KITCHEN_REQUEST',400);
  const access=await service.authorize(token,input.target);
  const order=(await db.send(new GetCommand({TableName:table,Key:{PK:'ORDER#'+input.orderId,SK:'META'},ConsistentRead:true}))).Item;

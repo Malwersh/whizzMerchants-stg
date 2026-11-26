@@ -6,8 +6,8 @@ const {GetCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
 const TABLE='staging-MerchantPlatform';
 const fail=(code,status=409)=>{throw Object.assign(new Error(code),{status});};
 
-function createDestination({db,provider,clock=Date.now,Get=GetCommand,Write=TransactWriteCommand}){
- const get=async Key=>(await db.send(new Get({TableName:TABLE,Key,ConsistentRead:true}))).Item;
+function createDestination({db,provider,clock=Date.now,Get=GetCommand,Write=TransactWriteCommand,table=TABLE,guards=()=>[]}){
+ const get=async Key=>(await db.send(new Get({TableName:table,Key,ConsistentRead:true}))).Item;
  return async function destination({request,subjectId,phone,action,challengeId,code}){
   const now=clock();
   if(request?.recipientId!==subjectId||request.status!=='AWAITING_REVIEW'||
@@ -17,6 +17,7 @@ function createDestination({db,provider,clock=Date.now,Get=GetCommand,Write=Tran
   const profile=await get({pk:'PERSON#'+subjectId,sk:'PROFILE'});
   if(profile?.subjectId!==subjectId||profile.phoneNumber!==phone||
      !Number.isSafeInteger(profile.version)||profile.version<1){
+   if(action==='READ_DESTINATION')return {status:'PROFILE_REQUIRED'};
    fail('TRANSFER_RECIPIENT_PROFILE_REQUIRED');
   }
   const Key={pk:'ORGANIZATION#'+request.organizationId,sk:'OWNERSHIP_TRANSFER_DESTINATION#'+request.requestId};
@@ -26,6 +27,13 @@ function createDestination({db,provider,clock=Date.now,Get=GetCommand,Write=Tran
      existing.recipientId===subjectId&&existing.expiresAt>now){
    return {status:'VERIFIED',destination:'••••'+phone.slice(-4)};
   }
+  if(action==='READ_DESTINATION'){
+   const active=existing?.status==='CODE_SENT'&&existing.requestId===request.requestId&&
+    existing.recipientId===subjectId&&existing.scopeDigest===request.digest&&
+    existing.profileVersion===profile.version&&existing.expiresAt>now&&existing.attempts<5;
+   return {status:active?'CODE_SENT':'VERIFICATION_REQUIRED',destination:'••••'+phone.slice(-4),
+    ...(active?{challengeId:existing.challengeId}:{})};
+  }
   const secret=await provider.secret();
   if(typeof secret!=='string'||!secret)fail('TRANSFER_DESTINATION_UNAVAILABLE',503);
   const signature=(id,value)=>createHmac('sha256',secret)
@@ -33,20 +41,21 @@ function createDestination({db,provider,clock=Date.now,Get=GetCommand,Write=Tran
   async function save(row){
    try{
     await db.send(new Write({TransactItems:[
+     ...guards(subjectId),
      {ConditionCheck:{
-      TableName:TABLE,Key:{pk:Key.pk,sk:'OWNERSHIP_TRANSFER'},
+      TableName:table,Key:{pk:Key.pk,sk:'OWNERSHIP_TRANSFER'},
       ConditionExpression:'requestId=:request AND recipientId=:recipient AND digest=:digest AND #s=:review AND expiresAt>:now',
       ExpressionAttributeNames:{'#s':'status'},
       ExpressionAttributeValues:{':request':request.requestId,':recipient':subjectId,':digest':request.digest,':review':'AWAITING_REVIEW',':now':now},
      }},
      {ConditionCheck:{
-      TableName:TABLE,Key:{pk:'PERSON#'+subjectId,sk:'PROFILE'},
+      TableName:table,Key:{pk:'PERSON#'+subjectId,sk:'PROFILE'},
       ConditionExpression:'subjectId=:recipient AND phoneNumber=:phone AND #v=:version',
       ExpressionAttributeNames:{'#v':'version'},
       ExpressionAttributeValues:{':recipient':subjectId,':phone':phone,':version':profile.version},
      }},
      {Put:{
-      TableName:TABLE,Item:{...row,...Key},
+      TableName:table,Item:{...row,...Key},
       ConditionExpression:existing?'#v=:old':'attribute_not_exists(pk)',
       ...(existing?{ExpressionAttributeNames:{'#v':'version'},ExpressionAttributeValues:{':old':existing.version}}:{}),
      }},

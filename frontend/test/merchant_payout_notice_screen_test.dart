@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whizz_merchants/providers/auth_provider_riverpod.dart';
+import 'package:whizz_merchants/services/commercial_notice_navigation.dart';
 import 'package:whizz_merchants/services/person_onboarding_service.dart';
 import 'package:whizz_merchants/services/merchant_financial_session_state.dart';
 import 'package:whizz_merchants/screens/merchant_payout_notice_screen.dart';
+import 'package:whizz_merchants/widgets/merchant_financial_gate.dart';
 
 class Owner extends AuthNotifier {
   Owner() : super(signOutAction: () async {}) {
@@ -102,4 +106,42 @@ void main() {
     await t.pumpWidget(const SizedBox());
     session.clear();
   });
+
+  testWidgets('foreground payout notice checks the account and opens the financial gate',
+      (t) async {
+    final claims = base64Url.encode(utf8.encode(jsonEncode({
+      'sub': 'owner',
+      'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 300,
+    })));
+    FlutterSecureStorage.setMockInitialValues({
+      'secure_access_token': 'e30.$claims.signature',
+    });
+    CommercialNoticeNavigation.ownerReady = true;
+    addTearDown(() => CommercialNoticeNavigation.ownerReady = false);
+    await t.pumpWidget(ProviderScope(
+      overrides: [authProviderRiverpod.overrideWith((_) => Owner())],
+      child: MaterialApp(
+        navigatorKey: CommercialNoticeNavigation.navigatorKey,
+        home: const Scaffold(body: Text('مطاعمي')),
+      ),
+    ));
+
+    final data = {
+      'type': 'merchant_payout_updated',
+      'action': 'open_wallet',
+      'branchId': 'branch',
+      'payoutId': 'MPO:${List.filled(48, 'a').join()}',
+    };
+    CommercialNoticeNavigation.receive({...data, 'driverId': 'other'});
+    await t.pumpAndSettle();
+    expect(find.text('عرض التفاصيل'), findsNothing);
+
+    CommercialNoticeNavigation.receive({...data, 'driverId': 'owner'});
+    await t.pumpAndSettle();
+    expect(find.text('عرض التفاصيل'), findsOneWidget);
+    await t.tap(find.text('عرض التفاصيل'));
+    await t.pumpAndSettle();
+    expect(find.byType(MerchantPayoutNoticeScreen), findsOneWidget);
+    expect(find.byType(MerchantFinancialGate), findsOneWidget);
+  }, skip: !merchantPayoutNoticesEnabled);
 }

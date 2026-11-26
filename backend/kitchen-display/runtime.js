@@ -21,12 +21,17 @@ exports.socket=async event=>{
  catch(e){if([401,403].includes(e.status)){await r.closed(id);const api=new ApiGatewayManagementApiClient({endpoint:process.env.KITCHEN_WEBSOCKET_ENDPOINT});try{await api.send(new PostToConnectionCommand({ConnectionId:id,Data:Buffer.from(JSON.stringify({type:'SESSION_REVOKED'}))}));await api.send(new DeleteConnectionCommand({ConnectionId:id}));}catch(gone){if(gone.$metadata?.httpStatusCode!==410)throw gone;}}return {statusCode:e.status||503};}
 };
 exports.stream=async event=>{
- if(process.env.KITCHEN_DISPLAY_ENABLED!=='true')return {batchItemFailures:[]};
+ if((process.env.KITCHEN_STREAM_ENABLED??process.env.KITCHEN_DISPLAY_ENABLED)!=='true')return {batchItemFailures:[]};
+ const production=process.env.KITCHEN_ENVIRONMENT==='production';
+ const stream=process.env.KITCHEN_ORDERS_STREAM_ARN;
+ if(production&&!/^arn:aws:dynamodb:us-east-1:746727375268:table\/wizz-production-Orders\/stream\/[\w.:-]+$/.test(stream||''))throw Error('KITCHEN_STREAM_SCOPE_INVALID');
  const failures=[],r=realtime();
  for(const record of event.Records||[]){
+  if(production&&(record.eventSource!=='aws:dynamodb'||record.eventSourceARN!==stream))continue;
   try{const images=[record.dynamodb?.OldImage,record.dynamodb?.NewImage].filter(Boolean).map(i=>unmarshall(i));const branches=new Set(images.filter(o=>o.SK==='META'&&o.PK?.startsWith('ORDER#')).map(o=>o.businessId||o.storeId||o.merchantId).filter(Boolean));for(const branch of branches){const orderId=images.find(o=>o.PK?.startsWith('ORDER#'))?.PK.slice(6);await require('./projection').syncOrder(db,orderId,branch);await r.notify(branch);}}
   catch{failures.push({itemIdentifier:record.dynamodb.SequenceNumber});}
  }
+ if(production&&failures.length)throw Error('KITCHEN_PROJECTION_RETRY_REQUIRED');
  return {batchItemFailures:failures};
 };
 exports.http=async event=>{

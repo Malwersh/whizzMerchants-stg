@@ -56,8 +56,22 @@ class _MerchantNotificationsScreenState
   Future<void> _open(NotificationModel item) async {
     await inbox.markRead(id: item.id);
     if (!mounted) return;
-    if (merchantFinancialLockEnabled && item.data['type']=='merchant_payout_updated' && item.businessId==widget.businessId && RegExp(r'^MPO:[a-f0-9]{48}$').hasMatch(item.data['payoutId']?.toString()??'')) {
-      await Navigator.push(context,MaterialPageRoute(builder:(_)=>MerchantPayoutNoticeScreen(businessId:widget.businessId,payoutId:item.data['payoutId'] as String)));
+    if (merchantPayoutNoticesEnabled &&
+        item.data['type'] == 'merchant_payout_updated' &&
+        item.businessId == widget.businessId) {
+      final payoutId = item.data['payoutId'];
+      if (payoutId is! String || !RegExp(r'^MPO:[a-f0-9]{48}$').hasMatch(payoutId)) {
+        return;
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MerchantPayoutNoticeScreen(
+            businessId: widget.businessId,
+            payoutId: payoutId,
+          ),
+        ),
+      );
     } else if (item.type == 'commercial_sharing_requested') {
       await Navigator.push(
           context,

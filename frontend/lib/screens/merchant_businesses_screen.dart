@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../services/person_onboarding_service.dart';
 import 'merchant_branch_draft_screen.dart';
+import 'commercial_agreements_screen.dart';
 import '../providers/auth_provider_riverpod.dart';
 import '../providers/session_provider.dart';
 import 'dashboards/business_dashboard.dart';
@@ -25,21 +26,31 @@ class MerchantBusinessesScreen extends ConsumerStatefulWidget {
 }
 
 class _MerchantBusinessesScreenState
-    extends ConsumerState<MerchantBusinessesScreen> {
+    extends ConsumerState<MerchantBusinessesScreen> with WidgetsBindingObserver {
   List<Map<String, dynamic>>? _businesses;
   String? _error, _draftError;
   bool _opening = false;
+  int _businessLoadEpoch = 0;
   List<Map<String, dynamic>> _drafts = [];
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    CommercialNoticeNavigation.ownershipChanges.addListener(_loadBusinesses);
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    CommercialNoticeNavigation.ownershipChanges.removeListener(_loadBusinesses);
     CommercialNoticeNavigation.ownerReady = false;
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _loadBusinesses();
   }
 
   Future<void> _load() async {
@@ -47,9 +58,10 @@ class _MerchantBusinessesScreenState
   }
 
   Future<void> _loadBusinesses() async {
+    final epoch = ++_businessLoadEpoch;
     try {
       final rows = await ApiService().getUserBusinesses();
-      if (mounted)
+      if (mounted && epoch == _businessLoadEpoch)
         setState(() {
           _businesses = rows;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -61,7 +73,9 @@ class _MerchantBusinessesScreenState
           _error = null;
         });
     } catch (_) {
-      if (mounted) setState(() => _error = 'تعذر تحميل أنشطتك. أعد المحاولة.');
+      if (mounted && epoch == _businessLoadEpoch) {
+        setState(() => _error = 'تعذر تحميل أنشطتك. أعد المحاولة.');
+      }
     }
   }
 
@@ -120,7 +134,8 @@ class _MerchantBusinessesScreenState
       'LOCATION': 'منطقة خدمة فعالة ونقطة صحيحة داخلها',
       'AGREEMENT': 'اتفاقية الشراكة وطلب معتمد',
       'HOURS': 'ساعات عمل صالحة',
-      'PRODUCT': 'منتج متاح باسم وسعر صحيح'
+      'PRODUCT': 'منتج متاح باسم وسعر صحيح',
+      'PUBLISHED_MENU': 'قائمة منشورة فيها صنف متاح'
     };
     try {
       final id = (business['businessId'] ?? business['id']) as String;
@@ -191,6 +206,7 @@ class _MerchantBusinessesScreenState
       if (!session.isAuthenticated || session.businessId != id) return;
       await Navigator.of(context)
           .push(MaterialPageRoute(builder: (_) => const BusinessDashboard()));
+      if (mounted) await _loadBusinesses();
     } finally {
       if (mounted) setState(() => _opening = false);
     }
@@ -293,6 +309,27 @@ class _MerchantBusinessesScreenState
                                           icon: const Icon(
                                               Icons.fact_check_outlined),
                                           onPressed: () => _readiness(b)),
+                                    if (AppConfig.isProduction &&
+                                        b['status'] == 'approved')
+                                      IconButton(
+                                        icon: const Icon(Icons.handshake_outlined),
+                                        tooltip: 'الاتفاقيات التجارية',
+                                        onPressed: () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => CommercialAgreementsScreen(
+                                              businessId: (b['businessId'] ?? b['id']) as String,
+                                              businessName: (b['businessName'] ?? b['name']) as String?,
+                                              branchNames: {
+                                                for (final row in _businesses ?? const <Map<String, dynamic>>[])
+                                                  if ((row['businessId'] ?? row['id']) is String &&
+                                                      (row['businessName'] ?? row['name']) is String)
+                                                    (row['businessId'] ?? row['id']) as String:
+                                                        (row['businessName'] ?? row['name']) as String,
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      ),
                                     const Icon(Icons.chevron_left)
                                   ]),
                               onTap: _opening ? null : () => _open(b))),

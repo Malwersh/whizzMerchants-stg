@@ -11,7 +11,7 @@ const keyOf=organizationId=>({pk:'ORGANIZATION#'+organizationId,sk:'OWNERSHIP_TR
 const terminal=new Set(['CANCELLED','COMPLETED','REJECTED']);
 
 // The API supplies verified principals and the live scope from its repository.
-function createTransferStore({db,GetCommand,QueryCommand,ScanCommand,TransactWriteCommand,environment,clock=Date.now}){
+function createTransferStore({db,GetCommand,QueryCommand,ScanCommand,TransactWriteCommand,environment,clock=Date.now,transitionWrites=()=>[]}){
  if(!Object.hasOwn(tables,environment))fail('TRANSFER_ENVIRONMENT_NOT_CONFIGURED');
  const {platform:table,branches:branchTable,deletion}=tables[environment];
 
@@ -41,8 +41,9 @@ function createTransferStore({db,GetCommand,QueryCommand,ScanCommand,TransactWri
    put.ExpressionAttributeValues=values;
   }
   try{
-   if(branchUpdates.length>99)fail('TRANSFER_SCOPE_EXCEEDS_TRANSACTION_LIMIT');
-   await db.send(new TransactWriteCommand({TransactItems:[{Put:put},...branchUpdates]}));
+   const extra=transitionWrites(next,previous);
+   if(branchUpdates.length+extra.length>99)fail('TRANSFER_SCOPE_EXCEEDS_TRANSACTION_LIMIT');
+   await db.send(new TransactWriteCommand({TransactItems:[{Put:put},...branchUpdates,...extra]}));
   }catch(error){
    if(error.name==='ConditionalCheckFailedException'||(
     error.name==='TransactionCanceledException'&&

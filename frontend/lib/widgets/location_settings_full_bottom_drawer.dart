@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/business.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
+import '../config/app_config.dart';
 
 import '../core/design_system/golden_ratio_constants.dart';
 import '../core/design_system/typography_system.dart';
@@ -60,6 +61,7 @@ class _LocationSettingsFullBottomDrawerState
 
   double? _originalLatitude, _originalLongitude;
   List<String> _originalPath=[];
+  String _originalAddress = '';
   String? _pendingId, _pendingSignature;
   bool get _moved => _latitude!=_originalLatitude || _longitude!=_originalLongitude || jsonEncode(_regionPath)!=jsonEncode(_originalPath);
 
@@ -81,11 +83,16 @@ class _LocationSettingsFullBottomDrawerState
     });
 
     try {
+      final onboarding = widget.onboarding ?? PersonOnboardingService();
+      final business = Uri.encodeQueryComponent(widget.business.id);
       final responses = await Future.wait([
-        (widget.api ?? ApiService())
-            .getBusinessLocationSettings(widget.business.id),
-        (widget.onboarding ?? PersonOnboardingService())
-            .call('onboarding-regions', authenticated: false),
+        AppConfig.isProduction
+            ? onboarding.call('business-changes?businessId=$business')
+            : (widget.api ?? ApiService())
+                .getBusinessLocationSettings(widget.business.id),
+        AppConfig.isProduction
+            ? onboarding.call('branch-drafts/regions')
+            : onboarding.call('onboarding-regions', authenticated: false),
       ]);
       final data = Map<String, dynamic>.from(responses[0]['settings']);
       if (!mounted) return;
@@ -97,7 +104,8 @@ class _LocationSettingsFullBottomDrawerState
         _longitude = double.tryParse(data['longitude'].toString());
         _locationVersion = data['locationVersion'];
         _originalLatitude=_latitude; _originalLongitude=_longitude; _originalPath=List<String>.from(_regionPath);
-        _streetController.text = data['address']?.toString() ?? '';
+        _originalAddress = data['address']?.toString().trim() ?? '';
+        _streetController.text = _originalAddress;
       });
     } catch (_) {
       if (mounted)
@@ -127,6 +135,12 @@ class _LocationSettingsFullBottomDrawerState
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    final addressChanged = _streetController.text.trim() != _originalAddress;
+    final needsReview = _moved || (AppConfig.isProduction && addressChanged);
+    if (AppConfig.isProduction && !needsReview) {
+      Navigator.pop(context);
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -149,15 +163,36 @@ class _LocationSettingsFullBottomDrawerState
         'address': _streetController.text.trim(),
       };
 
-      if (_moved) {
-        final reason=TextEditingController();
-        final accepted=await showDialog<bool>(context:context,builder:(dialog)=>AlertDialog(
-          title:const Text('طلب نقل موقع النشاط'),content:Column(mainAxisSize:MainAxisSize.min,children:[
-            const Text('يبقى الموقع المعتمد ساريًا حتى موافقة الشركة.'),
-            TextField(controller:reason,maxLength:1000,decoration:const InputDecoration(labelText:'سبب التعديل (خمسة أحرف على الأقل)'))]),
-          actions:[TextButton(onPressed:()=>Navigator.pop(dialog,false),child:const Text('إلغاء')),TextButton(onPressed:(){if(reason.text.trim().length>=5)Navigator.pop(dialog,true);},child:const Text('إرسال للمراجعة'))]));
-        final text=reason.text.trim();reason.dispose();
-        if(accepted!=true)return;
+      if (needsReview) {
+        var reason = '';
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+            title: const Text('طلب تعديل عنوان النشاط وموقعه'),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('يبقى العنوان والموقع المعتمدان ساريين حتى الموافقة.'),
+              TextField(
+                onChanged: (value) => reason = value.trim(),
+                maxLength: 1000,
+                decoration: const InputDecoration(
+                    labelText: 'سبب التعديل (خمسة أحرف على الأقل)'),
+              ),
+            ]),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dialog, false),
+                  child: const Text('إلغاء')),
+              TextButton(
+                onPressed: () {
+                  if (reason.length >= 5) Navigator.pop(dialog, true);
+                },
+                child: const Text('إرسال للمراجعة'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || accepted != true) return;
+        final text = reason;
         final proposed={'latitude':_latitude,'longitude':_longitude,'regionPath':List<String>.from(_regionPath),'address':_streetController.text.trim()};
         final signature=jsonEncode([proposed,text]);
         if(signature!=_pendingSignature){_pendingId=const Uuid().v4();_pendingSignature=signature;}
@@ -177,11 +212,15 @@ class _LocationSettingsFullBottomDrawerState
               children: [
                 Icon(Icons.check_circle, color: WhizzColors.onSecondary),
                 SizedBox(width: GoldenRatio.spacing12),
-                Text(
-                  _moved ? 'أُرسل طلب نقل الموقع للمراجعة. الموقع المعتمد لم يتغير.' : loc.locationSettingsSavedSuccessfully,
-                  style: TypographySystem.bodyMedium.copyWith(
-                    color: WhizzColors.onSecondary,
-                    fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Text(
+                    needsReview
+                        ? 'أُرسل طلب تعديل العنوان والموقع للمراجعة.'
+                        : loc.locationSettingsSavedSuccessfully,
+                    style: TypographySystem.bodyMedium.copyWith(
+                      color: WhizzColors.onSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],

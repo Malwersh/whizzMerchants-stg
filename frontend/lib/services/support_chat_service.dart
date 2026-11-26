@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -945,12 +946,18 @@ class SupportChatService extends ChangeNotifier {
         draft = savedDraft ?? '';
       }
       _detachTransport();
+      final useAuthorizationHeader = AppConfig.isProduction && _persist;
       final uri = base.replace(queryParameters: {
         ...base.queryParameters,
-        'token': token,
-        'userType': 'merchant'
+        if (!useAuthorizationHeader) 'token': token,
+        'userType': 'merchant',
       });
-      final channel = _channelFactory(uri);
+      final channel = useAuthorizationHeader
+          ? IOWebSocketChannel.connect(
+              uri,
+              headers: {'Authorization': 'Bearer $token'},
+            )
+          : _channelFactory(uri);
       _channel = channel;
       _subscription = channel.stream.listen((data) {
         if (generation == _connectionGeneration && !_disposed) _onMessage(data);

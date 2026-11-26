@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
+import '../config/merchant_auth_routes.dart';
 import 'token_refresh_service.dart';
 
 class OrderReturnsService {
@@ -12,10 +13,14 @@ class OrderReturnsService {
   Future<Map<String, dynamic>> call(Map<String, dynamic> selectors,
       {Map<String, dynamic>? receipt, bool cancel = false}) async {
     final credential = await token();
-    if (credential == null || credential.isEmpty)
+    if (credential == null || credential.isEmpty) {
       throw Exception('أعد تسجيل الدخول');
-    final uri = Uri.parse(
-        '${AppConfig.baseUrl}/auth/${cancel ? 'order-cancellation' : 'order-returns'}');
+    }
+    final uri = MerchantAuthRoutes.resolve(
+      environment: AppConfig.environment,
+      baseUrl: AppConfig.baseUrl,
+      path: cancel ? 'order-cancellation' : 'order-returns',
+    );
     final headers = {
       'Authorization': 'Bearer $credential',
       'Content-Type': 'application/json'
@@ -32,8 +37,9 @@ class OrderReturnsService {
             .post(uri,
                 headers: headers, body: jsonEncode({...selectors, ...receipt}))
             .timeout(const Duration(seconds: 20));
-    if (await token() != credential)
+    if (await token() != credential) {
       throw Exception('تغيرت الجلسة؛ أعد فتح الصفحة');
+    }
     if (response.statusCode != 200) {
       final error = jsonDecode(response.body);
       throw Exception(error is Map
@@ -43,8 +49,9 @@ class OrderReturnsService {
     final value = jsonDecode(response.body);
     if (value is! Map<String, dynamic> ||
         value['success'] != true ||
-        value['orderId'] != selectors['orderId'])
+        value['orderId'] != selectors['orderId']) {
       throw Exception('لم يؤكد الخادم العملية');
+    }
     return value;
   }
 }

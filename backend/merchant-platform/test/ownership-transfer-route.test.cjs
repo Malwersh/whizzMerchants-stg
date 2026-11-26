@@ -69,14 +69,16 @@ test('request reads are limited to the participants and expose agreement to the 
 });
 
 test('recipient acceptance requires the published agreement version and exact scope digest',async()=>{
- const {run,calls}=setup();
+ const {run,calls,notices}=setup();
  const input={action:'ACCEPT',organizationId,requestId:id,digest:'hash',agreementVersion:'v2'};
  const event={httpMethod:'POST'};
  await assert.rejects(run({identity:identity('recipient'),event,input}),/PARTNERSHIP_AGREEMENT_REQUIRED/);
  assert.equal(calls.length,0);
+ assert.deepEqual(notices,[]);
  await run({identity:identity('recipient'),event,input:{...input,agreementVersion:'v3'}});
  assert.equal(calls[0].expectedDigest,'hash');
  assert.equal(calls[0].actor.sub,'recipient');
+ assert.deepEqual(notices,[{action:'ownership_accepted',organizationId,requestId:id}]);
 });
 
 test('selected branch resolves only to an organization owned by the authenticated merchant',async()=>{
@@ -90,7 +92,7 @@ test('starts an invitation by phone and queues push after storing the request',a
  const input={action:'START',organizationId,requestId:id,recipientPhone:'07800000000'};
  await run({identity:identity('owner'),event:{httpMethod:'POST'},input});
  assert.equal(calls[0].recipientId,'recipient');
- assert.deepEqual(notices,[{organizationId,requestId:id}]);
+ assert.deepEqual(notices,[{action:'ownership_invitation',organizationId,requestId:id}]);
 });
 
 test('only a verified branch owner can preview the recipient and changed recipients cannot start',async()=>{

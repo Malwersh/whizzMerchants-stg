@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../providers/branch_device_provider.dart';
 import 'token_refresh_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -43,7 +44,8 @@ class NotificationSoundPolicy {
   if(_busy||_loaded!=null&&DateTime.now().difference(_loaded!).inMinutes<5)return;_busy=true;
   try{await prepareChannels();final prefs=await SharedPreferences.getInstance();final saved=prefs.getString('notification_sound_policy_v1');if(saved!=null){final cached=jsonDecode(saved);if(cached is Map&&cached['values'] is Map){await NotificationSoundFiles.adopt(List<dynamic>.from(cached['catalog']??[]),'merchant_orders');_values={..._values,...Map<String,dynamic>.from(cached['values'])};}}
   final token=await TokenRefreshService.getValidAccessToken();if(token==null){
-   final paired=await const FlutterSecureStorage().read(key:'merchant_paired_branch_device_v1');if(paired==null)return;
+   if(AppConfig.isProduction)return;
+   final paired=await const FlutterSecureStorage().read(key:BranchDeviceNotifier.key);if(paired==null)return;
    final device=Map<String,dynamic>.from(jsonDecode(paired)),pushToken=await FirebaseMessaging.instance.getToken();if(pushToken==null)return;
    final response=await BranchDeviceService().call(device['deviceToken'],{'action':'register_push','pushToken':pushToken,'platform':defaultTargetPlatform==TargetPlatform.iOS?'ios':'android','soundReady':ready,'soundEnabled':SoundNotificationSettings().shouldPlaySound('new_order')});
    await adopt(response['notificationPolicy']??response['data']?['notificationPolicy']);return;

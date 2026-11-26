@@ -27,6 +27,8 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
   bool _testMode = false;
   bool _autoSendOrders = false;
   bool _autoAcceptOrders = true;
+  bool _apiKeyConfigured = false;
+  String _configuredEndpoint = '';
   String _systemType = 'genericApi';
   int _timeoutSeconds = 30;
 
@@ -66,6 +68,8 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
         setState(() {
           _apiEndpointController.text = settings['apiEndpoint'] ?? '';
           _apiKeyController.text = settings['apiKey'] ?? '';
+          _apiKeyConfigured = settings['apiKeyConfigured'] == true;
+          _configuredEndpoint = settings['apiEndpoint'] ?? '';
           _locationIdController.text = settings['locationId'] ?? '';
           _isEnabled = settings['enabled'] ?? false;
           _testMode = settings['testMode'] ?? false;
@@ -123,7 +127,15 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
         'timeoutSeconds': _timeoutSeconds,
       };
 
-      await apiService.updatePosSettings(widget.business.id, settings);
+      final response = await apiService.updatePosSettings(widget.business.id, settings);
+      final saved = response['settings'];
+      if (mounted && saved is Map && saved['apiKeyConfigured'] == true) {
+        setState(() {
+          _apiKeyConfigured = true;
+          _configuredEndpoint = saved['apiEndpoint'] ?? '';
+          _apiKeyController.clear();
+        });
+      }
 
       if (mounted) {
         final loc = AppLocalizations.of(context)!;
@@ -333,7 +345,10 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                                 ),
                                 validator: (value) {
                                   if (_isEnabled &&
-                                      (value == null || value.isEmpty)) {
+                                      (value == null || value.isEmpty) &&
+                                      !(_apiKeyConfigured &&
+                                          _apiEndpointController.text.trim() ==
+                                              _configuredEndpoint)) {
                                     return loc.apiEndpointRequired;
                                   }
                                   return null;
@@ -357,7 +372,10 @@ class _PosSettingsPageState extends ConsumerState<PosSettingsPage> {
                                 obscureText: true,
                                 validator: (value) {
                                   if (_isEnabled &&
-                                      (value == null || value.isEmpty)) {
+                                      (value == null || value.isEmpty) &&
+                                      !(_apiKeyConfigured &&
+                                          _apiEndpointController.text.trim() ==
+                                              _configuredEndpoint)) {
                                     return loc.apiKeyRequired;
                                   }
                                   return null;

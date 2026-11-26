@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import '../services/branch_settlement_service.dart';
 import '../widgets/merchant_financial_gate.dart';
 import 'package:flutter/material.dart';
@@ -205,7 +206,8 @@ class SettlementSchedulesScreen extends StatelessWidget {
       businessId: businessId,
       service: service,
     );
-    if (!merchantFinancialLockEnabled || service is BranchSettlementService) {
+    if ((!AppConfig.isProduction && !merchantFinancialLockEnabled) ||
+        service is BranchSettlementService) {
       return child;
     }
     return MerchantFinancialGate(branchId: businessId, child: child);

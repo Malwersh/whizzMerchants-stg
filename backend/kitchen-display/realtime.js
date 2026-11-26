@@ -1,6 +1,7 @@
 'use strict';
+const {kitchenTables}=require('./tables');
 const {GetCommand,QueryCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
-const TABLE='staging-MerchantPlatform';
+const TABLE=kitchenTables().platform;
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 function createRealtime({db,service,send,disconnect,clock=()=>Math.floor(Date.now()/1000)}){
  const get=async Key=>(await db.send(new GetCommand({TableName:TABLE,Key,ConsistentRead:true}))).Item;

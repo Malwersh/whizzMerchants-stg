@@ -1,5 +1,5 @@
 'use strict';
-const {GetCommand,ScanCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
+const {GetCommand,QueryCommand,ScanCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
 const {createHash,randomUUID}=require('node:crypto');
 const {versioned}=require('../shared/campaign-version');
 const {patchTerms}=require('../shared/discount-contract');
@@ -25,6 +25,27 @@ function fence(row){
  FIELDS.forEach((k,i)=>{const n='#old'+i;names[n]=k;if(row[k]===undefined)parts.push('attribute_not_exists('+n+')');else{values[':old'+i]=row[k];parts.push(n+'=:old'+i);}});
  return {TableName:D,Key:{discountId:row.discountId},ConditionExpression:parts.join(' AND '),ExpressionAttributeNames:names,ExpressionAttributeValues:values};
 }
+async function readPage(db, businessId, cursor) {
+ if(process.env.ENVIRONMENT==='production'){
+  const page=await db.send(new QueryCommand({
+   TableName:D,IndexName:'BusinessIdIndex',KeyConditionExpression:'businessId=:b',
+   ExpressionAttributeValues:{':b':businessId},ProjectionExpression:'discountId,businessId',Limit:50,
+   ...(cursor?{ExclusiveStartKey:{...cursor,businessId}}:{}),
+  }));
+  const ids=(page.Items||[]).filter(row=>row.businessId===businessId);
+  const rows=[];
+  for(let offset=0;offset<ids.length;offset+=8){
+   const chunk=await Promise.all(ids.slice(offset,offset+8)
+    .map(({discountId})=>get(db,D,{discountId})));
+   rows.push(...chunk.filter(row=>row?.businessId===businessId));
+  }
+  return {...page,Items:rows};
+ }
+ const names=Object.fromEntries(FIELDS.map((k,i)=>['#f'+i,k]));
+ return db.send(new ScanCommand({TableName:D,FilterExpression:'businessId=:b',
+  ExpressionAttributeValues:{':b':businessId},ProjectionExpression:Object.keys(names).join(','),
+  ExpressionAttributeNames:names,ConsistentRead:true,Limit:50,...(cursor?{ExclusiveStartKey:cursor}:{})}));
+}
 async function execute(db,{b,d,s,m,authorization,common},input){
  const action=input.action,needed={discounts_list:'discounts.read',discounts_create:'discounts.create',discounts_update:'discounts.edit',discounts_status:'discounts.activate',discounts_delete:'discounts.delete'}[action];
  if(!needed||!authorization?.permissions.includes(needed)||!authorization.permissions.includes('discounts.read'))fail('PERMISSION_REQUIRED',403);
@@ -34,8 +55,7 @@ async function execute(db,{b,d,s,m,authorization,common},input){
  if(action==='discounts_list'){
   let cursor;
   if(input.cursor){try{if(typeof input.cursor!=='string'||input.cursor.length>1024)throw Error();const parsed=JSON.parse(Buffer.from(input.cursor,'base64url'));if(Object.keys(parsed).sort().join(',')!=='businessId,discountId'||parsed.businessId!==b.businessId||typeof parsed.discountId!=='string'||!/^[\w-]{1,150}$/.test(parsed.discountId))throw Error();cursor={discountId:parsed.discountId};}catch(_){fail('INVALID_CURSOR');}}
-  const names=Object.fromEntries(FIELDS.map((k,i)=>['#f'+i,k]));
-  const page=await db.send(new ScanCommand({TableName:D,FilterExpression:'businessId=:b',ExpressionAttributeValues:{':b':b.businessId},ProjectionExpression:Object.keys(names).join(','),ExpressionAttributeNames:names,ConsistentRead:true,Limit:50,...(cursor?{ExclusiveStartKey:cursor}:{})}));
+  const page=await readPage(db,b.businessId,cursor);
   const locksById=new Map();for(const r of (page.Items||[]).filter(r=>r.businessId===b.businessId))locksById.set(r.discountId,await require('../shared/shared-discount-lock').read(db,'MERCHANT',r));
   await prove(db,common);
   return {discounts:(page.Items||[]).filter(r=>r.businessId===b.businessId).map(r=>({...view(r),sharingLocked:locksById.get(r.discountId)?.locked===true,sharingCanActivate:locksById.get(r.discountId)?.initiallyInactive===true&&!r.sharedStopped})),nextCursor:page.LastEvaluatedKey?Buffer.from(JSON.stringify({businessId:b.businessId,discountId:page.LastEvaluatedKey.discountId})).toString('base64url'):null};

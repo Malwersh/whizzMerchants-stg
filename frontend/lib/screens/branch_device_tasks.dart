@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
 import '../services/branch_device_service.dart';
 
 class BranchDeviceTasks extends StatefulWidget {
@@ -30,6 +31,9 @@ class _TasksState extends State<BranchDeviceTasks> {
   Map<String, dynamic> hours = {};
   bool busy = false;
   String? error, notice, createRequestId, createFingerprint;
+  String? hoursVersion;
+  static const pendingPublication =
+      'حُفظ التعديل. نشره في قائمة الزبائن ما زال قيد الانتظار.';
   Map<String, dynamic>? createDraft;
   final editRequests = <String, String>{};
   final days = const {
@@ -76,9 +80,14 @@ class _TasksState extends State<BranchDeviceTasks> {
   }
 
   Future<Map<String, dynamic>> call(String path,
-          {Map<String, dynamic>? body, String? method}) =>
-      widget.api.operation(widget.token, path,
-          session: widget.session, body: body, method: method);
+      {Map<String, dynamic>? body, String? method}) {
+    final scopedPath =
+        AppConfig.isProduction && body == null && (path == 'products' || path == 'categories')
+            ? '$path?businessId=${Uri.encodeQueryComponent(widget.businessId)}'
+            : path;
+    return widget.api.operation(widget.token, scopedPath,
+        session: widget.session, body: body, method: method);
+  }
   Future<void> load() async {
     setState(() {
       busy = true;
@@ -97,6 +106,7 @@ class _TasksState extends State<BranchDeviceTasks> {
           items = List<Map<String, dynamic>>.from(
               r[tab == 'orders' ? 'orders' : 'products'] ?? []);
           hours = Map<String, dynamic>.from(r['workingHours'] ?? {});
+          hoursVersion = r['hoursVersion'] as String?;
         });
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -113,10 +123,12 @@ class _TasksState extends State<BranchDeviceTasks> {
       notice = null;
     });
     try {
-      await call(path,
+      final result = await call(path,
           body: {'businessId': widget.businessId, ...body}, method: method);
       if (mounted) {
-        notice = 'تم الحفظ على الخادم.';
+        notice = result['publication']?['status'] == 'pending'
+            ? pendingPublication
+            : 'تم الحفظ على الخادم.';
         await load();
       }
       return true;
@@ -195,6 +207,7 @@ class _TasksState extends State<BranchDeviceTasks> {
       categoryId = null;
     bool available = createDraft?['isAvailable'] != false, sending = false;
     String? failure;
+    var publicationPending = false;
     final route = DialogRoute<bool>(
         context: context,
         barrierDismissible: false,
@@ -278,13 +291,14 @@ class _TasksState extends State<BranchDeviceTasks> {
                                   failure = null;
                                 });
                                 try {
-                                  await call('products',
+                                  final result = await call('products',
                                       body: {
                                         'businessId': widget.businessId,
                                         ...createDraft!,
                                         'requestId': createRequestId
                                       },
                                       method: 'POST');
+                                  publicationPending = result['publication']?['status'] == 'pending';
                                   if (dialog.mounted)
                                     Navigator.pop(dialog, true);
                                 } catch (e) {
@@ -307,7 +321,7 @@ class _TasksState extends State<BranchDeviceTasks> {
       createDraft = null;
       createFingerprint = null;
       createRequestId = null;
-      setState(() => notice = 'أضيف المنتج بنجاح.');
+      setState(() => notice = publicationPending ? pendingPublication : 'أضيف المنتج بنجاح.');
       await load();
     }
   }
@@ -352,6 +366,7 @@ class _TasksState extends State<BranchDeviceTasks> {
         editInfo == allowInfo &&
         editPrice == allowPrice &&
         editAvailability == allowAvailability;
+    var publicationPending = false;
     final route = DialogRoute<bool>(
         context: context,
         barrierDismissible: false,
@@ -444,7 +459,7 @@ class _TasksState extends State<BranchDeviceTasks> {
                                     failure = null;
                                   });
                                   try {
-                                    await widget.api.operation(
+                                    final result = await widget.api.operation(
                                         token, 'products/$id',
                                         session: session,
                                         body: {
@@ -452,6 +467,7 @@ class _TasksState extends State<BranchDeviceTasks> {
                                           ...changes,
                                           'requestId': requestId
                                         });
+                                    publicationPending = result['publication']?['status'] == 'pending';
                                     if (stillAuthorized()) {
                                       editRequests.remove(fingerprint);
                                       if (dialog.mounted)
@@ -480,7 +496,7 @@ class _TasksState extends State<BranchDeviceTasks> {
     price.dispose();
     description.dispose();
     if (edited == true && stillAuthorized()) {
-      setState(() => notice = 'تم الحفظ على الخادم.');
+      setState(() => notice = publicationPending ? pendingPublication : 'تم الحفظ على الخادم.');
       await load();
     }
   }
@@ -709,7 +725,10 @@ class _TasksState extends State<BranchDeviceTasks> {
                     ? null
                     : () => save(
                         'businesses/${widget.businessId}/working-hours',
-                        {'workingHours': hours}),
+                        {
+                          'workingHours': hours,
+                          if (hoursVersion != null) 'hoursVersion': hoursVersion,
+                        }),
                 child: const Text('حفظ أسبوع العمل')),
         ],
       ]);

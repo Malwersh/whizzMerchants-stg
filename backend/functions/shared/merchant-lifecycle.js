@@ -3,6 +3,15 @@ const {AsyncLocalStorage}=require('node:async_hooks');
 const {TransactWriteCommand,GetCommand,ScanCommand,PutCommand,DeleteCommand}=require('@aws-sdk/lib-dynamodb');
 const {CognitoIdentityProviderClient,GetUserCommand,AdminGetUserCommand}=require('@aws-sdk/client-cognito-identity-provider');
 const scope=new AsyncLocalStorage();
+const productionCatalog=process.env.ENVIRONMENT==='production'&&process.env.BUSINESSES_TABLE==='wizz-production-Merchants';
+const businessesTable=productionCatalog?'wizz-production-Merchants':'WhizzMerchants_Businesses';
+const deletionTable=productionCatalog?'wizz-production-AccountDeletion':'staging-AccountDeletion';
+const discountsTable=productionCatalog?'wizz-production-MerchantDiscounts':'WhizzMerchants_Discounts';
+const menuTables=productionCatalog?['wizz-production-Products','wizz-production-MenuCategories']:['WhizzMerchants_Products','WhizzMerchants_Categories'];
+const ownerFence=productionCatalog?' AND #lifecycleStatus=:lifecycleApproved AND attribute_not_exists(deletedAt) AND (attribute_not_exists(isDeleted) OR isDeleted=:lifecycleFalse)':'';
+const ownerFenceNames=productionCatalog?{'#lifecycleStatus':'status'}:{};
+const ownerFenceValues=productionCatalog?{':lifecycleApproved':'approved',':lifecycleFalse':false}:{};
+
 let publicKeys,keysUntil=0;
 async function liveMerchantIdentity(cognito,token){
  let claims;try{claims=JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString());}catch(_){throw Error('UNAUTHORIZED');}
@@ -28,7 +37,7 @@ function merchantLifecycleClient(raw){
   const legacyPhoto=/https:\/\/order-receiver-business-photos-dev-1755170214\.s3\.amazonaws\.com\/business-photos\/registration\/[A-Za-z0-9_.-]+/g;
   const requestedPhotos=JSON.stringify(command.input).match(legacyPhoto)||[];
   if(requestedPhotos.length){
-   const {Item:business}=await raw.send(new GetCommand({TableName:'WhizzMerchants_Businesses',Key:{businessId:actor.businessId},ConsistentRead:true}));
+   const {Item:business}=await raw.send(new GetCommand({TableName:businessesTable,Key:{businessId:actor.businessId},ConsistentRead:true}));
    for(const photo of requestedPhotos)if(!business||!['businessPhotoUrl','businessPhoto','logoUrl','photoUrl','imageUrl'].some(k=>business[k]===photo))throw Error('CROSS_BUSINESS_ASSET_REFERENCE');
   }
   const ownedPhoto=/https:\/\/wizz-merchants-staging-businessphotosbucket-up3j1qega8m5\.s3\.amazonaws\.com\/merchants\/([A-Za-z0-9_-]+)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+/g;
@@ -42,16 +51,16 @@ function merchantLifecycleClient(raw){
   let businessWrite=false;
   const auditItems=[];
   const fences=actor.deviceGuards || [
-   {ConditionCheck:{TableName:'staging-AccountDeletion',Key:{pk:'ACCOUNT_LIFECYCLE#MERCHANT#'+actor.sub,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
-   {ConditionCheck:{TableName:'staging-AccountDeletion',Key:{pk:'BUSINESS_LIFECYCLE#MERCHANT#'+actor.businessId,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
-   {ConditionCheck:{TableName:'WhizzMerchants_Businesses',Key:{businessId:actor.businessId},ConditionExpression:'ownerId = :sub AND cognitoUserId = :sub AND attribute_not_exists(deletionRequestId)',ExpressionAttributeValues:{':sub':actor.sub}}}
+   {ConditionCheck:{TableName:deletionTable,Key:{pk:'ACCOUNT_LIFECYCLE#MERCHANT#'+actor.sub,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
+   {ConditionCheck:{TableName:deletionTable,Key:{pk:'BUSINESS_LIFECYCLE#MERCHANT#'+actor.businessId,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'}},
+   {ConditionCheck:{TableName:businessesTable,Key:{businessId:actor.businessId},ConditionExpression:'ownerId = :sub AND cognitoUserId = :sub AND attribute_not_exists(deletionRequestId)'+ownerFence,...(productionCatalog?{ExpressionAttributeNames:ownerFenceNames}:{}),ExpressionAttributeValues:{':sub':actor.sub,...ownerFenceValues}}}
   ];
   const items=name==='TransactWriteCommand'?command.input.TransactItems.map(x=>({...x})):[{[name.slice(0,-7)]:{...command.input}}];
-  const menuChanges=items.some(x=>{const op=x.Put||x.Update||x.Delete;return ['WhizzMerchants_Products','WhizzMerchants_Categories'].includes(op?.TableName);});
+  const menuChanges=items.some(x=>{const op=x.Put||x.Update||x.Delete;return menuTables.includes(op?.TableName);});
   let menuDraftWrite;
   if(menuChanges&&!items.some(x=>x.Update?.Key?.sk==='MENU_DRAFT#META')){menuDraftWrite=require('./menu-draft-version').menuDraftVersion(actor.businessId);items.push(menuDraftWrite);}
   const sharingGuards=[];
-  for(let i=0;i<items.length;i++)if((items[i].Put||items[i].Update||items[i].Delete)?.TableName==='WhizzMerchants_Discounts'){if(actor.deviceGuards)throw Error('DEVICE_WRITE_SCOPE_INVALID');items[i]=await require('./campaign-version').ownerOperation(raw,items[i],actor.businessId,{GetCommand,expectedRevision:actor.campaignBaseRevision,lockGuards:sharingGuards});}
+  for(let i=0;i<items.length;i++)if((items[i].Put||items[i].Update||items[i].Delete)?.TableName===discountsTable){if(actor.deviceGuards)throw Error('DEVICE_WRITE_SCOPE_INVALID');items[i]=await require('./campaign-version').ownerOperation(raw,items[i],actor.businessId,{GetCommand,expectedRevision:actor.campaignBaseRevision,lockGuards:sharingGuards,discountsTable});}
   items.push(...sharingGuards);
   for(const item of items){
    // Only this server-created version update may accompany a device menu mutation.
@@ -104,12 +113,12 @@ function merchantLifecycleClient(raw){
      operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':lifecycleOrderBusiness':actor.businessId};
     }
    }
-   if(operation?.TableName==='WhizzMerchants_Businesses'){
+   if(operation?.TableName===businessesTable){
     if(businessWrite||item.Put||!operation.Key||operation.Key.businessId!==actor.businessId)throw Error('BUSINESS_WRITE_SCOPE_INVALID');
     businessWrite=true;
-    operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#lifecycleOwner = :lifecycleSubject AND #lifecycleCognito = :lifecycleSubject AND attribute_not_exists(#lifecycleDeletion)';
-    operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#lifecycleOwner':'ownerId','#lifecycleCognito':'cognitoUserId','#lifecycleDeletion':'deletionRequestId'};
-    operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':lifecycleSubject':actor.ownerId||actor.sub};
+    operation.ConditionExpression=(operation.ConditionExpression?'('+operation.ConditionExpression+') AND ':'')+'#lifecycleOwner = :lifecycleSubject AND #lifecycleCognito = :lifecycleSubject AND attribute_not_exists(#lifecycleDeletion)'+ownerFence;
+    operation.ExpressionAttributeNames={...operation.ExpressionAttributeNames,'#lifecycleOwner':'ownerId','#lifecycleCognito':'cognitoUserId','#lifecycleDeletion':'deletionRequestId',...ownerFenceNames};
+    operation.ExpressionAttributeValues={...operation.ExpressionAttributeValues,':lifecycleSubject':actor.ownerId||actor.sub,...ownerFenceValues};
    }
   }
   if(actor.deviceGuards && items.some(x=>(x.Put||x.Update||x.Delete||x.ConditionCheck)?.TableName==='WhizzMerchants_BusinessWorkingHours'))auditItems.push(...await require('./branch-device-hours-audit').prepare(raw,actor,items));
@@ -147,7 +156,7 @@ function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({
    if(!sub||claims.sub!==sub||claims.iss!=='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_gtCR3ndzT'||(claims.token_use==='access'?claims.client_id:claims.aud)!=='4qabvh11nmghmf9fmc6e6ludd2')throw Error('UNAUTHORIZED');
    let cursor,owned=[];
    do{
-    const page=await db.send(new ScanCommand({TableName:'WhizzMerchants_Businesses',ExclusiveStartKey:cursor,ConsistentRead:true,FilterExpression:'ownerId = :sub OR cognitoUserId = :sub',ExpressionAttributeValues:{':sub':sub}}));
+    const page=await db.send(new ScanCommand({TableName:businessesTable,ExclusiveStartKey:cursor,ConsistentRead:true,FilterExpression:'ownerId = :sub OR cognitoUserId = :sub',ExpressionAttributeValues:{':sub':sub}}));
     owned.push(...page.Items||[]);cursor=page.LastEvaluatedKey;
    }while(cursor);
    let body={};try{body=JSON.parse(event.body||'{}');}catch(_){}
@@ -169,7 +178,7 @@ function merchantHandler(handler,{db,cognito=new CognitoIdentityProviderClient({
 async function beginMerchantUpload(raw){
  const actor=scope.getStore();if(!actor?.sub||!actor.businessId)throw Error('VERIFIED_MERCHANT_SCOPE_REQUIRED');
  const id=require('node:crypto').randomUUID(),key={pk:'ACCOUNT_OPERATION#MERCHANT#'+actor.sub,sk:'UPLOAD#'+id};
- await merchantLifecycleClient(raw).send(new PutCommand({TableName:'staging-AccountDeletion',Item:{...key,subjectId:actor.sub,businessId:actor.businessId,operationId:id,expiresAt:Math.floor(Date.now()/1000)+3600},ConditionExpression:'attribute_not_exists(pk)'}));
- return ()=>raw.send(new DeleteCommand({TableName:'staging-AccountDeletion',Key:key,ConditionExpression:'operationId=:id',ExpressionAttributeValues:{':id':id}}));
+ await merchantLifecycleClient(raw).send(new PutCommand({TableName:deletionTable,Item:{...key,subjectId:actor.sub,businessId:actor.businessId,operationId:id,expiresAt:Math.floor(Date.now()/1000)+3600},ConditionExpression:'attribute_not_exists(pk)'}));
+ return ()=>raw.send(new DeleteCommand({TableName:deletionTable,Key:key,ConditionExpression:'operationId=:id',ExpressionAttributeValues:{':id':id}}));
 }
 module.exports={liveMerchantIdentity,merchantRequestContext:scope,merchantLifecycleClient,merchantHandler,beginMerchantUpload};

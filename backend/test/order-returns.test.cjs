@@ -4,7 +4,8 @@ function setup(){let invoked=0;const module={exports:{}},calls=[];class Command{
  const f={sub:'owner1',business:{ownerId:'owner1',cognitoUserId:'owner1'},get invoked(){return invoked;}};
  f.db={async send(c){calls.push(c.input);return {Item:f.business};}};
  f.client={async send(c){invoked++;calls.push(c.input);return {Payload:Buffer.from(JSON.stringify({statusCode:200,result:{success:true,kind:'COD_RETURN'}}))};}};
- f.run=(method='GET',patch={})=>module.exports.route({db:f.db,sub:f.sub},{httpMethod:method,headers:{Authorization:'Bearer original-token'},queryStringParameters:{businessId:'branch1',orderId:'order1',offerId:'offer1',attempt:'1',...patch}},{businessId:'branch1',orderId:'order1',offerId:'offer1',attempt:1,returnId:'ret1',expectedVersion:2,allItemsReceived:true,condition:'INTACT',driverResponsibility:'NONE',cashCollected:false,...patch},f.client);f.calls=calls;return f;
+ f.route=(event,input)=>module.exports.route({db:f.db,sub:f.sub},event,input,f.client);
+ f.run=(method='GET',patch={})=>f.route({httpMethod:method,headers:{Authorization:'Bearer original-token'},queryStringParameters:{businessId:'branch1',orderId:'order1',offerId:'offer1',attempt:'1',...patch}},{businessId:'branch1',orderId:'order1',offerId:'offer1',attempt:1,returnId:'ret1',expectedVersion:2,allItemsReceived:true,condition:'INTACT',driverResponsibility:'NONE',cashCollected:false,...patch});f.calls=calls;return f;
 }
 const target='arn:aws:lambda:us-east-1:699561669180:function:staging-driver-financial-accept';
 test('owner return endpoint defaults closed and never invokes a different financial function',async()=>{
@@ -34,4 +35,30 @@ test('cancellation only accepts owner POST under its independent gate and forwar
  await assert.rejects(run(event,{...input,amount:100}),/INVALID_COD_RETURN/);
  await run();const p=JSON.parse(Buffer.from(f.calls.at(-1).Payload));assert.equal(p.action,'cancel_before_pickup');assert.equal(p.accessToken,'original-token');assert.equal(p.body.branchId,'branch1');assert.equal(p.body.attempt,2);assert.equal(p.body.businessId,undefined);assert.equal(f.invoked,1);
  }finally{process.env=old;}
+});
+
+test('production checks branch ownership and invokes the production cancellation service',async()=>{
+ const saved={...process.env},f=setup();
+ const productionTarget='arn:aws:lambda:us-east-1:746727375268:function:wizz-production-order-financial';
+ const event={path:'/auth/order-cancellation',httpMethod:'GET',headers:{Authorization:'Bearer owner-token'},
+  queryStringParameters:{businessId:'branch1',orderId:'order1'}};
+ try{
+  Object.assign(process.env,{ENVIRONMENT:'production',FINANCIAL_COD_ASSIGNMENTS_MODE:'REQUIRED',
+   FINANCIAL_COD_RETURNS_MODE:'REQUIRED',FINANCIAL_ACCEPT_FUNCTION_ARN:target});
+  await assert.rejects(f.route(event,{}),{status:503});
+  process.env.FINANCIAL_ACCEPT_FUNCTION_ARN=productionTarget;
+  await assert.rejects(f.route({...event,path:'/auth/order-returns'},{custodyAction:'confirm'}),{status:503});
+  await assert.rejects(f.route({...event,httpMethod:'POST'},{handover:true}),{status:503});
+  assert.equal(f.calls.length,0);
+  f.sub='other-owner';
+  await assert.rejects(f.route(event,{}),{status:403});
+  assert.equal(f.invoked,0);
+  f.sub='owner1';
+  await f.route(event,{});
+  assert.equal(f.calls.at(-2).TableName,'wizz-production-Merchants');
+  assert.equal(f.calls.at(-1).FunctionName,productionTarget);
+  assert.deepEqual(JSON.parse(Buffer.from(f.calls.at(-1).Payload)),{
+   action:'read_merchant_cancellation',accessToken:'owner-token',body:{orderId:'order1',branchId:'branch1'}
+  });
+ }finally{process.env=saved;}
 });

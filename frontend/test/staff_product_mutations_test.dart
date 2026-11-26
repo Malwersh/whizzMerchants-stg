@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:whizz_merchants/config/app_config.dart';
+import 'package:whizz_merchants/config/merchant_auth_routes.dart';
 import 'package:whizz_merchants/services/branch_device_service.dart';
 import 'package:whizz_merchants/services/person_onboarding_service.dart';
 import 'package:whizz_merchants/screens/branch_device_tasks.dart';
@@ -23,7 +25,7 @@ class ProductApi extends BranchDeviceService {
         throw BranchDeviceException('UNAVAILABLE');
       }
     }
-    if (path == 'categories')
+    if (Uri.parse(path).path == 'categories')
       return {
         'categories': [
           {'categoryId': 'c', 'categoryName': 'وجبات'}
@@ -55,6 +57,34 @@ Widget tasks(ProductApi api, {bool permitted = true}) => MaterialApp(
                 initialTab: 'menu',
                 showTabs: false))));
 void main() {
+  testWidgets('production loads the current week and submits its revision', (t) async {
+    final requests = <http.Request>[];
+    final api = BranchDeviceService(client: MockClient((request) async {
+      requests.add(request);
+      if (request.method == 'PUT') return http.Response('{"success":true}', 200);
+      return http.Response(jsonEncode({
+        'hoursVersion': 'current-schedule',
+        'workingHours': {
+          'monday': {'isOpen':true, 'openTime':'09:00', 'closeTime':'17:00'}
+        },
+      }), 200);
+    }));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(
+      child: BranchDeviceTasks(api:api,token:'device',session:'staff',businessId:'b',
+        role:'manager',capabilities:{'readHours':true,'editHours':true},initialTab:'hours'),
+    ))));
+    await t.pumpAndSettle();
+    expect(find.text('09:00 — 17:00'), findsOneWidget);
+    await t.ensureVisible(find.text('حفظ أسبوع العمل'));
+    await t.tap(find.text('حفظ أسبوع العمل'));
+    await t.pumpAndSettle();
+    expect(requests.map((r)=>r.method), ['GET','PUT','GET']);
+    expect(requests[1].url.toString(),
+        '${MerchantAuthRoutes.branchOperationsBase}/branch-device/businesses/b/working-hours');
+    expect(jsonDecode(requests[1].body)['hoursVersion'], 'current-schedule');
+    expect(requests[1].headers['x-staff-session'], 'staff');
+  }, skip: !AppConfig.isProduction);
+
   testWidgets(
       'creation keeps the form and same request after a failure; sends POST with category',
       (t) async {

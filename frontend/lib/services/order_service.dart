@@ -3,20 +3,30 @@ import 'package:http/http.dart' as http;
 import '../core/utils/app_logger.dart';
 import '../models/order.dart';
 import 'package:whizz_merchants/config/app_config.dart';
+import '../config/merchant_auth_routes.dart';
 import 'app_auth_service.dart';
 import '../core/exceptions/auth_exceptions.dart';
 import 'token_refresh_service.dart'; // added
 
 class OrderService {
   final String baseUrl = AppConfig.baseUrl;
+  String get _ordersBase =>
+      AppConfig.isProduction ? MerchantAuthRoutes.merchantOrdersBase : baseUrl;
   final Future<String?> Function() _tokenProvider;
+  final Future<String?> Function() _orderTokenProvider;
 
-  OrderService({Future<String?> Function()? tokenProvider})
-      : _tokenProvider = tokenProvider ?? AppAuthService.getAccessToken;
+  OrderService({
+    Future<String?> Function()? tokenProvider,
+    Future<String?> Function()? orderTokenProvider,
+  })  : _tokenProvider = tokenProvider ?? AppAuthService.getAccessToken,
+        _orderTokenProvider =
+            orderTokenProvider ?? TokenRefreshService.getValidIdToken;
 
-  Future<String?> _getToken() async {
+  Future<String?> _getToken({bool orderApi = false}) async {
     try {
-      final token = await _tokenProvider();
+      final token = await (AppConfig.isProduction && orderApi
+          ? _orderTokenProvider()
+          : _tokenProvider());
       if (token == null || token.isEmpty) return null;
       return token;
     } catch (_) {
@@ -37,11 +47,7 @@ class OrderService {
     while (true) {
       attempt++;
       try {
-        final token = await _getToken();
-        AppLogger.success(
-          '🔑 DEBUG: Token retrieved: ${token != null ? " Present (${token.substring(0, token.length < 20 ? token.length : 20)}...)" : " Missing"}',
-        );
-
+        final token = await _getToken(orderApi: true);
         if (token == null) {
           AppLogger.error('Token not found - throwing auth exception');
           throw AuthTokenExpiredException('Auth token missing');
@@ -54,7 +60,7 @@ class OrderService {
         }
 
         // Build URL with optional status parameter
-        String url = '$baseUrl/merchant/orders/$businessId';
+        String url = '$_ordersBase/merchant/orders/$businessId';
         if (status != null && status.isNotEmpty) {
           url += '?status=$status';
         }
@@ -150,6 +156,7 @@ class OrderService {
         AppLogger.error('Error type: ${e.runtimeType}');
 
         if (attempt >= maxAttempts) {
+          if (AppConfig.isProduction) rethrow;
           AppLogger.warning(
               '[OrderService] Max attempts reached, returning empty list (wizzuser approach)');
           return [];
@@ -168,13 +175,13 @@ class OrderService {
 
   Future<void> acceptMerchantOrder(String orderId,
       {int preparationMinutes = 20, String? businessId}) async {
-    final token = await _getToken();
+    final token = await _getToken(orderApi: true);
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
     }
 
     final response = await http.put(
-      Uri.parse('$baseUrl/merchant/order/$orderId/confirm'),
+      Uri.parse('$_ordersBase/merchant/order/$orderId/confirm'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -191,19 +198,23 @@ class OrderService {
       throw Exception('Authentication required - please re-login');
     }
     if (response.statusCode != 200) {
+      if (AppConfig.isProduction) {
+        final error = jsonDecode(response.body) as Map<String, dynamic>;
+        throw Exception(error['message'] ?? 'تعذر قبول الطلب.');
+      }
       throw Exception('Failed to confirm order');
     }
   }
 
   Future<void> rejectMerchantOrder(String orderId, String businessId,
       {String? reason}) async {
-    final token = await _getToken();
+    final token = await _getToken(orderApi: true);
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
     }
 
     final response = await http.put(
-      Uri.parse('$baseUrl/merchant/order/$orderId/reject'),
+      Uri.parse('$_ordersBase/merchant/order/$orderId/reject'),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json'
@@ -266,16 +277,16 @@ class OrderService {
     if (businessId.trim().isEmpty) {
       throw ArgumentError.value(businessId, 'businessId', 'Branch is required');
     }
-    final token = await _getToken();
+    final backendStatus = _convertStatusToBackend(status);
+    final useOrderApi = AppConfig.isProduction &&
+        (backendStatus == 'preparing' || backendStatus == 'ready_for_pickup');
+    final token = await _getToken(orderApi: useOrderApi);
     if (token == null) {
       throw AuthTokenExpiredException('Auth token missing');
     }
-
-    // Convert internal status to backend format
-    String backendStatus = _convertStatusToBackend(status);
-
+    final endpoint = useOrderApi ? _ordersBase : baseUrl;
     final response = await http.put(
-      Uri.parse('$baseUrl/merchant/order/$orderId/status'),
+      Uri.parse('$endpoint/merchant/order/$orderId/status'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',

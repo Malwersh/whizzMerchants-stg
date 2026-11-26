@@ -1,4 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import '../lib/config/app_config.dart';
+import '../lib/config/merchant_auth_routes.dart';
 import '../lib/models/order.dart';
 import '../lib/services/branch_employee_access.dart';
 import '../lib/services/branch_device_service.dart';
@@ -27,6 +31,47 @@ class EmployeeApi extends BranchDeviceService {
 }
 
 void main() {
+  test('production routes device orders to the isolated order service', () async {
+    final requests = <http.Request>[];
+    final api = BranchDeviceService(client: MockClient((request) async {
+      requests.add(request);
+      return http.Response('{"orders":[]}', 200);
+    }));
+    await api.operation('paired-device', 'merchant/orders/branch');
+    await api.operation('paired-device', 'merchant/order/order/status',
+        session: 'staff', body: {'businessId': 'branch', 'status': 'ready'});
+    await expectLater(api.operation('paired-device', 'merchant/menu/branch'),
+        throwsA(isA<BranchDeviceException>()));
+    expect(requests.map((request) => request.url.toString()), [
+      '${MerchantAuthRoutes.branchOrdersBase}/branch-device/merchant/orders/branch',
+      '${MerchantAuthRoutes.branchOrdersBase}/branch-device/merchant/order/order/status',
+    ]);
+    expect(requests.map((request) => request.method), ['GET', 'PUT']);
+    expect(requests.first.headers['x-staff-session'], isNull);
+    expect(requests.last.headers['x-staff-session'], 'staff');
+    expect(requests.last.headers['authorization'], 'Bearer paired-device');
+  }, skip: !AppConfig.isProduction);
+
+  test('production registers branch push with paired credentials only', () async {
+    late http.Request sent;
+    final api = BranchDeviceService(client: MockClient((request) async {
+      sent = request;
+      return http.Response('{"success":true}', 200);
+    }));
+    await api.call('pairing-credential', {
+      'action': 'register_push',
+      'businessId': 'branch',
+      'pushToken': 'notifications-token',
+      'platform': 'ios',
+      'soundEnabled': true,
+      'soundReady': <String>[],
+    });
+    expect(sent.url.toString(),
+        '${MerchantAuthRoutes.branchOrderPushBase}/branch-device/push');
+    expect(sent.headers['authorization'], 'Bearer pairing-credential');
+    expect(sent.headers['x-staff-session'], isNull);
+    expect(sent.body, contains('"businessId":"branch"'));
+  }, skip: !AppConfig.isProduction);
   test('original orders adapter uses only device and individual staff session',
       () async {
     final api = EmployeeApi();

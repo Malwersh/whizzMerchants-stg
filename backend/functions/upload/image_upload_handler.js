@@ -87,7 +87,8 @@ const uploadToS3 = async (imageBuffer, key, contentType = 'image/jpeg') => {
     console.log(`S3 upload successful`);
     
     // Construct the public URL
-    const location = `https://${bucketName}.s3.amazonaws.com/${key}`;
+    const origin = process.env.PRODUCT_IMAGES_ORIGIN || `https://${bucketName}.s3.amazonaws.com`;
+    const location = `${origin}/${key}`;
     return location;
 };
 
@@ -296,5 +297,6 @@ exports.handler = async (event) => {
 };
 
 const originalUploadHandler=module.exports.handler;
+module.exports.authorizedHandler=originalUploadHandler;
 const protectedUploadHandler=merchantHandler(originalUploadHandler,{db:uploadDb});
 module.exports.handler=(event,context)=>isRegistrationUpload(event)&&!isProductImageUpload(event)&&!event.headers?.Authorization&&!event.headers?.authorization?originalUploadHandler(event,context):protectedUploadHandler(event,context);

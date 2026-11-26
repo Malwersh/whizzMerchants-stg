@@ -1,7 +1,9 @@
 'use strict';
 // Permanent history marker: stopping a shared campaign never unlocks its terms.
 const {GetCommand,ScanCommand}=require('@aws-sdk/lib-dynamodb');
-const TABLE='staging-MerchantPlatform';
+const production=process.env.ENVIRONMENT==='production';
+const TABLE=production?'wizz-production-MerchantPlatform':'staging-MerchantPlatform';
+const STAFF=production?'wizz-production-PlatformStaff':'staging-PlatformStaff';
 const key=(source,id)=>({pk:'CAMPAIGN_SHARING_LOCK#'+source+'#'+id,sk:'META'});
 const fail=code=>{throw Object.assign(Error(code),{status:409,statusCode:409});};
 async function read(db,source,row){
@@ -14,7 +16,7 @@ async function read(db,source,row){
   locked=!!binding;guards.push({ConditionCheck:{TableName:TABLE,Key:bindingKey,ConditionExpression:binding?'attribute_exists(pk)':'attribute_not_exists(pk)'}});
  }else if(!locked&&source==='PLATFORM'){
   // Legacy approvals predate the permanent marker. Read every page, never assume absence.
-  let cursor;do{const page=await db.send(new ScanCommand({TableName:'staging-PlatformStaff',ConsistentRead:true,FilterExpression:'campaignId = :campaign AND #source = :source AND sk = :current',ExpressionAttributeNames:{'#source':'source'},ExpressionAttributeValues:{':campaign':row.discountId,':source':'PLATFORM',':current':'CURRENT'},...(cursor?{ExclusiveStartKey:cursor}:{})}));if(page.Items?.some(r=>r.campaignId===row.discountId&&r.source==='PLATFORM'&&r.sk==='CURRENT'&&r.schemaVersion===3)){locked=true;break;}cursor=page.LastEvaluatedKey;}while(cursor);
+  let cursor;do{const page=await db.send(new ScanCommand({TableName:STAFF,ConsistentRead:true,FilterExpression:'campaignId = :campaign AND #source = :source AND sk = :current',ExpressionAttributeNames:{'#source':'source'},ExpressionAttributeValues:{':campaign':row.discountId,':source':'PLATFORM',':current':'CURRENT'},...(cursor?{ExclusiveStartKey:cursor}:{})}));if(page.Items?.some(r=>r.campaignId===row.discountId&&r.source==='PLATFORM'&&r.sk==='CURRENT'&&r.schemaVersion===3)){locked=true;break;}cursor=page.LastEvaluatedKey;}while(cursor);
  }
  return {locked,guards,initiallyInactive:marker?.initiallyInactive===true};
 }

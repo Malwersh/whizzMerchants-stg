@@ -1,11 +1,25 @@
 'use strict';
+const {kitchenTables}=require('./tables');
 const {GetCommand, QueryCommand, TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
 const {randomUUID,randomInt,createHash,timingSafeEqual}=require('node:crypto');
 const devices=require('../functions/auth/branch_devices');
-const TABLE='staging-MerchantPlatform';
+const bindings=kitchenTables();
+const TABLE=bindings.platform;
 const fail=(code,status=400)=>{throw Object.assign(Error(code),{status});};
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
+function branchGuards(branch){
+ if(bindings.environment==='staging')return devices.guards(branch);
+ return [
+  ...['BUSINESS_LIFECYCLE#MERCHANT#'+branch.businessId,'ACCOUNT_LIFECYCLE#MERCHANT#'+branch.ownerId].map(pk=>({
+   ConditionCheck:{TableName:bindings.lifecycle,Key:{pk,sk:'META'},ConditionExpression:'attribute_not_exists(pk)'},
+  })),
+  {ConditionCheck:{TableName:bindings.branches,Key:{businessId:branch.businessId},
+   ConditionExpression:'ownerId=:owner AND cognitoUserId=:owner AND #status=:status AND attribute_not_exists(deletionRequestId) AND attribute_not_exists(orderIntakeDeletionRequestId) AND attribute_not_exists(deletedAt) AND (attribute_not_exists(isDeleted) OR isDeleted=:no)',
+   ExpressionAttributeNames:{'#status':'status'},
+   ExpressionAttributeValues:{':owner':branch.ownerId,':status':branch.status,':no':false}}},
+ ];
+}
 const publicScreen=r=>({screenId:r.screenId,name:r.name,mode:r.mode,status:r.status,version:r.version,expiresAt:r.expiresAt,createdAt:r.createdAt});
 function createService({db,clock=()=>Math.floor(Date.now()/1000),uuid=randomUUID,code=()=>String(randomInt(0,100000000)).padStart(8,'0'),ownerAccess}={}){
  const get=async k=>(await db.send(new GetCommand({TableName:TABLE,Key:k,ConsistentRead:true}))).Item;
@@ -15,12 +29,22 @@ function createService({db,clock=()=>Math.floor(Date.now()/1000),uuid=randomUUID
  async function rate(key,limit,window){const k={pk:'KITCHEN_RATE#'+hash(key),sk:String(Math.floor(clock()/window))},old=await get(k);if((old?.count||0)>=limit)fail('KITCHEN_RATE_LIMIT',429);await transact([put({...k,count:(old?.count||0)+1,version:(old?.version||0)+1,expiresAt:clock()+window*2},old)]);}
  async function access(ctx,businessId){
   if(ownerAccess)return ownerAccess(ctx,businessId);
-  // Reuse the authenticated owner's existing lifecycle/ownership checks.
-  await devices.management(ctx,{httpMethod:'GET',queryStringParameters:{businessId}},{});
-  const b=(await db.send(new GetCommand({TableName:'WhizzMerchants_Businesses',Key:{businessId},ConsistentRead:true}))).Item;
-  if(!b||b.ownerId!==ctx.sub)fail('OWNER_REQUIRED',403);
-  if(b.cognitoUserId!==b.ownerId||b.deletionRequestId||String(b.status).toLowerCase()!=='approved')fail('BUSINESS_UNAVAILABLE',409);
-  return {businessId,ownerId:b.ownerId,businessName:b.businessName||b.name,guards:devices.guards(b)};
+  if(typeof ctx?.sub!=='string'||!ctx.sub)fail('OWNER_REQUIRED',403);
+  if(bindings.environment==='staging'){
+   await devices.management(ctx,{httpMethod:'GET',queryStringParameters:{businessId}},{});
+  }
+  const b=(await db.send(new GetCommand({TableName:bindings.branches,Key:{businessId},ConsistentRead:true}))).Item;
+  if(!b||b.businessId!==businessId||b.ownerId!==ctx.sub||b.cognitoUserId!==ctx.sub)fail('OWNER_REQUIRED',403);
+  if(b.isDeleted||b.deletedAt||b.deletionRequestId||
+      bindings.environment==='production'&&b.orderIntakeDeletionRequestId||
+      String(b.status).toLowerCase()!=='approved')fail('BUSINESS_UNAVAILABLE',409);
+  const guards=branchGuards(b);
+  if(bindings.environment==='production'){
+   const locks=await Promise.all(guards.slice(0,2).map(({ConditionCheck})=>db.send(
+    new GetCommand({TableName:ConditionCheck.TableName,Key:ConditionCheck.Key,ConsistentRead:true}))));
+   if(locks.some(result=>result.Item))fail('BUSINESS_UNAVAILABLE',409);
+  }
+  return {businessId,ownerId:b.ownerId,businessName:b.businessName||b.name,guards};
  }
  function fields(input,allowed){if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!allowed.includes(k)))fail('INVALID_KITCHEN_REQUEST');}
  async function start(input,source){
@@ -44,10 +68,10 @@ function createService({db,clock=()=>Math.floor(Date.now()/1000),uuid=randomUUID
  }
  async function binding(row){
   if(!row||row.status!=='ACTIVE'||row.expiresAt<=clock())fail('KITCHEN_SESSION_REVOKED',401);
-  const b=(await db.send(new GetCommand({TableName:'WhizzMerchants_Businesses',Key:{businessId:row.businessId},ConsistentRead:true}))).Item;
-  if(!b||b.ownerId!==row.ownerId||b.cognitoUserId!==row.ownerId||b.deletionRequestId||String(b.status).toLowerCase()!=='approved')fail('KITCHEN_SESSION_REVOKED',401);
-  for(const pk of ['BUSINESS_LIFECYCLE#MERCHANT#'+b.businessId,'ACCOUNT_LIFECYCLE#MERCHANT#'+b.ownerId])if((await db.send(new GetCommand({TableName:'staging-AccountDeletion',Key:{pk,sk:'META'},ConsistentRead:true}))).Item)fail('KITCHEN_SESSION_REVOKED',401);
-  return {row,status:'ACTIVE',businessId:row.businessId,businessName:b.businessName||b.name,screen:publicScreen(row),guards:[...devices.guards(b),check(row)]};
+  const b=(await db.send(new GetCommand({TableName:bindings.branches,Key:{businessId:row.businessId},ConsistentRead:true}))).Item;
+  if(!b||b.isDeleted||b.deletedAt||b.ownerId!==row.ownerId||b.cognitoUserId!==row.ownerId||(b.deletionRequestId||bindings.environment==='production'&&b.orderIntakeDeletionRequestId)||String(b.status).toLowerCase()!=='approved')fail('KITCHEN_SESSION_REVOKED',401);
+  for(const pk of ['BUSINESS_LIFECYCLE#MERCHANT#'+b.businessId,'ACCOUNT_LIFECYCLE#MERCHANT#'+b.ownerId])if((await db.send(new GetCommand({TableName:bindings.lifecycle,Key:{pk,sk:'META'},ConsistentRead:true}))).Item)fail('KITCHEN_SESSION_REVOKED',401);
+  return {row,status:'ACTIVE',businessId:row.businessId,businessName:b.businessName||b.name,screen:publicScreen(row),guards:[...branchGuards(b),check(row)]};
  }
  async function management(ctx,input){
   fields(input,['action','businessId','pairingCode','name','mode','screenId','baseVersion']);

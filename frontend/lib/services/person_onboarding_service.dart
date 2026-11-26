@@ -27,22 +27,27 @@ class PersonOnboardingService {
     final uri = MerchantAuthRoutes.resolve(
         environment: AppConfig.environment,
         baseUrl: AppConfig.baseUrl,
-        path: path);
+        path: path,
+        action: body?['action']);
     final headers = authenticated
         ? await AuthHeaderBuilder.build()
         : <String, String>{'Content-Type': 'application/json'};
     // Gateway verifies the ID token; the commercial service independently
     // validates the access token and checks the live Cognito account.
-    if (authenticated &&
-        ['commercial-agreements', 'settlement-schedules', 'ownership-transfer']
-            .contains(path.split('?').first)) {
+    final route = uri.pathSegments.last;
+    final requiresAccessToken =
+        const {'commercial-agreements', 'settlement-schedules', 'ownership-transfer'}
+                .contains(path.split('?').first) ||
+            (AppConfig.isProduction &&
+                const {'branch-staff', 'branch-devices'}.contains(route));
+    if (authenticated && requiresAccessToken) {
       final accessToken = await TokenRefreshService.getValidUserAccessToken();
       if (accessToken == null || accessToken.isEmpty) {
         throw Exception('أعد تسجيل الدخول لعرض البيانات المالية والاتفاقيات.');
       }
       headers['Access-Token'] = accessToken;
       if (['settlement-schedules','commercial-agreements'].contains(path.split('?').first) &&
-          !const ['FINANCIAL_START', 'FINANCIAL_UNLOCK', 'FINANCIAL_LOCK'].contains(body?['action'])) {
+          !MerchantAuthRoutes.financialSessionActions.contains(body?['action'])) {
         final branch =
             (body?['branchId'] ?? body?['businessId'] ?? Uri.parse(path).queryParameters['branchId'] ?? Uri.parse(path).queryParameters['businessId'])
                 ?.toString();
@@ -72,7 +77,13 @@ class PersonOnboardingService {
         throw LegalRegistrationException(data['code']);
       }
       throw Exception(<String, String>{
+            'BUSINESS_UNAVAILABLE': 'تعذر فتح اتفاقية الفرع من هذا الحساب.',
+            'COMMERCIAL_PERIOD_EXPIRED': 'انتهت مدة هذه النسخة. اطلب تحديث الاتفاقية.',
+            'VERSION_OR_STATE_CONFLICT': 'تغيّرت نسخة الاتفاقية. حدّث القائمة وحاول مجددًا.',
             'RECENT_VERIFICATION_REQUIRED': 'أعد تسجيل الدخول بالهاتف ثم حاول مجددًا خلال خمس دقائق.',
+            'TRANSFER_STATE_CHANGED': 'تغيّرت حالة طلب النقل. حدّث التفاصيل وحاول مجددًا.',
+            'ACCOUNT_CLOSING': 'حسابك قيد الإغلاق. راجع حالة طلب الحذف من إدارة حسابك.',
+            'PARTNERSHIP_AGREEMENT_REQUIRED': 'حدّث الدعوة وراجع نسخة الاتفاقية المتاحة قبل قبولها.',
             'TRANSFER_NOT_FOUND': 'لم يُعثر على طلب نقل مرتبط بحسابك بهذا المرجع.',
             'INVALID_TRANSFER_RECIPIENT': 'تحقق من رقم هاتف المالك الجديد المسجّل في تطبيق وز للتاجر.',
             'TRANSFER_RECIPIENT_CHANGED': 'تغيّر الحساب المرتبط بالرقم. راجع اسم المالك الجديد ثم أعد المحاولة.',
@@ -89,11 +100,19 @@ class PersonOnboardingService {
             'KITCHEN_RATE_LIMIT': 'محاولات كثيرة. انتظر قليلًا ثم حاول مجددًا.',
             'INVALID_KITCHEN_CONFIGURATION': 'اكتب اسم الشاشة واختر نمط استخدامها.',
             'RECENT_SIGN_IN_REQUIRED': 'لربط شاشة جديدة، أعد التحقق من دخول حساب المالك ثم حاول خلال خمس دقائق.',
+            'MENU_CHANGED': 'تغيّرت بيانات الفرع أو المسودة. حدّث الصفحة قبل إعادة المحاولة.',
+            'BRANCH_UNAVAILABLE': 'تعذر فتح تجهيز الفرع من هذا الحساب.',
+            'MENU_CATEGORY_UNAVAILABLE': 'هذه الفئة غير متاحة. حدّث القائمة واختر فئة أخرى.',
+            'WORKING_HOURS_REQUIRED': 'حدد فترة صحيحة في يوم عمل واحد على الأقل.',
+            'MENU_TOO_LARGE': 'وصلت قائمة الفرع إلى الحد الأقصى للفئات أو الأصناف.',
+            'INVALID_MENU_FIELDS': 'تحقق من اسم الصنف والفئة والسعر والكمية.',
             'OWNER_REQUIRED': 'ربط شاشات المطبخ متاح لمالك الفرع فقط.',
 
             'PAYOUT_FINANCIAL_UNLOCK_REQUIRED':
                 'افتح القسم المالي برمز التحقق أولًا.',
             'PAYOUT_FINANCIAL_INVALID_CODE': 'رمز التحقق غير صحيح.',
+            'PAYOUT_FINANCIAL_VERIFICATION_UNAVAILABLE':
+                'خدمة رمز التحقق المالي غير متاحة مؤقتًا. حاول بعد قليل.',
             'PAYOUT_FINANCIAL_CHALLENGE_EXPIRED':
                 'انتهت صلاحية الرمز أو محاولاته. أرسل رمزًا جديدًا.',
             'PAYOUT_FINANCIAL_RATE_LIMIT':

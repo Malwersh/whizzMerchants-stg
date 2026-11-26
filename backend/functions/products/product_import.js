@@ -1,4 +1,5 @@
 'use strict';
+const { ownedProductImage }=require('../shared/product-image-url');
 
 const {createHash, randomUUID}=require('node:crypto');
 const {GetCommand,PutCommand,QueryCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
@@ -100,8 +101,7 @@ function createProductImportService(db,{now=()=>new Date(),uuid=randomUUID,actor
   const rows=readRows(body.csv,{columnMapping:body.columnMapping,defaultCategoryId:body.defaultCategoryId});
   const images=body.images||{};
   if(!images||typeof images!=='object'||Array.isArray(images)||Object.keys(images).length>500)fail('INVALID_IMAGE_MAPPING');
-  const ownedImage=v=>typeof v==='string'&&new RegExp('^https://wizz-merchants-staging-businessphotosbucket-up3j1qega8m5\\.s3\\.amazonaws\\.com/merchants/'+businessId+'/product-images/[A-Za-z0-9_-]+\\.(?:jpg|jpeg|png|webp)$','i').test(v);
-  for(const row of rows){if(row.imageFile){row.imageUrl=images[row.imageFile];if(!row.imageUrl)row.errors.push('IMAGE_FILE_MISSING');}if(row.imageUrl&&!ownedImage(row.imageUrl))row.errors.push('IMAGE_SCOPE_INVALID');if(row.imageUrl&&!row.provided.includes('imageUrl'))row.provided.push('imageUrl');}
+  for(const row of rows){if(row.imageFile){row.imageUrl=images[row.imageFile];if(!row.imageUrl)row.errors.push('IMAGE_FILE_MISSING');}if(row.imageUrl&&!ownedProductImage(row.imageUrl,businessId))row.errors.push('IMAGE_SCOPE_INVALID');if(row.imageUrl&&!row.provided.includes('imageUrl'))row.provided.push('imageUrl');}
   const [products,badCategories]=await Promise.all([allBranchProducts(db,businessId),categoryErrors(db,businessId,rows)]);
   for(const row of rows)if(row.generatedProductId)row.productId='imp_'+hash(businessId+'\n'+row.rowId+'\n'+row.name).slice(0,32);
   const byId=new Map(products.map(p=>[p.productId,p]));const seen=new Set(),seenProducts=new Set();

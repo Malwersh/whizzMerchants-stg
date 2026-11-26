@@ -11,6 +11,9 @@ import 'merchant_branch_scope.dart';
 import 'secure_token_storage.dart';
 import 'token_refresh_service.dart';
 
+import 'auth_header_builder.dart';
+import 'product_service.dart';
+
 class ImageUploadService {
   static String get baseUrl => AppConfig.baseUrl;
   static const uuid = Uuid();
@@ -134,6 +137,12 @@ class ImageUploadService {
   /// Upload image file and return the URL
   static Future<Map<String, dynamic>> uploadProductImage(File imageFile) async {
     try {
+      if (AppConfig.isProduction) {
+        return uploadProductImageFromBytes(
+          imageBytes: await imageFile.readAsBytes(),
+          fileName: imageFile.path,
+        );
+      }
       final token = await AppAuthService.getAccessToken();
       if (token == null) {
         return {
@@ -238,8 +247,8 @@ class ImageUploadService {
     try {
       final scope = await MerchantBranchScope.capture(businessId: businessId);
       await scope.assertCurrent();
-      final token = await _getCognitoAccessToken();
-      if (token == null) {
+      final token = AppConfig.isProduction ? null : await _getCognitoAccessToken();
+      if (!AppConfig.isProduction && token == null) {
         return {
           'success': false,
           'message': 'No access token found',
@@ -274,11 +283,13 @@ class ImageUploadService {
       // Make HTTP POST request with JSON body
       final response = await http
           .post(
-            scope.uri('$baseUrl/upload/product-image'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
+            scope.uri('${ProductService.baseUrl}/upload/product-image'),
+            headers: AppConfig.isProduction
+                ? await AuthHeaderBuilder.build()
+                : {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer $token',
+                  },
             body: json.encode(requestBody),
           )
           .timeout(const Duration(seconds: 30));

@@ -4,6 +4,7 @@ import '../widgets/merchant_financial_gate.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../config/app_config.dart';
 import '../services/person_onboarding_service.dart';
 import '../services/branch_settlement_service.dart';
 import '../widgets/merchant_financial_account.dart';
@@ -711,7 +712,7 @@ class _MerchantPayoutsState extends State<_UnlockedMerchantPayoutsScreen> {
                     key: const PageStorageKey('merchant-account'),
                     padding: const EdgeInsets.all(16),
                     children: [
-                      if (merchantFinancialLockEnabled && !_employee)
+                      if (merchantPayoutNoticesEnabled && !_employee)
                         MerchantFinancialNotificationDevice(
                             businessId: widget.businessId, service: _api),
                       MerchantFinancialAccount(
@@ -754,7 +755,8 @@ class MerchantPayoutsScreen extends StatelessWidget {
       service: service,
       autoRefreshAccount: autoRefreshAccount,
     );
-    if (!merchantFinancialLockEnabled || service is BranchSettlementService) {
+    if ((!AppConfig.isProduction && !merchantFinancialLockEnabled) ||
+        service is BranchSettlementService) {
       return child;
     }
     return MerchantFinancialGate(branchId: businessId, child: child);

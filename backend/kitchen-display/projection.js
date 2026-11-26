@@ -1,9 +1,10 @@
 'use strict';
+const {kitchenTables}=require('./tables');
 const {GetCommand,TransactWriteCommand}=require('@aws-sdk/lib-dynamodb');
 const {project}=require('./orders');
-const TABLE='staging-MerchantPlatform';
+const TABLE=kitchenTables().platform;
 // Stream records are hints only. Always project the latest canonical order.
-async function syncOrder(db,orderId,businessId,table=process.env.ORDERS_TABLE){
+async function syncOrder(db,orderId,businessId,table=kitchenTables().orders){
  const key={PK:'ORDER#'+orderId,SK:'META'};
  const order=(await db.send(new GetCommand({TableName:table,Key:key,ConsistentRead:true}))).Item;
  const item=order&&(order.businessId||order.storeId||order.merchantId)===businessId?project(order):null;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../widgets/merchant_financial_gate.dart';
 import '../order_reception_settings_page.dart';
 import '../../widgets/merchant_order_attention.dart';
@@ -6,6 +8,9 @@ import '../branch_employee_discounts_screen.dart';
 import '../../widgets/branch_employee_status_control.dart';
 import '../branch_employee_wallet_screen.dart';
 import '../../services/branch_employee_access.dart';
+import '../../services/branch_settlement_service.dart';
+import '../../config/app_config.dart';
+import '../merchant_payouts_screen.dart';
 import '../branch_device_tasks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,6 +35,7 @@ import '../../core/design_system/design_system.dart';
 import '../../core/adaptive/adaptive_widgets.dart';
 import '../../core/exceptions/auth_exceptions.dart';
 import '../../services/token_refresh_service.dart';
+import '../../services/commercial_notice_navigation.dart';
 
 class BusinessDashboard extends ConsumerStatefulWidget {
   final Business? initialBusiness;
@@ -46,11 +52,12 @@ class BusinessDashboard extends ConsumerStatefulWidget {
 }
 
 class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedIndex = 0;
   bool _isOnline = true;
   List<Order> _orders = [];
   bool _loadingOrders = false;
+  Timer? _ownerAccessTimer;
 
   final OrderService _orderService = OrderService();
   final AppState _appState = AppState();
@@ -60,6 +67,10 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
     super.initState();
     if (widget.employeeAccess != null) return;
     _appState.addListener(_onAppStateChanged);
+    WidgetsBinding.instance.addObserver(this);
+    CommercialNoticeNavigation.ownershipChanges.addListener(_refreshOwnerAccess);
+    _ownerAccessTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) => _refreshOwnerAccess());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeData();
     });
@@ -67,9 +78,28 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
 
   @override
   void dispose() {
-    if (widget.employeeAccess == null)
+    if (widget.employeeAccess == null) {
+      _ownerAccessTimer?.cancel();
+      WidgetsBinding.instance.removeObserver(this);
+      CommercialNoticeNavigation.ownershipChanges.removeListener(_refreshOwnerAccess);
       _appState.removeListener(_onAppStateChanged);
+    }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshOwnerAccess();
+  }
+
+  void _refreshOwnerAccess() {
+    if (!mounted ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed ||
+        ref.read(sessionProvider).businessId == null ||
+        ref.read(businessProvider).isLoading) {
+      return;
+    }
+    ref.invalidate(businessProvider);
   }
 
   void _onAppStateChanged() {
@@ -490,7 +520,9 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
     final destinations = <String>[
       if (access.canOrders) 'الطلبات',
       if (menu) 'المنتجات',
-      if (wallet) 'المحفظة',
+      if (wallet && !AppConfig.isProduction) 'المحفظة',
+      if (AppConfig.isProduction && access.capabilities['readSettlements'] == true)
+        'المستحقات والتسويات',
       if (access.capabilities['readDiscounts'] == true) 'الخصومات',
       'الإعدادات',
     ];
@@ -510,7 +542,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
               showTabs: false),
         );
     final settings = ListView(padding: const EdgeInsets.all(16), children: [
-      Card(
+      if (!AppConfig.isProduction) Card(
           child: ListTile(
               leading: const Icon(Icons.tune_rounded),
               title: const Text('استقبال الطلبات والصوت'),
@@ -530,7 +562,9 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
           child: ListTile(
               leading: const Icon(Icons.lock_outline),
               title: const Text('قفل مهامي'),
-              subtitle: const Text('يستمر الجهاز في استقبال الطلبات'),
+              subtitle: Text(AppConfig.isProduction
+                  ? 'يمكنك فتح مهامك مجددًا بالرمز الشخصي'
+                  : 'يستمر الجهاز في استقبال الطلبات'),
               onTap: access.lock)),
     ]);
     return Scaffold(
@@ -550,6 +584,11 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
       ),
       body: selected == 'الطلبات'
           ? OrdersPage(businessId: access.businessId, employeeAccess: access)
+          : selected == 'المستحقات والتسويات'
+              ? MerchantPayoutsScreen(
+                  key: ValueKey(access.businessId),
+                  businessId: access.businessId,
+                  service: BranchSettlementService(access))
           : selected == 'المنتجات'
               ? tasks('menu')
               : selected == 'الخصومات'
@@ -574,7 +613,7 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
                               ? Icons.inventory_2_outlined
                               : label == 'الخصومات'
                                   ? Icons.local_offer_outlined
-                                  : label == 'المحفظة'
+                                  : label == 'المحفظة' || label == 'المستحقات والتسويات'
                                       ? Icons.account_balance_wallet_outlined
                                       : Icons.settings_outlined),
                       label: label))
@@ -597,6 +636,21 @@ class _BusinessDashboardState extends ConsumerState<BusinessDashboard>
                       focusOrderId: id))),
               child: _employeeDashboard(widget.employeeAccess!))
           : _employeeDashboard(widget.employeeAccess!);
+    ref.listen<Session>(sessionProvider, (previous, current) {
+      if (previous?.businessId == null ||
+          current.businessId != null ||
+          !current.isAuthenticated) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || ref.read(sessionProvider).businessId != null) return;
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        messenger?.showSnackBar(const SnackBar(
+          content: Text('لم يعد هذا الفرع ضمن مطاعمك وأنشطتك.'),
+        ));
+      });
+    });
     final businessAsync = ref.watch(businessProvider);
 
     return businessAsync.when(

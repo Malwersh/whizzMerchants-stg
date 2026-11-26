@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:whizz_merchants/config/app_config.dart';
+import 'package:whizz_merchants/config/merchant_auth_routes.dart';
 import 'package:whizz_merchants/screens/merchant_payouts_screen.dart';
 import 'package:whizz_merchants/services/branch_device_service.dart';
 import 'package:whizz_merchants/services/branch_employee_access.dart';
@@ -62,6 +66,24 @@ Future<void> show(WidgetTester tester, DeviceSettlements api) async {
 }
 
 void main() {
+  test('production settlement transport sends only the branch device and employee session', () async {
+    final api = BranchDeviceService(client: MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.toString(),
+          '${MerchantAuthRoutes.branchFinanceBase}/branch-device/settlements');
+      expect(request.headers['authorization'], 'Bearer device-for-branch');
+      expect(request.headers['x-staff-session'], 'employee-session');
+      expect(request.headers['access-token'], isNull);
+      return http.Response('{"items":[]}', 200);
+    }));
+    final response = await api.call('device-for-branch', {
+      'action': 'settlements',
+      'httpMethod': 'GET',
+      'input': {'branchId': 'branch1', 'view': 'payouts'}
+    }, session: 'employee-session');
+    expect(response['items'], isEmpty);
+  }, skip: !AppConfig.isProduction);
+
   testWidgets(
       'employee settlement screen uses device transport and confirms only under receive grant',
       (tester) async {

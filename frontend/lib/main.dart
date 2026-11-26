@@ -173,7 +173,10 @@ class AuthGate extends ConsumerWidget {
         try {
           await ref.read(sessionProvider.notifier).waitForSessionReady();
           await PushNotificationsService.instance
-              .registerTokenIfPossible(businessId: next.businessId);
+              .registerTokenIfPossible(
+            businessId: next.businessId,
+            clearSelectedBranch: businessChanged && next.businessId == null,
+          );
         } catch (e) {
           debugPrint('⚠️ Push token registration skipped/failed: $e');
         }
