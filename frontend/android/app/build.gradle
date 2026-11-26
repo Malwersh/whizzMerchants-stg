@@ -9,7 +9,22 @@ def mapsEnv = new Properties()
 def mapsEnvFile = rootProject.file('../.env')
 if (mapsEnvFile.exists()) mapsEnvFile.withInputStream { mapsEnv.load(it) }
 
+def uploadSigningFile = rootProject.file("key.properties")
+def uploadSigning = new Properties()
+if (uploadSigningFile.isFile()) {
+    uploadSigningFile.withInputStream { uploadSigning.load(it) }
+}
+
 android {
+    if (uploadSigningFile.isFile()) {
+        signingConfigs.create("upload") {
+            storeFile = rootProject.file(uploadSigning.getProperty("storeFile"))
+            storePassword = uploadSigning.getProperty("storePassword")
+            keyAlias = uploadSigning.getProperty("keyAlias")
+            keyPassword = uploadSigning.getProperty("keyPassword")
+        }
+    }
+
     namespace "com.whizz.merchant"
     compileSdk 36
     ndkVersion "27.0.12077973"
@@ -38,7 +53,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.findByName("upload")
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
